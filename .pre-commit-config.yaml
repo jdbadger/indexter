@@ -1,0 +1,30 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+    -   id: check-json
+    -   id: check-toml
+    -   id: check-yaml
+    -   id: check-added-large-files
+
+-   repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.9.14
+    hooks:
+    -   id: uv-lock
+
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+-   repo: local
+    hooks:
+      - id: pytest-testmon
+        name: pytest-testmon
+        entry: uv run pytest
+        args: ["--testmon"]
+        language: system
+        pass_filenames: false
+        always_run: true
