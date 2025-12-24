@@ -34,12 +34,6 @@ dependencies = [
     "tree-sitter-language-pack>=0.13.0",
 ]
 
-[project.urls]
-Homepage = "https://github.com/jdbadger/indexter"
-Repository = "https://github.com/jdbadger/indexter"
-Documentation = "https://github.com/jdbadger/indexter#readme"
-"Bug Tracker" = "https://github.com/jdbadger/indexter/issues"
-
 [project.optional-dependencies]
 full = [
     "fastmcp>=0.4.1",
@@ -72,6 +66,13 @@ test = [
     "pytest-testmon>=2.2.0",
     "pytest-xdist>=3.8.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jdbadger/indexter"
+Repository = "https://github.com/jdbadger/indexter"
+Documentation = "https://github.com/jdbadger/indexter#readme"
+"Bug Tracker" = "https://github.com/jdbadger/indexter/issues"
+Changelog = "https://github.com/jdbadger/indexter/blob/main/CHANGELOG.md"
 
 [project.scripts]
 indexter = "indexter.cli:app"
