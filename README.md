@@ -25,7 +25,7 @@ Indexter indexes your local git repositories, parses them semantically using tre
   - [Examples](#examples)
 - [MCP Usage](#mcp-usage)
   - [Claude Desktop](#claude-desktop)
-  - [VS Code with Continue](#vs-code-with-continue)
+  - [VS Code](#vs-code)
   - [Cursor](#cursor)
 - [Contributing](#contributing)
 
@@ -270,21 +270,29 @@ If installed with uv:
 }
 ```
 
-### VS Code with Continue
+### VS Code
 
-Add to your Continue configuration (`.continue/config.json`):
+Add to your VS Code settings (`.vscode/settings.json` in your workspace or user settings):
 
 ```json
 {
-  "experimental": {
-    "modelContextProtocolServers": [
-      {
-        "transport": {
-          "type": "stdio",
-          "command": "indexter-mcp"
-        }
-      }
-    ]
+  "github.copilot.chat.mcp.servers": {
+    "indexter": {
+      "command": "indexter-mcp"
+    }
+  }
+}
+```
+
+If installed with uv:
+
+```json
+{
+  "github.copilot.chat.mcp.servers": {
+    "indexter": {
+      "command": "uv",
+      "args": ["tool", "run", "indexter-mcp"]
+    }
   }
 }
 ```
@@ -303,6 +311,19 @@ Add to your Cursor MCP settings:
 }
 ```
 
+If installed with uv:
+
+```json
+{
+  "mcpServers": {
+    "indexter": {
+      "command": "uv",
+      "args": ["tool", "run", "indexter-mcp"]
+    }
+  }
+}
+```
+
 ## Contributing
 
 Contributions are welcome! Please fork the repository, create a feature branch, and submit a pull request.
@@ -316,7 +337,7 @@ cd indexter
 uv sync
 
 # Run tests
-uv run --group test pytest
+uv run --group dev pytest
 ```
 
 ## License
