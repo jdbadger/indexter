@@ -39,6 +39,7 @@ Indexter indexes your local git repositories, parses them semantically using tre
 - 📁 **Respects .gitignore** and configurable ignore patterns
 - 🔄 **Incremental updates** sync changed files via content hash comparison
 - 🔍 **Vector search** powered by Qdrant with fastembed
+- ⌨️ **CLI** for config management, indexing repositories, and searching code from your terminal
 - 🤖 **MCP server** for seamless AI agent integration via FastMCP
 - 📦 **Multi-repo support** with separate collections per repository
 - ⚙️ **XDG-compliant** configuration and data storage
