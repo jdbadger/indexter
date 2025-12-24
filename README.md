@@ -315,7 +315,7 @@ cd indexter
 uv sync
 
 # Run tests
-uv run pytest
+uv run --group test pytest
 ```
 
 ## License

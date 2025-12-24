@@ -1,6 +1,8 @@
 """Indexter: CLI tool and MCP server for enhanced codebase context via RAG."""
 
+from importlib.metadata import version
+
 from .models import Repo
 
 __all__ = ["Repo"]
-__version__ = "0.1.0"
+__version__ = version("indexter")
