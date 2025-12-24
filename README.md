@@ -1,8 +1,8 @@
-<div style="text-align: center;">
+<div align="center">
   <img src="./indexter.svg" alt="Indexter Logo">
 </div>
 
-<p style="text-align: center;">
+<p align="center">
   <strong>A CLI tool and MCP server for enhanced codebase context via RAG</strong>
 </p>
 
