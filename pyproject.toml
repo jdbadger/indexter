@@ -76,6 +76,7 @@ Changelog = "https://github.com/jdbadger/indexter/blob/main/CHANGELOG.md"
 
 [project.scripts]
 indexter = "indexter.cli:app"
+indexter-mcp = "indexter.mcp.server:mcp.run"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10"]
