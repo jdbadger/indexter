@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from qdrant_client import AsyncQdrantClient, models
 
 from indexter.config import settings
 from indexter.config.store import StoreMode
+
+if TYPE_CHECKING:
+    from indexter.models import Node
 
 logger = logging.getLogger(__name__)
 
@@ -143,10 +147,23 @@ class VectorStore:
 
         return document_hashes
 
+    async def count_nodes(self, collection_name: str) -> int:
+        """Count the total number of nodes in a collection.
+
+        Args:
+            collection_name: Name of the collection to count.
+
+        Returns:
+            Total number of nodes (points) in the collection.
+        """
+        await self.ensure_collection(collection_name)
+        collection_info = await self.client.get_collection(collection_name)
+        return collection_info.points_count or 0
+
     async def upsert_nodes(
         self,
         collection_name: str,
-        nodes: list[dict],
+        nodes: list[Node],
     ) -> int:
         """Upsert nodes to a collection using fastembed for embeddings.
 
@@ -343,7 +360,7 @@ class VectorStore:
                 {
                     "id": result.id,
                     "score": result.score,
-                    "content": result.content,
+                    "content": result.document,
                     "file_path": result.metadata.get("document_path", ""),
                     "language": result.metadata.get("language", ""),
                     "node_type": result.metadata.get("node_type", ""),

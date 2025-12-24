@@ -126,14 +126,14 @@ class CssParser(BaseLanguageParser):
             elif parent.type == "at_rule":
                 # Generic at-rule
                 for child in parent.children:
-                    if child.type == "at_keyword":
+                    if child.type == "at_keyword" and child.text:
                         return child.text.decode().strip()
                 return "@rule"
             # Check for nested rule sets (CSS nesting)
             elif parent.type == "rule_set":
                 # Find selectors child (not using field_by_name since it may not be a field)
                 for child in parent.children:
-                    if child.type == "selectors":
+                    if child.type == "selectors" and child.text:
                         return child.text.decode().strip()
             parent = parent.parent
         return None
@@ -159,14 +159,17 @@ class CssParser(BaseLanguageParser):
             # For media_statement, look for keyword_query or feature_query
             if node.type == "media_statement":
                 for child in node.children:
-                    if child.type in ("keyword_query", "feature_query", "binary_query"):
+                    if (
+                        child.type in ("keyword_query", "feature_query", "binary_query")
+                        and child.text
+                    ):
                         extra["value"] = child.text.decode().strip()
                         break
             # For other at-rules, try to find relevant value children
             elif node.type in ("supports_statement", "import_statement"):
                 for child in node.children:
                     if child.type not in ("@supports", "@import", "block", "{", "}"):
-                        if not extra.get("value"):
+                        if not extra.get("value") and child.text:
                             extra["value"] = child.text.decode().strip()
 
         return extra

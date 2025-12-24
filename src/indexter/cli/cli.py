@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import anyio
 import typer
@@ -14,7 +14,7 @@ from rich.table import Table
 from indexter import __version__
 from indexter.config import settings
 from indexter.exceptions import InvalidGitRepositoryError, RepoExistsError, RepoNotFoundError
-from indexter.models import Repo
+from indexter.models import IndexResult, Repo
 
 from .config import config_app
 
@@ -72,7 +72,9 @@ def init(
 ) -> None:
     """Initialize a git repository for indexing."""
     try:
-        repo = anyio.run(Repo.init, repo_path.resolve())
+        # anyio.run is typed as returning T | None, but Repo.init raises on error
+        # cast() is compile-time only and doesn't affect runtime exception handling
+        repo = cast(Repo, anyio.run(Repo.init, repo_path.resolve()))
         console.print(f"[green]✓[/green] Added [bold]{repo.name}[/bold] to indexter")
     except InvalidGitRepositoryError as e:
         console.print(f"[red]✗[/red] {e}")
@@ -114,7 +116,8 @@ def index(
     synced unless '--full' is specified.
     """
     try:
-        repo = anyio.run(Repo.get, name)
+        # anyio.run is typed as returning T | None, but Repo.get raises on error
+        repo = cast(Repo, anyio.run(Repo.get, name))
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         console.print("Run 'indexter init <repo_path>' to initialize the repository first.")
@@ -130,7 +133,8 @@ def index(
     ) as progress:
         progress.add_task(f"Syncing {repo.name}...", total=None)
 
-        result = anyio.run(repo.index, full)
+        # anyio.run is typed as returning T | None, but repo.index always returns IndexResult
+        result = cast(IndexResult, anyio.run(repo.index, full))
 
         if result.files_synced == 0:
             console.print(f"  [dim]●[/dim] {repo.name}: up to date")
@@ -158,11 +162,7 @@ def index(
             return
 
         if result.skipped_files:
-            console.print(f"  [yellow]Skipped: {len(result.skipped_files)} files[/yellow]")
-            for skipped in result.skipped_files[:5]:
-                console.print(f"    - {skipped}")
-            if len(result.skipped_files) > 5:
-                console.print(f"    ... and {len(result.skipped_files) - 5} more")
+            console.print(f"  [yellow]Skipped: {result.skipped_files} files[/yellow]")
             console.print(
                 "  [yellow]Some files skipped during indexing due to maximum allowed "
                 "file limit being exceeded.[/yellow]"
@@ -182,7 +182,8 @@ def search(
 ) -> None:
     """Search indexed nodes in a repository."""
     try:
-        repo = anyio.run(Repo.get, name)
+        # anyio.run is typed as returning T | None, but Repo.get raises on error
+        repo = cast(Repo, anyio.run(Repo.get, name))
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         raise typer.Exit(1) from e
@@ -197,7 +198,8 @@ def search(
     ) as progress:
         progress.add_task(f"Searching {repo.name}...", total=None)
 
-        results = anyio.run(repo.search, query, limit)
+        # anyio.run is typed as returning T | None, but repo.search always returns a list
+        results = cast(list, anyio.run(repo.search, query, limit))
 
         if not results:
             console.print(f"[yellow]No results found for query:[/yellow] {query}")
@@ -220,7 +222,8 @@ def search(
 def status() -> None:
     """Show status of indexed repositories."""
     # Repository status
-    repos = anyio.run(Repo.list)
+    # anyio.run is typed as returning T | None, but Repo.list always returns a list
+    repos = cast(list[Repo], anyio.run(Repo.list))
 
     if not repos:
         console.print("[bold]Repositories[/bold]")
@@ -239,7 +242,8 @@ def status() -> None:
 
     for repo in repos:
         try:
-            status = anyio.run(repo.status)
+            # anyio.run is typed as returning T | None, but repo.status always returns a dict
+            status = cast(dict, anyio.run(repo.status))
             table.add_row(
                 repo.name,
                 str(repo.path),

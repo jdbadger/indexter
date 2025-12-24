@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -169,7 +170,7 @@ class Repo(BaseModel):
         raise RepoNotFoundError(f"Repository not found: {name}")
 
     @classmethod
-    async def list(cls) -> list[Repo]:
+    async def list(cls) -> builtins.list[Repo]:
         """List all repositories in the configuration."""
         repo_configs = await load_repos_config()
         return [cls(repo_config=rc) for rc in repo_configs]
@@ -217,7 +218,7 @@ class Repo(BaseModel):
         node_type: str | None = None,
         node_name: str | None = None,
         has_documentation: bool | None = None,
-    ) -> list[dict]:
+    ) -> builtins.list[dict]:
         """Search nodes in the repository's collection using semantic search.
 
         Args:

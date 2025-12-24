@@ -182,7 +182,7 @@ class PythonParser(BaseLanguageParser):
         while current:
             if current.type == "class_definition":
                 name_node = current.child_by_field_name("name")
-                return name_node.text.decode() if name_node else None
+                return name_node.text.decode() if name_node and name_node.text else None
             current = current.parent
         return None
 

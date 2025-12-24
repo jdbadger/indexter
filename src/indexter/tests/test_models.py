@@ -346,7 +346,7 @@ async def test_repo_get_nonexistent(
     mock_load.return_value = []
 
     with pytest.raises(RepoNotFoundError):
-        await Repo.get(tmp_path / "nonexistent")
+        await Repo.get("nonexistent")
 
 
 # ============================================================================
@@ -373,7 +373,7 @@ async def test_repo_list_multiple(
     tmp_path: Path,
 ):
     """Test listing multiple repositories."""
-    config2 = RepoConfig(path=tmp_path / "repo2", name="repo2")
+    config2 = RepoConfig(path=tmp_path / "repo2")
     mock_load.return_value = [sample_repo_config, config2]
 
     repos = await Repo.list()
@@ -424,7 +424,7 @@ async def test_repo_remove_nonexistent(
     mock_load.return_value = []
 
     with pytest.raises(RepoNotFoundError):
-        await Repo.remove(tmp_path / "nonexistent")
+        await Repo.remove("nonexistent")
 
 
 # ============================================================================

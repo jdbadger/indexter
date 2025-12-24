@@ -128,7 +128,7 @@ class TypeScriptParser(BaseLanguageParser):
         if node.type == "lexical_declaration" and not arrow_func_nodes:
             if not self._is_const_declaration(node):
                 return None
-            if not self._is_constant(node_name):
+            if node_name is None or not self._is_constant(node_name):
                 return None
 
         content = self._get_content(node, source_bytes)
@@ -203,7 +203,7 @@ class TypeScriptParser(BaseLanguageParser):
 
         # Look at the immediately preceding sibling
         prev_sibling = parent.children[node_index - 1]
-        if prev_sibling.type == "comment":
+        if prev_sibling.type == "comment" and prev_sibling.text:
             return self._parse_tsdoc(prev_sibling.text.decode())
 
         return None
@@ -265,10 +265,10 @@ class TypeScriptParser(BaseLanguageParser):
         while current:
             if current.type in ("class_declaration", "abstract_class_declaration"):
                 name_node = current.child_by_field_name("name")
-                return name_node.text.decode() if name_node else None
+                return name_node.text.decode() if name_node and name_node.text else None
             if current.type == "interface_declaration":
                 name_node = current.child_by_field_name("name")
-                return name_node.text.decode() if name_node else None
+                return name_node.text.decode() if name_node and name_node.text else None
             if current.type in ("class_body", "interface_body"):
                 current = current.parent
                 continue
@@ -293,7 +293,7 @@ class TypeScriptParser(BaseLanguageParser):
 
         # In TypeScript, decorators can be direct children of the class/method
         for child in node.children:
-            if child.type == "decorator":
+            if child.type == "decorator" and child.text:
                 decorators.append(child.text.decode())
 
         # Also check siblings before the node (for some AST structures)
@@ -302,7 +302,7 @@ class TypeScriptParser(BaseLanguageParser):
             for child in parent.children:
                 if child == node:
                     break
-                if child.type == "decorator":
+                if child.type == "decorator" and child.text:
                     decorators.append(child.text.decode())
 
         return decorators
@@ -312,29 +312,29 @@ class TypeScriptParser(BaseLanguageParser):
         for child in node.children:
             if child.type == "function_declaration":
                 name_node = child.child_by_field_name("name")
-                return name_node.text.decode() if name_node else "default"
+                return name_node.text.decode() if name_node and name_node.text else "default"
             if child.type in ("class_declaration", "abstract_class_declaration"):
                 name_node = child.child_by_field_name("name")
-                return name_node.text.decode() if name_node else "default"
+                return name_node.text.decode() if name_node and name_node.text else "default"
             if child.type == "interface_declaration":
                 name_node = child.child_by_field_name("name")
-                return name_node.text.decode() if name_node else None
+                return name_node.text.decode() if name_node and name_node.text else None
             if child.type == "type_alias_declaration":
                 name_node = child.child_by_field_name("name")
-                return name_node.text.decode() if name_node else None
-            if child.type == "identifier":
+                return name_node.text.decode() if name_node and name_node.text else None
+            if child.type == "identifier" and child.text:
                 return child.text.decode()
             if child.type == "lexical_declaration":
                 for var_decl in child.children:
                     if var_decl.type == "variable_declarator":
                         name_node = var_decl.child_by_field_name("name")
-                        return name_node.text.decode() if name_node else None
+                        return name_node.text.decode() if name_node and name_node.text else None
             if child.type == "export_clause":
                 names = []
                 for export_spec in child.children:
                     if export_spec.type == "export_specifier":
                         name_node = export_spec.child_by_field_name("name")
-                        if name_node:
+                        if name_node and name_node.text:
                             names.append(name_node.text.decode())
                 return ", ".join(names) if names else None
         return "default"
@@ -374,7 +374,7 @@ class TypeScriptParser(BaseLanguageParser):
     def _get_visibility(self, node: Node) -> str | None:
         """Get the visibility modifier (public, private, protected)."""
         for child in node.children:
-            if child.type == "accessibility_modifier":
+            if child.type == "accessibility_modifier" and child.text:
                 return child.text.decode()
         return None
 

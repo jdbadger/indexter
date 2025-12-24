@@ -21,10 +21,19 @@ repos:
 
 -   repo: local
     hooks:
-      - id: pytest-testmon
-        name: pytest-testmon
+      - id: pytest
+        name: pytest with testmon
         entry: uv run --group test pytest
         args: ["--testmon"]
+        language: system
+        pass_filenames: false
+        always_run: true
+
+-   repo: local
+    hooks:
+      - id: ty
+        name: typecheck with ty
+        entry: uv run --group dev ty check
         language: system
         pass_filenames: false
         always_run: true

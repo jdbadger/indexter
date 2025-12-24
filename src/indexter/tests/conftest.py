@@ -71,7 +71,6 @@ def sample_repo_config(sample_repo_path: Path) -> RepoConfig:
     """Create a sample RepoConfig."""
     return RepoConfig(
         path=sample_repo_path,
-        name="test_repo",
         collection_name="indexter_test_repo",
     )
 

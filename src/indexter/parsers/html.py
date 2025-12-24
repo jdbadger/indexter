@@ -98,7 +98,8 @@ class HtmlParser(BaseLanguageParser):
 
         if match.get("header"):
             node = match["header"][0]
-            tag_name = match["tag_name"][0].text.decode()
+            tag_name_node = match["tag_name"][0]
+            tag_name = tag_name_node.text.decode() if tag_name_node.text else "h1"
             node_type = tag_name  # h1, h2, h3, etc.
         elif match.get("table"):
             node = match["table"][0]
@@ -151,7 +152,7 @@ class HtmlParser(BaseLanguageParser):
         text_parts = []
 
         def traverse(n: Node):
-            if n.type == "text":
+            if n.type == "text" and n.text:
                 text_parts.append(n.text.decode())
             for child in n.children:
                 traverse(child)
@@ -201,7 +202,7 @@ class HtmlParser(BaseLanguageParser):
                 for child in parent.children:
                     if child.type == "start_tag":
                         for grandchild in child.children:
-                            if grandchild.type == "tag_name":
+                            if grandchild.type == "tag_name" and grandchild.text:
                                 tag_name = grandchild.text.decode()
                                 # Only return semantic parent tags
                                 if tag_name in (
@@ -264,7 +265,11 @@ class HtmlParser(BaseLanguageParser):
                 for child in n.children:
                     if child.type == "start_tag":
                         for grandchild in child.children:
-                            if grandchild.type == "tag_name" and grandchild.text.decode() == "li":
+                            if (
+                                grandchild.type == "tag_name"
+                                and grandchild.text
+                                and grandchild.text.decode() == "li"
+                            ):
                                 count += 1
                                 break
             for child in n.children:
@@ -284,7 +289,7 @@ class HtmlParser(BaseLanguageParser):
                 for child in n.children:
                     if child.type == "start_tag":
                         for grandchild in child.children:
-                            if grandchild.type == "tag_name":
+                            if grandchild.type == "tag_name" and grandchild.text:
                                 tag = grandchild.text.decode()
                                 if tag == "tr":
                                     rows += 1
@@ -308,7 +313,7 @@ class HtmlParser(BaseLanguageParser):
                 for child in n.children:
                     if child.type == "start_tag":
                         for grandchild in child.children:
-                            if grandchild.type == "tag_name":
+                            if grandchild.type == "tag_name" and grandchild.text:
                                 tag = grandchild.text.decode()
                                 if tag in ("td", "th"):
                                     count += 1
@@ -339,8 +344,8 @@ class HtmlParser(BaseLanguageParser):
                                         value_node = quote_child
                                         break
 
-                        if name_node and name_node.text.decode() == attr_name:
-                            if value_node:
+                        if name_node and name_node.text and name_node.text.decode() == attr_name:
+                            if value_node and value_node.text:
                                 return value_node.text.decode()
                             # If no value found, return empty string for boolean attributes
                             return ""

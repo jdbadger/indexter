@@ -518,7 +518,7 @@ async def test_search_basic(vector_store, mock_qdrant_client):
     mock_result = MagicMock()
     mock_result.id = "test-id"
     mock_result.score = 0.95
-    mock_result.content = "test content"
+    mock_result.document = "test content"
     mock_result.metadata = {
         "document_path": "test.py",
         "language": "python",
@@ -706,7 +706,7 @@ async def test_search_result_formatting(vector_store, mock_qdrant_client):
     mock_result = MagicMock()
     mock_result.id = "test-id"
     mock_result.score = 0.95
-    mock_result.content = "test content"
+    mock_result.document = "test content"
     mock_result.metadata = {}
     mock_qdrant_client.query.return_value = [mock_result]
 

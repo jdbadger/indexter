@@ -119,7 +119,7 @@ class YamlParser(BaseLanguageParser):
         """Extract text from a key node (which is usually a flow_node containing a scalar)."""
         # Navigate through flow_node to find the scalar
         for child in key_node.children:
-            if "scalar" in child.type:
+            if "scalar" in child.type and child.text:
                 return child.text.decode()
         # Fallback: just get the text directly
         return key_node.text.decode() if key_node.text else None

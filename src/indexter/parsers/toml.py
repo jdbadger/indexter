@@ -108,12 +108,12 @@ class TomlParser(BaseLanguageParser):
             key_node = self._find_child_by_type(node, "bare_key") or self._find_child_by_type(
                 node, "quoted_key"
             )
-            if key_node:
+            if key_node and key_node.text:
                 key_name = key_node.text.decode().strip('"').strip("'")
                 return key_name, key_name, None
             # Try dotted_key
             dotted_key = self._find_child_by_type(node, "dotted_key")
-            if dotted_key:
+            if dotted_key and dotted_key.text:
                 key_name = dotted_key.text.decode()
                 parts = key_name.split(".")
                 return parts[-1], key_name, ".".join(parts[:-1]) if len(parts) > 1 else None
@@ -127,11 +127,11 @@ class TomlParser(BaseLanguageParser):
         for child in table_node.children:
             if child.type in ("[", "]"):
                 continue
-            if child.type == "dotted_key":
+            if child.type == "dotted_key" and child.text:
                 return child.text.decode()
-            if child.type == "bare_key":
+            if child.type == "bare_key" and child.text:
                 return child.text.decode()
-            if child.type == "quoted_key":
+            if child.type == "quoted_key" and child.text:
                 return child.text.decode().strip('"').strip("'")
         return None
 
@@ -141,11 +141,11 @@ class TomlParser(BaseLanguageParser):
         for child in table_array_node.children:
             if child.type in ("[[", "]]", "[", "]"):
                 continue
-            if child.type == "dotted_key":
+            if child.type == "dotted_key" and child.text:
                 return child.text.decode()
-            if child.type == "bare_key":
+            if child.type == "bare_key" and child.text:
                 return child.text.decode()
-            if child.type == "quoted_key":
+            if child.type == "quoted_key" and child.text:
                 return child.text.decode().strip('"').strip("'")
         return None
 

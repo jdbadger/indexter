@@ -177,14 +177,14 @@ class RustParser(BaseLanguageParser):
         # Look backwards from the node for contiguous doc comments/attributes
         for i in range(node_index - 1, -1, -1):
             child = parent.children[i]
-            if child.type == "line_comment":
+            if child.type == "line_comment" and child.text:
                 text = child.text.decode()
                 if text.startswith("///") or text.startswith("//!"):
                     doc_lines.insert(0, text[3:].strip())
                 else:
                     # Regular comment breaks the chain
                     break
-            elif child.type == "block_comment":
+            elif child.type == "block_comment" and child.text:
                 text = child.text.decode()
                 if text.startswith("/**") or text.startswith("/*!"):
                     cleaned = self._parse_block_comment(text)
@@ -243,10 +243,10 @@ class RustParser(BaseLanguageParser):
             if current.type == "impl_item":
                 # impl blocks use 'type' field
                 type_node = current.child_by_field_name("type")
-                return type_node.text.decode() if type_node else None
+                return type_node.text.decode() if type_node and type_node.text else None
             if current.type == "trait_item":
                 name_node = current.child_by_field_name("name")
-                return name_node.text.decode() if name_node else None
+                return name_node.text.decode() if name_node and name_node.text else None
             if current.type == "declaration_list":
                 # Go up past the declaration_list
                 current = current.parent
@@ -284,7 +284,7 @@ class RustParser(BaseLanguageParser):
         attributes = []
         for i in range(node_index - 1, -1, -1):
             child = parent.children[i]
-            if child.type == "attribute_item":
+            if child.type == "attribute_item" and child.text:
                 attributes.insert(0, child.text.decode())
             elif child.type in ("line_comment", "block_comment"):
                 # Doc comments can be interspersed with attributes
@@ -300,9 +300,9 @@ class RustParser(BaseLanguageParser):
         # Get the rightmost identifier
         if path_node.type == "scoped_identifier":
             name_node = path_node.child_by_field_name("name")
-            if name_node:
+            if name_node and name_node.text:
                 return name_node.text.decode()
-        return path_node.text.decode()
+        return path_node.text.decode() if path_node.text else ""
 
     def _is_async(self, node: Node) -> bool:
         """Check if a function is async."""

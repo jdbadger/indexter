@@ -95,7 +95,7 @@ class MarkdownParser(BaseLanguageParser):
         level = int(marker.type[5])  # atx_h{X}_marker
 
         # Extract heading text
-        heading_name = inline.text.decode().strip()
+        heading_name = inline.text.decode().strip() if inline.text else ""
 
         return level, heading_name
 

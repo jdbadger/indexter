@@ -215,16 +215,16 @@ class RepoFileConfig(BaseModel):
         doc = tomlkit.document()
 
         if self.collection:
-            doc.add("collection", self.collection)
+            doc.add("collection", self.collection)  # type: ignore[arg-type]
 
         if self.ignore_patterns:
             patterns = tomlkit.array()
             for pattern in self.ignore_patterns:
                 patterns.append(pattern)
-            doc.add("ignore_patterns", patterns)
+            doc.add("ignore_patterns", patterns)  # type: ignore[arg-type]
 
         if self.max_file_size != 10 * 1024 * 1024:
-            doc.add("max_file_size", self.max_file_size)
+            doc.add("max_file_size", self.max_file_size)  # type: ignore[arg-type]
 
         return tomlkit.dumps(doc)
 
@@ -264,7 +264,7 @@ async def create_default_config(repo_path: Path, use_pyproject: bool = False) ->
         if "tool" not in doc:
             doc["tool"] = tomlkit.table()
 
-        if "indexter" in doc["tool"]:
+        if "indexter" in doc["tool"]:  # type: ignore[operator]
             logger.warning(f"[tool.indexter] already exists in {pyproject_path}")
             return pyproject_path
 
@@ -276,7 +276,7 @@ async def create_default_config(repo_path: Path, use_pyproject: bool = False) ->
         indexter.add(tomlkit.comment("ignore_patterns = []"))
         indexter.add(tomlkit.comment("max_file_size = 10485760"))
 
-        doc["tool"]["indexter"] = indexter
+        doc["tool"]["indexter"] = indexter  # type: ignore[index]
 
         await apath.write_text(tomlkit.dumps(doc))
         logger.info(f"Added [tool.indexter] to {pyproject_path}")

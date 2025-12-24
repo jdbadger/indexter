@@ -62,6 +62,7 @@ dev = [
     "typer>=0.12.0",
     "ruff>=0.14.10",
     "rust-just>=1.45.0",
+    "ty>=0.0.6",
 ]
 test = [
     {include-group = "dev"},
@@ -99,3 +100,19 @@ unfixable = ["S", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/*.py" = ["S"]
+
+[tool.ty.environment]
+python-version = "3.13"
+
+# Relax type checking in test files where Mock objects simulate types
+[[tool.ty.overrides]]
+include = ["**/tests/**", "**/conftest.py"]
+
+[tool.ty.overrides.rules]
+invalid-argument-type = "ignore"  # Mock objects don't match exact types
+invalid-assignment = "ignore"     # Monkey-patching in tests
+missing-argument = "ignore"       # Testing validation errors with empty constructors
+unsupported-operator = "ignore"   # Testing with None types
+invalid-type-form = "ignore"      # callable type annotations in fixtures
+possibly-missing-attribute = "ignore"  # Testing with optional return types
+invalid-method-override = "ignore"  # Test fixtures may override with simpler return types

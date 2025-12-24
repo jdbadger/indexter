@@ -82,7 +82,7 @@ class JsonParser(BaseLanguageParser):
             if current.type == "pair":
                 # Get the key from the pair
                 key_node = current.child_by_field_name("key")
-                if key_node:
+                if key_node and key_node.text:
                     key_text = key_node.text.decode().strip('"')
                     path_parts.insert(0, key_text)
             elif current.type == "array":
