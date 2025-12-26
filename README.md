@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./indexter.svg" alt="Indexter Logo">
+  <img src="./indexter.svg" alt="Indexter Logo" style="filter: brightness(0) invert(1);">
 </div>
 
 <p align="center">
