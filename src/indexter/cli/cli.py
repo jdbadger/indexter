@@ -210,9 +210,11 @@ def search(
         table.add_column("Content", style="magenta")
         table.add_column("Document Path", style="green")
 
-        for score, content, doc_path in results:
+        for result in results:
             table.add_row(
-                f"{score:.4f}", content.strip().replace("\n", " ")[:50] + "...", str(doc_path)
+                f"{result['score']:.4f}",
+                result["content"].strip().replace("\n", " ")[:50] + "...",
+                str(result["file_path"]),
             )
 
         console.print(table)

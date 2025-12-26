@@ -344,6 +344,8 @@ class Repo(BaseModel):
                 if parser is None:
                     continue
 
+                logger.info(f"Parsing {doc.path}")
+
                 # Parse document into nodes
                 file_nodes: list[Node] = []
                 for content, metadata in parser.parse(doc.content):

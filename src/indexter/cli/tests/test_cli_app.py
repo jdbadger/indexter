@@ -499,11 +499,15 @@ def test_search_command_success(cli_runner, tmp_path):
     mock_repo = MagicMock()
     mock_repo.name = "test_repo"
 
-    # Mock search results: (score, content, doc_path)
+    # Mock search results as dictionaries
     search_results = [
-        (0.95, "def hello_world():\n    print('hello')", "src/hello.py"),
-        (0.85, "class MyClass:\n    pass", "src/myclass.py"),
-        (0.75, "import numpy as np", "src/utils.py"),
+        {
+            "score": 0.95,
+            "content": "def hello_world():\n    print('hello')",
+            "file_path": "src/hello.py",
+        },
+        {"score": 0.85, "content": "class MyClass:\n    pass", "file_path": "src/myclass.py"},
+        {"score": 0.75, "content": "import numpy as np", "file_path": "src/utils.py"},
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
@@ -522,7 +526,7 @@ def test_search_command_requires_repo_name(cli_runner):
     mock_repo = MagicMock()
     mock_repo.name = "test-repo"
 
-    search_results = [(0.9, "test content", "test.py")]
+    search_results = [{"score": 0.9, "content": "test content", "file_path": "test.py"}]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         mock_anyio_run.side_effect = [mock_repo, search_results]
@@ -538,8 +542,8 @@ def test_search_command_with_limit_option(cli_runner, tmp_path):
     mock_repo.name = "test_repo"
 
     search_results = [
-        (0.95, "result 1", "file1.py"),
-        (0.90, "result 2", "file2.py"),
+        {"score": 0.95, "content": "result 1", "file_path": "file1.py"},
+        {"score": 0.90, "content": "result 2", "file_path": "file2.py"},
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
@@ -555,7 +559,7 @@ def test_search_command_with_short_limit_option(cli_runner, tmp_path):
     mock_repo = MagicMock()
     mock_repo.name = "test_repo"
 
-    search_results = [(0.95, "result", "file.py")]
+    search_results = [{"score": 0.95, "content": "result", "file_path": "file.py"}]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         mock_anyio_run.side_effect = [mock_repo, search_results]
@@ -600,8 +604,8 @@ def test_search_command_displays_scores(cli_runner, tmp_path):
     mock_repo.name = "test_repo"
 
     search_results = [
-        (0.9876, "high score result", "file1.py"),
-        (0.5432, "low score result", "file2.py"),
+        {"score": 0.9876, "content": "high score result", "file_path": "file1.py"},
+        {"score": 0.5432, "content": "low score result", "file_path": "file2.py"},
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
@@ -622,7 +626,7 @@ def test_search_command_truncates_long_content(cli_runner, tmp_path):
     # Very long content
     long_content = "x" * 200
     search_results = [
-        (0.9, long_content, "file.py"),
+        {"score": 0.9, "content": long_content, "file_path": "file.py"},
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
@@ -643,7 +647,7 @@ def test_search_command_handles_multiline_content(cli_runner, tmp_path):
 
     multiline_content = "line1\nline2\nline3"
     search_results = [
-        (0.9, multiline_content, "file.py"),
+        {"score": 0.9, "content": multiline_content, "file_path": "file.py"},
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
@@ -661,8 +665,8 @@ def test_search_command_displays_document_paths(cli_runner, tmp_path):
     mock_repo.name = "test_repo"
 
     search_results = [
-        (0.9, "content", "src/module/file.py"),
-        (0.8, "content", "tests/test_file.py"),
+        {"score": 0.9, "content": "content", "file_path": "src/module/file.py"},
+        {"score": 0.8, "content": "content", "file_path": "tests/test_file.py"},
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
@@ -679,7 +683,7 @@ def test_search_command_with_special_characters_in_query(cli_runner, tmp_path):
     mock_repo = MagicMock()
     mock_repo.name = "test_repo"
 
-    search_results = [(0.9, "result", "file.py")]
+    search_results = [{"score": 0.9, "content": "result", "file_path": "file.py"}]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         mock_anyio_run.side_effect = [mock_repo, search_results]
@@ -695,7 +699,7 @@ def test_search_command_with_unicode_query(cli_runner, tmp_path):
     mock_repo = MagicMock()
     mock_repo.name = "test_repo"
 
-    search_results = [(0.9, "世界", "file.py")]
+    search_results = [{"score": 0.9, "content": "世界", "file_path": "file.py"}]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         mock_anyio_run.side_effect = [mock_repo, search_results]
@@ -709,7 +713,7 @@ def test_search_command_calls_repo_search_method(cli_runner, tmp_path):
     """Test search command calls repo.search with correct parameters."""
     mock_repo = MagicMock()
     mock_repo.name = "test_repo"
-    search_results = [(0.9, "result", "file.py")]
+    search_results = [{"score": 0.9, "content": "result", "file_path": "file.py"}]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         # First call returns repo, second returns search results
@@ -733,7 +737,9 @@ def test_search_command_default_limit_is_10(cli_runner, tmp_path):
     mock_repo.name = "test_repo"
 
     # Return more than 10 results
-    search_results = [(0.9, f"result {i}", f"file{i}.py") for i in range(20)]
+    search_results = [
+        {"score": 0.9, "content": f"result {i}", "file_path": f"file{i}.py"} for i in range(20)
+    ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         mock_anyio_run.side_effect = [mock_repo, search_results]
@@ -749,7 +755,7 @@ def test_search_command_table_output(cli_runner, tmp_path):
     mock_repo = MagicMock()
     mock_repo.name = "test_repo"
 
-    search_results = [(0.9, "content", "file.py")]
+    search_results = [{"score": 0.9, "content": "content", "file_path": "file.py"}]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         mock_anyio_run.side_effect = [mock_repo, search_results]
@@ -767,7 +773,9 @@ def test_search_command_strips_content_whitespace(cli_runner, tmp_path):
     mock_repo.name = "test_repo"
 
     # Content with leading/trailing whitespace
-    search_results = [(0.9, "   content with spaces   ", "file.py")]
+    search_results = [
+        {"score": 0.9, "content": "   content with spaces   ", "file_path": "file.py"}
+    ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
         mock_anyio_run.side_effect = [mock_repo, search_results]

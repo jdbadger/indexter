@@ -34,8 +34,10 @@ def mock_qdrant_client():
     client.get_collections = AsyncMock()
     client.scroll = AsyncMock()
     client.add = AsyncMock()
+    client.upsert = AsyncMock()
     client.delete = AsyncMock()
     client.query = AsyncMock()
+    client.query_points = AsyncMock()
     return client
 
 
@@ -52,9 +54,9 @@ def test_init():
     """Test VectorStore initialization."""
     store = VectorStore()
     assert store._client is None
-    assert store._embedding_model_loaded is False
     assert store._initialized_collections == set()
     assert store._vector_name is None
+    assert store._embedding_model_name is None
 
 
 # Tests for client property
@@ -397,7 +399,7 @@ async def test_upsert_nodes_empty(vector_store, mock_qdrant_client):
     result = await vector_store.upsert_nodes("test_collection", [])
 
     assert result == 0
-    mock_qdrant_client.add.assert_not_called()
+    mock_qdrant_client.upsert.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -405,16 +407,19 @@ async def test_upsert_nodes_single(vector_store, mock_qdrant_client, sample_node
     """Test upserting a single node."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
 
     result = await vector_store.upsert_nodes("test_collection", [sample_node])
 
     assert result == 1
-    mock_qdrant_client.add.assert_called_once()
-    call_args = mock_qdrant_client.add.call_args
+    mock_qdrant_client.upsert.assert_called_once()
+    call_args = mock_qdrant_client.upsert.call_args
     assert call_args[1]["collection_name"] == "test_collection"
-    assert call_args[1]["documents"] == [sample_node.content]
-    assert call_args[1]["ids"] == [sample_node.id]
-    assert len(call_args[1]["metadata"]) == 1
+    points = call_args[1]["points"]
+    assert len(points) == 1
+    assert points[0].id == sample_node.id
+    assert points[0].payload["document"] == sample_node.content
 
 
 @pytest.mark.asyncio
@@ -422,6 +427,8 @@ async def test_upsert_nodes_multiple(vector_store, mock_qdrant_client, sample_no
     """Test upserting multiple nodes."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
 
     # Create multiple nodes
     node1 = sample_node
@@ -431,11 +438,10 @@ async def test_upsert_nodes_multiple(vector_store, mock_qdrant_client, sample_no
     result = await vector_store.upsert_nodes("test_collection", [node1, node2, node3])
 
     assert result == 3
-    mock_qdrant_client.add.assert_called_once()
-    call_args = mock_qdrant_client.add.call_args
-    assert len(call_args[1]["documents"]) == 3
-    assert len(call_args[1]["metadata"]) == 3
-    assert len(call_args[1]["ids"]) == 3
+    mock_qdrant_client.upsert.assert_called_once()
+    call_args = mock_qdrant_client.upsert.call_args
+    points = call_args[1]["points"]
+    assert len(points) == 3
 
 
 @pytest.mark.asyncio
@@ -443,12 +449,16 @@ async def test_upsert_nodes_metadata_formatting(vector_store, mock_qdrant_client
     """Test that node metadata is correctly formatted."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
 
     await vector_store.upsert_nodes("test_collection", [sample_node])
 
-    call_args = mock_qdrant_client.add.call_args
-    metadata = call_args[1]["metadata"][0]
+    call_args = mock_qdrant_client.upsert.call_args
+    points = call_args[1]["points"]
+    metadata = points[0].payload
 
+    assert metadata["document"] == sample_node.content
     assert metadata["hash"] == sample_node.metadata.hash
     assert metadata["repo_path"] == sample_node.metadata.repo_path
     assert metadata["document_path"] == sample_node.metadata.document_path
@@ -513,13 +523,15 @@ async def test_search_basic(vector_store, mock_qdrant_client):
     """Test basic search without filters."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
 
-    # Mock search results
-    mock_result = MagicMock()
-    mock_result.id = "test-id"
-    mock_result.score = 0.95
-    mock_result.document = "test content"
-    mock_result.metadata = {
+    # Mock search results - query_points returns object with .points
+    mock_point = MagicMock()
+    mock_point.id = "test-id"
+    mock_point.score = 0.95
+    mock_point.payload = {
+        "document": "test content",
         "document_path": "test.py",
         "language": "python",
         "node_type": "function",
@@ -530,7 +542,9 @@ async def test_search_basic(vector_store, mock_qdrant_client):
         "signature": "def test_func():",
         "parent_scope": "TestClass",
     }
-    mock_qdrant_client.query.return_value = [mock_result]
+    mock_response = MagicMock()
+    mock_response.points = [mock_point]
+    mock_qdrant_client.query_points.return_value = mock_response
 
     results = await vector_store.search("test_collection", "test query")
 
@@ -541,12 +555,11 @@ async def test_search_basic(vector_store, mock_qdrant_client):
     assert results[0]["file_path"] == "test.py"
     assert results[0]["language"] == "python"
 
-    mock_qdrant_client.query.assert_called_once_with(
-        collection_name="test_collection",
-        query_text="test query",
-        limit=10,
-        query_filter=None,
-    )
+    mock_qdrant_client.query_points.assert_called_once()
+    call_args = mock_qdrant_client.query_points.call_args
+    assert call_args[1]["collection_name"] == "test_collection"
+    assert call_args[1]["limit"] == 10
+    assert call_args[1]["query_filter"] is None
 
 
 @pytest.mark.asyncio
@@ -554,11 +567,15 @@ async def test_search_with_limit(vector_store, mock_qdrant_client):
     """Test search with custom limit."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", limit=5)
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     assert call_args[1]["limit"] == 5
 
 
@@ -567,11 +584,15 @@ async def test_search_with_file_path_exact(vector_store, mock_qdrant_client):
     """Test search with exact file path filter."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", file_path="test.py")
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
     assert len(query_filter.must) == 1
@@ -582,11 +603,15 @@ async def test_search_with_file_path_prefix(vector_store, mock_qdrant_client):
     """Test search with file path prefix filter."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", file_path="src/")
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
 
@@ -596,11 +621,15 @@ async def test_search_with_language_filter(vector_store, mock_qdrant_client):
     """Test search with language filter."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", language="python")
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
 
@@ -610,11 +639,15 @@ async def test_search_with_node_type_filter(vector_store, mock_qdrant_client):
     """Test search with node type filter."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", node_type="function")
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
 
@@ -624,11 +657,15 @@ async def test_search_with_node_name_filter(vector_store, mock_qdrant_client):
     """Test search with node name filter."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", node_name="test_func")
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
 
@@ -638,11 +675,15 @@ async def test_search_with_has_documentation_true(vector_store, mock_qdrant_clie
     """Test search filtering for nodes with documentation."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", has_documentation=True)
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
 
@@ -652,11 +693,15 @@ async def test_search_with_has_documentation_false(vector_store, mock_qdrant_cli
     """Test search filtering for nodes without documentation."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search("test_collection", "test query", has_documentation=False)
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
 
@@ -666,7 +711,11 @@ async def test_search_with_multiple_filters(vector_store, mock_qdrant_client):
     """Test search with multiple filters combined."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     await vector_store.search(
         "test_collection",
@@ -678,7 +727,7 @@ async def test_search_with_multiple_filters(vector_store, mock_qdrant_client):
         has_documentation=True,
     )
 
-    call_args = mock_qdrant_client.query.call_args
+    call_args = mock_qdrant_client.query_points.call_args
     query_filter = call_args[1]["query_filter"]
     assert query_filter is not None
     assert len(query_filter.must) == 5
@@ -689,7 +738,11 @@ async def test_search_empty_results(vector_store, mock_qdrant_client):
     """Test search with no results."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
-    mock_qdrant_client.query.return_value = []
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_qdrant_client.query_points.return_value = mock_response
 
     results = await vector_store.search("test_collection", "test query")
 
@@ -701,21 +754,24 @@ async def test_search_result_formatting(vector_store, mock_qdrant_client):
     """Test that search results are correctly formatted."""
     vector_store._client = mock_qdrant_client
     vector_store._initialized_collections.add("test_collection")
+    vector_store._vector_name = "test-vector"
+    vector_store._embedding_model_name = "test-model"
 
     # Mock result with missing optional fields
-    mock_result = MagicMock()
-    mock_result.id = "test-id"
-    mock_result.score = 0.95
-    mock_result.document = "test content"
-    mock_result.metadata = {}
-    mock_qdrant_client.query.return_value = [mock_result]
+    mock_point = MagicMock()
+    mock_point.id = "test-id"
+    mock_point.score = 0.95
+    mock_point.payload = {}
+    mock_response = MagicMock()
+    mock_response.points = [mock_point]
+    mock_qdrant_client.query_points.return_value = mock_response
 
     results = await vector_store.search("test_collection", "test query")
 
     assert len(results) == 1
     assert results[0]["id"] == "test-id"
     assert results[0]["score"] == 0.95
-    assert results[0]["content"] == "test content"
+    assert results[0]["content"] == ""
     assert results[0]["file_path"] == ""
     assert results[0]["language"] == ""
     assert results[0]["node_type"] == ""

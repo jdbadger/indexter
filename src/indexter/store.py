@@ -22,7 +22,7 @@ class VectorStore:
     def __init__(self):
         """Initialize the vector store."""
         self._client: AsyncQdrantClient | None = None
-        self._embedding_model_loaded = False
+        self._embedding_model_name: str | None = None
         self._initialized_collections: set[str] = set()
         self._vector_name: str | None = None
 
@@ -53,6 +53,7 @@ class VectorStore:
 
             # Set the embedding model for fastembed
             self._client.set_model(settings.embedding.model_name)
+            self._embedding_model_name = settings.embedding.model_name
             # Get the vector name used by fastembed (e.g., 'fast-bge-small-en-v1.5')
             if self._vector_name is None:
                 vector_params = self._client.get_fastembed_vector_params()
@@ -183,6 +184,7 @@ class VectorStore:
         documents = [node.content for node in nodes]
         metadata = [
             {
+                "document": node.content,  # Store content for retrieval
                 "hash": node.metadata.hash,
                 "repo_path": node.metadata.repo_path,
                 "document_path": node.metadata.document_path,
@@ -202,12 +204,25 @@ class VectorStore:
         ]
         ids = [node.id for node in nodes]
 
-        # Use fastembed's add method which handles embedding automatically
-        await self.client.add(
+        # Ensure vector name and embedding model are initialized
+        if self._vector_name is None or self._embedding_model_name is None:
+            raise RuntimeError("Vector store not properly initialized")
+
+        # Build points with Document for automatic embedding inference
+        points = [
+            models.PointStruct(
+                id=point_id,
+                vector={
+                    self._vector_name: models.Document(text=doc, model=self._embedding_model_name)
+                },
+                payload=meta,
+            )
+            for point_id, doc, meta in zip(ids, documents, metadata, strict=True)
+        ]
+
+        await self.client.upsert(
             collection_name=collection_name,
-            documents=documents,
-            metadata=metadata,
-            ids=ids,
+            points=points,
         )
 
         return len(nodes)
@@ -345,31 +360,38 @@ class VectorStore:
         if filter_conditions:
             query_filter = models.Filter(must=filter_conditions)
 
-        # Perform search using fastembed
-        results = await self.client.query(
+        # Ensure vector name and embedding model are initialized
+        if self._vector_name is None or self._embedding_model_name is None:
+            raise RuntimeError("Vector store not properly initialized")
+
+        # Perform search using query_points with Document for embedding inference
+        results = await self.client.query_points(
             collection_name=collection_name,
-            query_text=query,
+            query=models.Document(text=query, model=self._embedding_model_name),
+            using=self._vector_name,
             limit=limit,
             query_filter=query_filter,
         )
 
         # Format results
         formatted_results = []
-        for result in results:
+        for point in results.points:
             formatted_results.append(
                 {
-                    "id": result.id,
-                    "score": result.score,
-                    "content": result.document,
-                    "file_path": result.metadata.get("document_path", ""),
-                    "language": result.metadata.get("language", ""),
-                    "node_type": result.metadata.get("node_type", ""),
-                    "node_name": result.metadata.get("node_name", ""),
-                    "start_line": result.metadata.get("start_line", 0),
-                    "end_line": result.metadata.get("end_line", 0),
-                    "documentation": result.metadata.get("documentation", ""),
-                    "signature": result.metadata.get("signature", ""),
-                    "parent_scope": result.metadata.get("parent_scope", ""),
+                    "id": point.id,
+                    "score": point.score,
+                    "content": point.payload.get("document", "") if point.payload else "",
+                    "file_path": point.payload.get("document_path", "") if point.payload else "",
+                    "language": point.payload.get("language", "") if point.payload else "",
+                    "node_type": point.payload.get("node_type", "") if point.payload else "",
+                    "node_name": point.payload.get("node_name", "") if point.payload else "",
+                    "start_line": point.payload.get("start_line", 0) if point.payload else 0,
+                    "end_line": point.payload.get("end_line", 0) if point.payload else 0,
+                    "documentation": point.payload.get("documentation", "")
+                    if point.payload
+                    else "",
+                    "signature": point.payload.get("signature", "") if point.payload else "",
+                    "parent_scope": point.payload.get("parent_scope", "") if point.payload else "",
                 }
             )
 
