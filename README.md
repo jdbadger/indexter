@@ -3,7 +3,7 @@
 </div>
 
 <p align="center">
-  <strong>A CLI tool and MCP server for enhanced codebase context via RAG</strong>
+  <strong>Semantic Code Context For Your LLM</strong>
 </p>
 
 Indexter indexes your local git repositories, parses them semantically using tree-sitter, and provides a vector search interface for AI agents via the Model Context Protocol (MCP).
