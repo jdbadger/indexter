@@ -86,7 +86,6 @@ mode = "local"
 
 [embedding]
 model_name = "BAAI/bge-small-en-v1.5"
-# dimension = 384
 
 [mcp]
 host = "localhost"
@@ -256,7 +255,6 @@ class Settings(BaseSettings):
         # Embedding section
         embedding = tomlkit.table()
         embedding.add("model_name", self.embedding.model_name)
-        embedding.add("dimension", self.embedding.dimension)
         doc.add("embedding", embedding)
 
         # MCP section

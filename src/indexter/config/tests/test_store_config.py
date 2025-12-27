@@ -14,59 +14,50 @@ def test_vector_embedding_settings_defaults(clean_env):
     settings = VectorEmbeddingSettings()
 
     assert settings.model_name == "BAAI/bge-small-en-v1.5"
-    assert settings.dimension == 384
 
 
 def test_vector_embedding_settings_custom_values(clean_env):
     """Test VectorEmbeddingSettings with custom initialization."""
-    settings = VectorEmbeddingSettings(model_name="custom/model", dimension=512)
+    settings = VectorEmbeddingSettings(model_name="custom/model")
 
     assert settings.model_name == "custom/model"
-    assert settings.dimension == 512
 
 
 def test_vector_embedding_settings_env_vars(set_embedding_env_vars):
     """Test VectorEmbeddingSettings loads from environment variables."""
-    set_embedding_env_vars(model_name="sentence-transformers/all-MiniLM-L6-v2", dimension=768)
+    set_embedding_env_vars(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
     settings = VectorEmbeddingSettings()
 
     assert settings.model_name == "sentence-transformers/all-MiniLM-L6-v2"
-    assert settings.dimension == 768
 
 
 def test_vector_embedding_settings_env_prefix(clean_env):
     """Test VectorEmbeddingSettings uses INDEXTER_EMBEDDING_ prefix."""
     os.environ["INDEXTER_EMBEDDING_MODEL_NAME"] = "test/model"
-    os.environ["INDEXTER_EMBEDDING_DIMENSION"] = "256"
 
     settings = VectorEmbeddingSettings()
 
     assert settings.model_name == "test/model"
-    assert settings.dimension == 256
 
 
 def test_vector_embedding_settings_partial_env_override(set_embedding_env_vars):
     """Test partial override with environment variables."""
-    set_embedding_env_vars(dimension=1024)
+    set_embedding_env_vars(model_name="custom/model")
 
     settings = VectorEmbeddingSettings()
 
-    # model_name should use default
-    assert settings.model_name == "BAAI/bge-small-en-v1.5"
-    # dimension should use env var
-    assert settings.dimension == 1024
+    # model_name should use env var
+    assert settings.model_name == "custom/model"
 
 
 def test_vector_embedding_settings_explicit_overrides_env(clean_env):
     """Test explicit values override environment variables."""
     os.environ["INDEXTER_EMBEDDING_MODEL_NAME"] = "env/model"
-    os.environ["INDEXTER_EMBEDDING_DIMENSION"] = "512"
 
-    settings = VectorEmbeddingSettings(model_name="explicit/model", dimension=256)
+    settings = VectorEmbeddingSettings(model_name="explicit/model")
 
     assert settings.model_name == "explicit/model"
-    assert settings.dimension == 256
 
 
 def test_vector_embedding_settings_model_config(clean_env):
@@ -78,12 +69,11 @@ def test_vector_embedding_settings_model_config(clean_env):
 
 def test_vector_embedding_settings_serialization(clean_env):
     """Test VectorEmbeddingSettings serialization."""
-    settings = VectorEmbeddingSettings(model_name="test/model", dimension=512)
+    settings = VectorEmbeddingSettings(model_name="test/model")
 
     data = settings.model_dump()
 
     assert data["model_name"] == "test/model"
-    assert data["dimension"] == 512
 
 
 def test_vector_embedding_settings_json_serialization(clean_env):
@@ -93,22 +83,6 @@ def test_vector_embedding_settings_json_serialization(clean_env):
     json_str = settings.model_dump_json()
 
     assert "BAAI/bge-small-en-v1.5" in json_str
-    assert "384" in json_str
-
-
-def test_vector_embedding_settings_dimension_types(clean_env):
-    """Test VectorEmbeddingSettings dimension accepts various numeric types."""
-    # From string (environment variable scenario)
-    os.environ["INDEXTER_EMBEDDING_DIMENSION"] = "768"
-    settings1 = VectorEmbeddingSettings()
-    assert settings1.dimension == 768
-
-    # Clean for next test
-    del os.environ["INDEXTER_EMBEDDING_DIMENSION"]
-
-    # From int
-    settings2 = VectorEmbeddingSettings(dimension=1024)
-    assert settings2.dimension == 1024
 
 
 # ============================================================================
@@ -351,27 +325,22 @@ def test_both_settings_independent_env_prefixes(clean_env):
 
 def test_both_settings_can_coexist(clean_env):
     """Test that both settings classes can be instantiated together."""
-    embedding = VectorEmbeddingSettings(model_name="test/model", dimension=512)
+    embedding = VectorEmbeddingSettings(model_name="test/model")
     store = VectorStoreSettings(host="test-host", port=8080)
 
     assert embedding.model_name == "test/model"
-    assert embedding.dimension == 512
     assert store.host == "test-host"
     assert store.port == 8080
 
 
 def test_settings_immutability_after_creation(clean_env):
     """Test that settings remain stable after environment changes."""
-    os.environ["INDEXTER_EMBEDDING_DIMENSION"] = "512"
     os.environ["INDEXTER_STORE_PORT"] = "7777"
 
-    embedding = VectorEmbeddingSettings()
     store = VectorStoreSettings()
 
     # Change environment after creation
-    os.environ["INDEXTER_EMBEDDING_DIMENSION"] = "1024"
     os.environ["INDEXTER_STORE_PORT"] = "8888"
 
     # Original settings should remain unchanged
-    assert embedding.dimension == 512
     assert store.port == 7777

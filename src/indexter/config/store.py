@@ -19,8 +19,6 @@ class VectorEmbeddingSettings(BaseSettings):
 
     # FastEmbed model - good balance of quality and speed
     model_name: str = "BAAI/bge-small-en-v1.5"
-    # Dimension of the embedding vectors (must match model)
-    dimension: int = 384
 
 
 class VectorStoreSettings(BaseSettings):
