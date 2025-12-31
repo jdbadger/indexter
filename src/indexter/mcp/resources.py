@@ -1,4 +1,5 @@
-"""MCP resource implementations for indexter.
+"""
+MCP resource implementations for Indexter.
 
 Resources provide read-only data to MCP clients.
 """
@@ -7,8 +8,9 @@ from indexter.exceptions import RepoNotFoundError
 from indexter.models import Repo
 
 
-async def list_repos() -> list[dict]:
-    """List all configured repositories.
+async def repo_list() -> list[dict]:
+    """
+    List all configured repositories.
 
     Returns:
         List of dicts with repo name and path.
@@ -17,8 +19,9 @@ async def list_repos() -> list[dict]:
     return [{"name": repo.name, "path": repo.path} for repo in repos]
 
 
-async def get_repo_status(name: str) -> dict:
-    """Get the status of a repository.
+async def repo_status(name: str) -> dict:
+    """
+    Get the status of a repository.
 
     Args:
         name: The repository name.

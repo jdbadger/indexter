@@ -1,5 +1,6 @@
 """Tests for the TypeScriptParser."""
 
+from textwrap import dedent
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,88 +17,97 @@ def ts_parser():
 @pytest.fixture
 def simple_function():
     """Sample TypeScript with a simple function."""
-    return """function greet(name: string): string {
-    return `Hello, ${name}!`;
-}
-"""
+    return dedent("""
+        function greet(name: string): string {
+            return `Hello, ${name}!`;
+        }
+    """).strip()
 
 
 @pytest.fixture
 def simple_class():
     """Sample TypeScript with a simple class."""
-    return """/**
- * A person class
- */
-class Person {
-    constructor(public name: string) {}
-    
-    greet(): string {
-        return `Hello, I'm ${this.name}`;
-    }
-}
-"""
+    return dedent("""
+        /**
+        * A person class
+        */
+        class Person {
+            constructor(public name: string) {}
+            
+            greet(): string {
+                return `Hello, I'm ${this.name}`;
+            }
+        }
+    """).strip()
 
 
 @pytest.fixture
 def simple_interface():
     """Sample TypeScript with a simple interface."""
-    return """/**
- * A greeting interface
- */
-interface Greeter {
-    greet(): string;
-}
-"""
+    return dedent("""
+        /**
+        * A greeting interface
+        */
+        interface Greeter {
+            greet(): string;
+        }
+    """).strip()
 
 
 @pytest.fixture
 def arrow_function():
     """Sample TypeScript with an arrow function."""
-    return """const add = (a: number, b: number): number => a + b;
-"""
+    return dedent("""
+        const add = (a: number, b: number): number => a + b;
+    """).strip()
 
 
 @pytest.fixture
 def async_function():
     """Sample TypeScript with an async function."""
-    return """async function fetchData(url: string): Promise<string> {
-    const response = await fetch(url);
-    return response.text();
-}
-"""
+    return dedent("""
+        async function fetchData(url: string): Promise<string> {
+            const response = await fetch(url);
+            return response.text();
+        }
+    """).strip()
 
 
 @pytest.fixture
 def type_alias():
     """Sample TypeScript with a type alias."""
-    return """type Result<T> = { success: boolean; data: T };
-"""
+    return dedent("""
+        type Result<T> = { success: boolean; data: T };
+    """).strip()
 
 
 @pytest.fixture
 def enum_declaration():
     """Sample TypeScript with an enum."""
-    return """enum Color {
-    Red,
-    Green,
-    Blue,
-}
-"""
+    return dedent("""
+        enum Color {
+            Red,
+            Green,
+            Blue,
+        }
+    """).strip()
 
 
 @pytest.fixture
 def constant():
     """Sample TypeScript with a constant."""
-    return """const MAX_SIZE = 100;
-"""
+    return dedent("""
+        const MAX_SIZE = 100;
+    """).strip()
 
 
 @pytest.fixture
 def import_statement():
     """Sample TypeScript with imports."""
-    return """import { Component } from '@angular/core';
-import React from 'react';
-"""
+    return dedent("""
+        import { Component } from '@angular/core';
+        import React from 'react';
+    """).strip()
 
 
 def test_parser_initialization(ts_parser):
@@ -125,7 +135,7 @@ def test_parse_simple_function(ts_parser, simple_function):
     results = list(ts_parser.parse(simple_function))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "function"
     assert info["node_name"] == "greet"
@@ -172,7 +182,7 @@ def test_parse_arrow_function(ts_parser, arrow_function):
     results = list(ts_parser.parse(arrow_function))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_name"] == "add"
     assert info["node_type"] == "function"
@@ -185,7 +195,7 @@ def test_parse_async_function(ts_parser, async_function):
     results = list(ts_parser.parse(async_function))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_name"] == "fetchData"
     assert info["extra"]["is_async"] == "true"
@@ -197,7 +207,7 @@ def test_parse_type_alias(ts_parser, type_alias):
     results = list(ts_parser.parse(type_alias))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "type_alias"
     assert info["node_name"] == "Result"
@@ -208,7 +218,7 @@ def test_parse_enum(ts_parser, enum_declaration):
     results = list(ts_parser.parse(enum_declaration))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "enum"
     assert info["node_name"] == "Color"
@@ -219,7 +229,7 @@ def test_parse_constant(ts_parser, constant):
     results = list(ts_parser.parse(constant))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "constant"
     assert info["node_name"] == "MAX_SIZE"
@@ -245,21 +255,23 @@ def test_parse_empty_typescript(ts_parser):
 
 def test_parse_comments_only(ts_parser):
     """Test parsing TypeScript with only comments."""
-    code = """// This is a comment
-/* Another comment */
-"""
+    code = dedent("""
+        // This is a comment
+        /* Another comment */
+    """).strip()
     results = list(ts_parser.parse(code))
     assert len(results) == 0
 
 
 def test_tsdoc_comment(ts_parser):
     """Test TSDoc comment extraction."""
-    code = """/**
- * This is a TSDoc comment
- * with multiple lines
- */
-function documented(): void {}
-"""
+    code = dedent("""
+        /**
+         * This is a TSDoc comment
+         * with multiple lines
+         */
+        function documented(): void {}
+    """).strip()
     results = list(ts_parser.parse(code))
 
     assert len(results) == 1
@@ -270,11 +282,12 @@ function documented(): void {}
 
 def test_generator_function(ts_parser):
     """Test parsing generator function."""
-    code = """function* generateNumbers(): Generator<number> {
-    yield 1;
-    yield 2;
-}
-"""
+    code = dedent("""
+        function* generateNumbers(): Generator<number> {
+            yield 1;
+            yield 2;
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     assert len(results) == 1
@@ -283,10 +296,11 @@ def test_generator_function(ts_parser):
 
 def test_abstract_class(ts_parser):
     """Test parsing abstract class."""
-    code = """abstract class BaseClass {
-    abstract method(): void;
-}
-"""
+    code = dedent("""
+        abstract class BaseClass {
+            abstract method(): void;
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     class_results = [r for r in results if r[1]["node_type"] == "class"]
@@ -296,12 +310,13 @@ def test_abstract_class(ts_parser):
 
 def test_visibility_modifiers(ts_parser):
     """Test parsing visibility modifiers."""
-    code = """class MyClass {
-    public publicMethod(): void {}
-    private privateMethod(): void {}
-    protected protectedMethod(): void {}
-}
-"""
+    code = dedent("""
+        class MyClass {
+            public publicMethod(): void {}
+            private privateMethod(): void {}
+            protected protectedMethod(): void {}
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     method_results = [r for r in results if r[1]["node_type"] == "method"]
@@ -314,14 +329,15 @@ def test_visibility_modifiers(ts_parser):
 
 def test_decorators(ts_parser):
     """Test parsing decorators."""
-    code = """class Component {
-    @Input()
-    name: string;
-    
-    @Output()
-    change = new EventEmitter();
-}
-"""
+    code = dedent("""
+        class Component {
+            @Input()
+            name: string;
+            
+            @Output()
+            change = new EventEmitter();
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     # Should find the class
@@ -331,8 +347,9 @@ def test_decorators(ts_parser):
 
 def test_export_function(ts_parser):
     """Test parsing export function."""
-    code = """export function exported(): void {}
-"""
+    code = dedent("""
+        export function exported(): void {}
+    """).strip()
     results = list(ts_parser.parse(code))
 
     export_results = [r for r in results if r[1]["node_type"] == "export"]
@@ -342,8 +359,9 @@ def test_export_function(ts_parser):
 
 def test_export_class(ts_parser):
     """Test parsing export class."""
-    code = """export class ExportedClass {}
-"""
+    code = dedent("""
+        export class ExportedClass {}
+    """).strip()
     results = list(ts_parser.parse(code))
 
     # Should find export
@@ -353,8 +371,9 @@ def test_export_class(ts_parser):
 
 def test_export_default(ts_parser):
     """Test parsing default export."""
-    code = """export default class DefaultClass {}
-"""
+    code = dedent("""
+        export default class DefaultClass {}
+    """).strip()
     results = list(ts_parser.parse(code))
 
     # Should find export
@@ -363,8 +382,9 @@ def test_export_default(ts_parser):
 
 def test_const_without_arrow_not_constant(ts_parser):
     """Test that lowercase const without arrow function is not captured."""
-    code = """const myVar = 42;
-"""
+    code = dedent("""
+        const myVar = 42;
+    """).strip()
     results = list(ts_parser.parse(code))
 
     # Should not capture lowercase const
@@ -373,8 +393,9 @@ def test_const_without_arrow_not_constant(ts_parser):
 
 def test_const_upper_case_captured(ts_parser):
     """Test that UPPER_CASE const is captured."""
-    code = """const API_KEY = "secret";
-"""
+    code = dedent("""
+        const API_KEY = "secret";
+    """).strip()
     results = list(ts_parser.parse(code))
 
     assert len(results) == 1
@@ -383,12 +404,13 @@ def test_const_upper_case_captured(ts_parser):
 
 def test_nested_class(ts_parser):
     """Test parsing nested classes."""
-    code = """class Outer {
-    method(): void {
-        class Inner {}
-    }
-}
-"""
+    code = dedent("""
+        class Outer {
+            method(): void {
+                class Inner {}
+            }
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     # Should find both classes
@@ -398,10 +420,11 @@ def test_nested_class(ts_parser):
 
 def test_interface_method_signature(ts_parser):
     """Test interface method signature extraction."""
-    code = """interface API {
-    fetch(url: string): Promise<Response>;
-}
-"""
+    code = dedent("""
+        interface API {
+            fetch(url: string): Promise<Response>;
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     # Should find interface and method signature
@@ -412,10 +435,11 @@ def test_interface_method_signature(ts_parser):
 
 def test_async_arrow_function(ts_parser):
     """Test async arrow function."""
-    code = """const asyncFetch = async (url: string) => {
-    return await fetch(url);
-};
-"""
+    code = dedent("""
+        const asyncFetch = async (url: string) => {
+            return await fetch(url);
+        };
+    """).strip()
     results = list(ts_parser.parse(code))
 
     assert len(results) == 1
@@ -426,10 +450,11 @@ def test_async_arrow_function(ts_parser):
 
 def test_generic_function(ts_parser):
     """Test parsing generic function."""
-    code = """function identity<T>(value: T): T {
-    return value;
-}
-"""
+    code = dedent("""
+        function identity<T>(value: T): T {
+            return value;
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     assert len(results) == 1
@@ -438,10 +463,11 @@ def test_generic_function(ts_parser):
 
 def test_generic_class(ts_parser):
     """Test parsing generic class."""
-    code = """class Container<T> {
-    constructor(public value: T) {}
-}
-"""
+    code = dedent("""
+        class Container<T> {
+            constructor(public value: T) {}
+        }
+    """).strip()
     results = list(ts_parser.parse(code))
 
     class_results = [r for r in results if r[1]["node_type"] == "class"]
@@ -451,10 +477,11 @@ def test_generic_class(ts_parser):
 
 def test_byte_positions(ts_parser):
     """Test byte position tracking."""
-    code = """function first(): void {}
+    code = dedent("""
+        function first(): void {}
 
-function second(): void {}
-"""
+        function second(): void {}
+    """).strip()
     results = list(ts_parser.parse(code))
 
     for _, info in results:
@@ -464,10 +491,11 @@ function second(): void {}
 
 def test_line_numbers(ts_parser):
     """Test line number tracking (1-based)."""
-    code = """function func1(): void {}
+    code = dedent("""
+        function func1(): void {}
 
-function func2(): void {}
-"""
+        function func2(): void {}
+    """).strip()
     results = list(ts_parser.parse(code))
 
     assert results[0][1]["start_line"] == 1

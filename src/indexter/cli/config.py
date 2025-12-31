@@ -1,7 +1,12 @@
-"""Configuration management CLI commands."""
+"""Configuration management CLI commands.
 
-import os
-import subprocess
+This module provides CLI commands for managing and viewing Indexter's global
+configuration settings. It includes commands to display the configuration file
+contents and retrieve the configuration file path.
+
+The configuration is managed through Typer CLI commands and displayed using
+Rich for enhanced terminal output formatting.
+"""
 
 import typer
 from rich.console import Console
@@ -11,7 +16,7 @@ from indexter.config import settings
 
 config_app = typer.Typer(
     name="config",
-    help="Manage global indexter configuration.",
+    help="View Indexter global settings.",
     no_args_is_help=True,
 )
 
@@ -20,66 +25,55 @@ console = Console()
 
 @config_app.command(name="show")
 def config_show() -> None:
-    """Show global configuration."""
-    console.print("[bold]Global Configuration[/bold]")
-    console.print(
-        f"  Config file: {str(settings.global_config_file)}", overflow="ignore", crop=False
-    )
+    """Show Indexter global settings config.
+
+    Displays the Indexter configuration file path and its contents in a
+    formatted view. The configuration file is displayed with syntax
+    highlighting using the Monokai theme. If the configuration file
+    does not exist, a message is displayed indicating this.
+
+    Returns:
+        None: This function prints output to the console and does not
+            return a value.
+
+    Examples:
+        $ indexter config show
+        Indexter Settings
+          Config file: /home/user/.config/indexter/config.toml
+
+        [config file contents with syntax highlighting]
+    """
+    console.print("[bold]Indexter Settings[/bold]")
+    console.print(f"  Config file: {str(settings.config_file)}", overflow="ignore", crop=False)
     console.print()
 
-    if settings.global_config_file.exists():
-        content = settings.global_config_file.read_text()
+    if settings.config_file.exists():
+        content = settings.config_file.read_text()
         syntax = Syntax(content, "toml", theme="monokai", line_numbers=True)
         console.print(syntax)
     else:
-        console.print("[dim]No global config file. Run 'indexter config init' to create one.[/dim]")
-
-
-@config_app.command(name="init")
-def config_init(
-    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),
-) -> None:
-    """Create the global configuration file."""
-    config_path = settings.global_config_file
-
-    if config_path.exists() and not force:
-        console.print(f"[yellow]Global config already exists:[/yellow] {config_path}")
-        console.print("Use --force to overwrite")
-        return
-
-    # Delete existing file if force=True
-    if force and config_path.exists():
-        config_path.unlink()
-
-    settings.create_global_config()
-    console.print(f"[green]✓[/green] Created global config: {config_path}")
-    console.print()
-    console.print("Edit the file to customize indexter settings.")
-    console.print()
-    console.print("[dim]For per-repository settings, add a indexter.toml to your repo[/dim]")
-    console.print("[dim]or add \\[tool.indexter] to pyproject.toml.[/dim]")
-
-
-@config_app.command(name="edit")
-def config_edit() -> None:
-    """Open global configuration in $EDITOR."""
-    config_path = settings.global_config_file
-
-    if not config_path.exists():
-        console.print("[dim]No global config. Creating one first...[/dim]")
-        settings.create_global_config()
-
-    editor = os.environ.get("EDITOR", "vim")
-    try:
-        subprocess.run([editor, str(config_path)])  # noqa: S603
-    except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] Editor '{editor}' not found")
-        console.print(f"Set $EDITOR or edit manually: {config_path}")
-        raise typer.Exit(1) from e
+        console.print("[dim]Config file not found.[/dim]")
 
 
 @config_app.command(name="path")
 def config_path() -> None:
-    """Print the path to the global config file."""
+    """Print the path to the Indexter settings config file.
+
+    Outputs the absolute file system path to the Indexter configuration
+    file. This uses plain print() instead of Rich's console.print() to
+    avoid any formatting or text wrapping, making the output suitable
+    for use in scripts or command substitution.
+
+    Returns:
+        None: This function prints output to stdout and does not return
+            a value.
+
+    Examples:
+        $ indexter config path
+        /home/user/.config/indexter/config.toml
+
+        # Use in shell scripts
+        $ cat $(indexter config path)
+    """
     # Use print instead of console.print to avoid Rich formatting/wrapping
-    print(settings.global_config_file)
+    print(settings.config_file)

@@ -1,5 +1,6 @@
 """Tests for the HtmlParser."""
 
+from textwrap import dedent
 from unittest.mock import Mock
 
 import pytest
@@ -17,57 +18,63 @@ def html_parser():
 @pytest.fixture
 def simple_header_html():
     """Sample HTML with a simple header."""
-    return """<h1>Welcome to the Documentation</h1>"""
+    return "<h1>Welcome to the Documentation</h1>"
 
 
 @pytest.fixture
 def nested_list_html():
     """Sample HTML with a nested list."""
-    return """<ul>
-    <li>First item</li>
-    <li>Second item</li>
-    <li>Third item</li>
-</ul>"""
+    return dedent("""
+        <ul>
+            <li>First item</li>
+            <li>Second item</li>
+            <li>Third item</li>
+        </ul>
+    """).strip()
 
 
 @pytest.fixture
 def table_html():
     """Sample HTML with a table."""
-    return """<table>
-    <tr>
-        <th>Name</th>
-        <th>Age</th>
-    </tr>
-    <tr>
-        <td>Alice</td>
-        <td>30</td>
-    </tr>
-    <tr>
-        <td>Bob</td>
-        <td>25</td>
-    </tr>
-</table>"""
+    return dedent("""
+        <table>
+            <tr>
+                <th>Name</th>
+                <th>Age</th>
+            </tr>
+            <tr>
+                <td>Alice</td>
+                <td>30</td>
+            </tr>
+            <tr>
+                <td>Bob</td>
+                <td>25</td>
+            </tr>
+        </table>
+    """).strip()
 
 
 @pytest.fixture
 def complex_html():
     """Complex HTML with multiple elements."""
-    return """<div>
-    <h1>Main Title</h1>
-    <section>
-        <h2>Subsection</h2>
-        <ul id="main-list" class="nav-list">
-            <li>Item 1</li>
-            <li>Item 2</li>
-        </ul>
-    </section>
-    <table id="data-table">
-        <tr>
-            <td>Cell 1</td>
-            <td>Cell 2</td>
-        </tr>
-    </table>
-</div>"""
+    return dedent("""
+        <div>
+            <h1>Main Title</h1>
+            <section>
+                <h2>Subsection</h2>
+                <ul id="main-list" class="nav-list">
+                    <li>Item 1</li>
+                    <li>Item 2</li>
+                </ul>
+            </section>
+            <table id="data-table">
+                <tr>
+                    <td>Cell 1</td>
+                    <td>Cell 2</td>
+                </tr>
+            </table>
+        </div>
+    """).strip()
 
 
 def test_parser_initialization(html_parser):
@@ -235,14 +242,14 @@ def test_generate_node_name_empty_text(html_parser):
 
 def test_parse_headers_h1_to_h6(html_parser):
     """Test parsing all header levels h1-h6."""
-    html = """
-    <h1>Header 1</h1>
-    <h2>Header 2</h2>
-    <h3>Header 3</h3>
-    <h4>Header 4</h4>
-    <h5>Header 5</h5>
-    <h6>Header 6</h6>
-    """
+    html = dedent("""
+        <h1>Header 1</h1>
+        <h2>Header 2</h2>
+        <h3>Header 3</h3>
+        <h4>Header 4</h4>
+        <h5>Header 5</h5>
+        <h6>Header 6</h6>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -259,11 +266,13 @@ def test_parse_headers_h1_to_h6(html_parser):
 
 def test_parse_ordered_list(html_parser):
     """Test parsing an ordered list."""
-    html = """<ol>
-    <li>First</li>
-    <li>Second</li>
-    <li>Third</li>
-</ol>"""
+    html = dedent("""
+        <ol>
+            <li>First</li>
+            <li>Second</li>
+            <li>Third</li>
+        </ol>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -277,9 +286,11 @@ def test_parse_ordered_list(html_parser):
 
 def test_get_parent_scope_section(html_parser):
     """Test parent scope extraction for elements in sections."""
-    html = """<section>
-    <h2>Title in Section</h2>
-</section>"""
+    html = dedent("""
+        <section>
+            <h2>Title in Section</h2>
+        </section>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -291,9 +302,11 @@ def test_get_parent_scope_section(html_parser):
 
 def test_get_parent_scope_article(html_parser):
     """Test parent scope extraction for elements in articles."""
-    html = """<article>
-    <h1>Article Title</h1>
-</article>"""
+    html = dedent("""
+        <article>
+            <h1>Article Title</h1>
+        </article>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -305,10 +318,12 @@ def test_get_parent_scope_article(html_parser):
 
 def test_get_parent_scope_nested_headers(html_parser):
     """Test parent scope for headers nested under other headers."""
-    html = """<div>
-    <h1>Main Title</h1>
-    <h2>Subtitle</h2>
-</div>"""
+    html = dedent("""
+        <div>
+            <h1>Main Title</h1>
+            <h2>Subtitle</h2>
+        </div>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -319,10 +334,12 @@ def test_get_parent_scope_nested_headers(html_parser):
 
 def test_parse_with_attributes(html_parser):
     """Test parsing elements with id and class attributes."""
-    html = """<ul id="navigation" class="main-nav sidebar">
-    <li>Home</li>
-    <li>About</li>
-</ul>"""
+    html = dedent("""
+        <ul id="navigation" class="main-nav sidebar">
+            <li>Home</li>
+            <li>About</li>
+        </ul>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -337,7 +354,9 @@ def test_parse_with_attributes(html_parser):
 
 def test_get_attribute_single_quotes(html_parser):
     """Test attribute extraction with single quotes."""
-    html = """<h1 id='title'>Test</h1>"""
+    html = dedent("""
+        <h1 id='title'>Test</h1>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -350,13 +369,15 @@ def test_get_attribute_single_quotes(html_parser):
 
 def test_count_list_items(html_parser):
     """Test counting list items."""
-    html = """<ul>
-    <li>One</li>
-    <li>Two</li>
-    <li>Three</li>
-    <li>Four</li>
-    <li>Five</li>
-</ul>"""
+    html = dedent("""
+        <ul>
+            <li>One</li>
+            <li>Two</li>
+            <li>Three</li>
+            <li>Four</li>
+            <li>Five</li>
+        </ul>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -367,10 +388,12 @@ def test_count_list_items(html_parser):
 
 def test_count_table_dimensions_simple(html_parser):
     """Test counting table rows and columns."""
-    html = """<table>
-    <tr><td>1</td><td>2</td><td>3</td></tr>
-    <tr><td>4</td><td>5</td><td>6</td></tr>
-</table>"""
+    html = dedent("""
+        <table>
+            <tr><td>1</td><td>2</td><td>3</td></tr>
+            <tr><td>4</td><td>5</td><td>6</td></tr>
+        </table>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -382,10 +405,12 @@ def test_count_table_dimensions_simple(html_parser):
 
 def test_count_table_with_headers(html_parser):
     """Test table counting with th elements."""
-    html = """<table>
-    <tr><th>Col1</th><th>Col2</th></tr>
-    <tr><td>A</td><td>B</td></tr>
-</table>"""
+    html = dedent("""
+        <table>
+            <tr><th>Col1</th><th>Col2</th></tr>
+            <tr><td>A</td><td>B</td></tr>
+        </table>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -420,8 +445,10 @@ def test_parse_div_without_semantic_children(html_parser):
 
 def test_byte_positions_accuracy(html_parser):
     """Test that byte positions are accurate."""
-    html = """<h1>First</h1>
-<h2>Second</h2>"""
+    html = dedent("""
+        <h1>First</h1>
+        <h2>Second</h2>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -436,13 +463,15 @@ def test_byte_positions_accuracy(html_parser):
 
 def test_line_numbers_accuracy(html_parser):
     """Test that line numbers are accurate (1-based)."""
-    html = """<h1>First</h1>
+    html = dedent("""
+        <h1>First</h1>
 
-<h2>Second</h2>
+        <h2>Second</h2>
 
-<ul>
-    <li>Item</li>
-</ul>"""
+        <ul>
+            <li>Item</li>
+        </ul>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -500,15 +529,17 @@ def test_cleaned_text_truncation(html_parser):
 
 def test_nested_lists(html_parser):
     """Test parsing nested lists."""
-    html = """<ul>
-    <li>Item 1
+    html = dedent("""
         <ul>
-            <li>Nested 1</li>
-            <li>Nested 2</li>
+            <li>Item 1
+                <ul>
+                    <li>Nested 1</li>
+                    <li>Nested 2</li>
+                </ul>
+            </li>
+            <li>Item 2</li>
         </ul>
-    </li>
-    <li>Item 2</li>
-</ul>"""
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -518,11 +549,13 @@ def test_nested_lists(html_parser):
 
 def test_table_with_irregular_rows(html_parser):
     """Test table with different number of cells per row."""
-    html = """<table>
-    <tr><td>1</td><td>2</td><td>3</td></tr>
-    <tr><td>4</td><td>5</td></tr>
-    <tr><td>6</td></tr>
-</table>"""
+    html = dedent("""
+        <table>
+            <tr><td>1</td><td>2</td><td>3</td></tr>
+            <tr><td>4</td><td>5</td></tr>
+            <tr><td>6</td></tr>
+        </table>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -546,10 +579,12 @@ def test_parse_with_html_entities(html_parser):
 
 def test_parse_multiline_header(html_parser):
     """Test parsing multiline header content."""
-    html = """<h1>
-    This is a header
-    with multiple lines
-</h1>"""
+    html = dedent("""
+        <h1>
+            This is a header
+            with multiple lines
+        </h1>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -562,7 +597,9 @@ def test_parse_multiline_header(html_parser):
 
 def test_get_attribute_no_value(html_parser):
     """Test attribute extraction when attribute has no value."""
-    html = """<h1 data-empty>Test</h1>"""
+    html = dedent("""
+        <h1 data-empty>Test</h1>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -570,13 +607,15 @@ def test_get_attribute_no_value(html_parser):
 
 def test_parse_self_closing_tags(html_parser):
     """Test that self-closing tags don't cause issues."""
-    html = """<div>
-    <h1>Title</h1>
-    <br/>
-    <ul>
-        <li>Item</li>
-    </ul>
-</div>"""
+    html = dedent("""
+        <div>
+            <h1>Title</h1>
+            <br/>
+            <ul>
+                <li>Item</li>
+            </ul>
+        </div>
+    """).strip()
 
     results = list(html_parser.parse(html))
     # Should still parse h1 and ul
@@ -615,9 +654,11 @@ def test_signature_is_none(html_parser):
 
 def test_extract_text_from_nested_tags(html_parser):
     """Test text extraction from deeply nested tags."""
-    html = """<h1>
-    Text <em>with <strong>nested</strong> tags</em> here
-</h1>"""
+    html = dedent("""
+        <h1>
+            Text <em>with <strong>nested</strong> tags</em> here
+        </h1>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -632,9 +673,11 @@ def test_extract_text_from_nested_tags(html_parser):
 
 def test_parent_scope_main_element(html_parser):
     """Test parent scope detection for main element."""
-    html = """<main>
-    <h1>Main Content</h1>
-</main>"""
+    html = dedent("""
+        <main>
+            <h1>Main Content</h1>
+        </main>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -645,11 +688,13 @@ def test_parent_scope_main_element(html_parser):
 
 def test_parent_scope_nav_element(html_parser):
     """Test parent scope detection for nav element."""
-    html = """<nav>
-    <ul>
-        <li>Link</li>
-    </ul>
-</nav>"""
+    html = dedent("""
+        <nav>
+            <ul>
+                <li>Link</li>
+            </ul>
+        </nav>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -660,9 +705,11 @@ def test_parent_scope_nav_element(html_parser):
 
 def test_parent_scope_header_element(html_parser):
     """Test parent scope detection for header element."""
-    html = """<header>
-    <h1>Site Title</h1>
-</header>"""
+    html = dedent("""
+        <header>
+            <h1>Site Title</h1>
+        </header>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -673,9 +720,11 @@ def test_parent_scope_header_element(html_parser):
 
 def test_parent_scope_footer_element(html_parser):
     """Test parent scope detection for footer element."""
-    html = """<footer>
-    <h3>Footer Title</h3>
-</footer>"""
+    html = dedent("""
+        <footer>
+            <h3>Footer Title</h3>
+        </footer>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -686,9 +735,11 @@ def test_parent_scope_footer_element(html_parser):
 
 def test_parent_scope_aside_element(html_parser):
     """Test parent scope detection for aside element."""
-    html = """<aside>
-    <h2>Sidebar</h2>
-</aside>"""
+    html = dedent("""
+        <aside>
+            <h2>Sidebar</h2>
+        </aside>
+    """).strip()
 
     results = list(html_parser.parse(html))
     assert len(results) == 1
@@ -750,12 +801,14 @@ def test_generate_node_name_unknown_type(html_parser):
 
 def test_parent_scope_header_as_parent(html_parser):
     """Test that headers can be parent scopes."""
-    html = """<h1>Main</h1>
-<div>
-    <h2>Section
-        <h3>Subsection</h3>
-    </h2>
-</div>"""
+    html = dedent("""
+        <h1>Main</h1>
+        <div>
+            <h2>Section
+                <h3>Subsection</h3>
+            </h2>
+        </div>
+    """).strip()
 
     results = list(html_parser.parse(html))
 
@@ -769,9 +822,11 @@ def test_parent_scope_header_as_parent(html_parser):
 
 def test_get_attribute_boolean(html_parser):
     """Test extraction of boolean attributes (attributes without values)."""
-    html = """<ul disabled>
-    <li>Item</li>
-</ul>"""
+    html = dedent("""
+        <ul disabled>
+            <li>Item</li>
+        </ul>
+    """).strip()
 
     # Parse and check if it handles gracefully
     results = list(html_parser.parse(html))

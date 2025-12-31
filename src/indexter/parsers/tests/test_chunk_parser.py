@@ -117,7 +117,7 @@ def test_chunk_parser_line_counting_single_line():
 
     result = list(parser.parse(source))
 
-    content, metadata = result[0]
+    _, metadata = result[0]
     assert metadata["start_line"] == 1
     assert metadata["end_line"] == 1
 
@@ -150,12 +150,12 @@ def test_chunk_parser_line_counting_with_overlap():
     result = list(parser.parse(source))
 
     # First chunk: "Line 1\nLine 2\n"
-    content1, metadata1 = result[0]
+    _, metadata1 = result[0]
     assert metadata1["start_line"] == 1
     assert metadata1["end_line"] == 3  # Ends at start of Line 3
 
     # Second chunk starts at byte 10: "ine 2\nLine 3\nL"
-    content2, metadata2 = result[1]
+    _, metadata2 = result[1]
     assert metadata2["start_line"] == 2  # 1 newline before start
     assert metadata2["end_line"] == 4
 
@@ -168,7 +168,7 @@ def test_chunk_parser_last_chunk_smaller():
     result = list(parser.parse(source))
 
     assert len(result) == 2
-    content2, metadata2 = result[1]
+    content2, _ = result[1]
     assert content2 == "ABC"
     assert len(content2) == 3
 
@@ -183,7 +183,7 @@ def test_chunk_parser_overlap_larger_than_chunk():
     # Should still work, just creates overlapping chunks
     assert len(result) >= 1
     # First chunk should still be normal
-    content1, metadata1 = result[0]
+    content1, _ = result[0]
     assert content1 == "0123456789"
 
 
@@ -268,7 +268,7 @@ def test_chunk_parser_metadata_structure():
     source = "Test"
 
     result = list(parser.parse(source))
-    content, metadata = result[0]
+    _, metadata = result[0]
 
     # Check all required fields exist
     assert "language" in metadata

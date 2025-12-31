@@ -1,3 +1,5 @@
+"""Utility functions for Indexter."""
+
 import hashlib
 
 

@@ -1,5 +1,6 @@
 """Tests for the MarkdownParser."""
 
+from textwrap import dedent
 from unittest.mock import Mock, patch
 
 import pytest
@@ -16,48 +17,54 @@ def md_parser():
 @pytest.fixture
 def simple_markdown():
     """Sample markdown with simple headers."""
-    return """# Main Title
-
-This is the introduction.
-
-## Section 1
-
-Content of section 1.
-
-## Section 2
-
-Content of section 2."""
+    return dedent("""
+        # Main Title
+        
+        This is the introduction.
+        
+        ## Section 1
+        
+        Content of section 1.
+        
+        ## Section 2
+        
+        Content of section 2.
+    """).strip()
 
 
 @pytest.fixture
 def nested_markdown():
     """Sample markdown with nested headers."""
-    return """# Chapter 1
-
-Intro to chapter 1.
-
-## Section 1.1
-
-Content of section 1.1.
-
-### Subsection 1.1.1
-
-Detailed content.
-
-## Section 1.2
-
-Content of section 1.2."""
+    return dedent("""
+        # Chapter 1
+        
+        Intro to chapter 1.
+        
+        ## Section 1.1
+        
+        Content of section 1.1.
+        
+        ### Subsection 1.1.1
+        
+        Detailed content.
+        
+        ## Section 1.2
+        
+        Content of section 1.2.
+    """).strip()
 
 
 @pytest.fixture
 def all_levels_markdown():
     """Sample markdown with all header levels."""
-    return """# Level 1
-## Level 2
-### Level 3
-#### Level 4
-##### Level 5
-###### Level 6"""
+    return dedent("""
+        # Level 1
+        ## Level 2
+        ### Level 3
+        #### Level 4
+        ##### Level 5
+        ###### Level 6
+    """).strip()
 
 
 def test_parser_initialization(md_parser):
@@ -155,9 +162,11 @@ def test_parse_empty_markdown(md_parser):
 
 def test_parse_no_headers(md_parser):
     """Test parsing markdown without headers."""
-    markdown = """This is just plain text.
-No headers here.
-Just content."""
+    markdown = dedent("""
+        This is just plain text.
+        No headers here.
+        Just content.
+    """).strip()
     results = list(md_parser.parse(markdown))
     assert len(results) == 0
 
@@ -173,8 +182,10 @@ def test_header_with_trailing_spaces(md_parser):
 
 def test_header_requires_space_after_hash(md_parser):
     """Test that headers require a space after the # symbol."""
-    markdown = """#NoSpace
-# With Space"""
+    markdown = dedent("""
+        #NoSpace
+        # With Space
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # Only "With Space" should be parsed as a header
@@ -184,14 +195,16 @@ def test_header_requires_space_after_hash(md_parser):
 
 def test_section_content_extraction(md_parser):
     """Test that section content is correctly extracted."""
-    markdown = """# Header 1
+    markdown = dedent("""
+        # Header 1
 
-Some content.
-More content.
+        Some content.
+        More content.
 
-## Header 2
+        ## Header 2
 
-Different content."""
+        Different content.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # First section includes everything until EOF (no same or higher level header)
@@ -211,13 +224,15 @@ Different content."""
 
 def test_byte_positions(md_parser):
     """Test that byte positions are calculated correctly."""
-    markdown = """# First
+    markdown = dedent("""
+        # First
 
-Content.
+        Content.
 
-## Second
+        ## Second
 
-More."""
+        More.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # Each section should have valid byte positions
@@ -229,9 +244,11 @@ More."""
 
 def test_line_numbers(md_parser):
     """Test that line numbers are 1-based and correct."""
-    markdown = """# Line 1
-## Line 2
-### Line 3"""
+    markdown = dedent("""
+        # Line 1
+        ## Line 2
+        ### Line 3
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert results[0][1]["start_line"] == 1
@@ -241,15 +258,17 @@ def test_line_numbers(md_parser):
 
 def test_end_line_calculation(md_parser):
     """Test that end_line is correctly calculated."""
-    markdown = """# Header 1
+    markdown = dedent("""
+        # Header 1
 
-Line 2
-Line 3
-Line 4
+        Line 2
+        Line 3
+        Line 4
 
-## Header 2
+        ## Header 2
 
-Line 8"""
+        Line 8
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # First section continues to EOF (no same or higher level header)
@@ -293,9 +312,11 @@ def test_extra_is_empty_dict(md_parser, simple_markdown):
 
 def test_headers_with_special_characters(md_parser):
     """Test parsing headers with special characters."""
-    markdown = """# Header with 123 numbers
-## Header with symbols: @#$%
-### Header with émojis 🎉"""
+    markdown = dedent("""
+        # Header with 123 numbers
+        ## Header with symbols: @#$%
+        ### Header with émojis 🎉
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert len(results) == 3
@@ -306,17 +327,19 @@ def test_headers_with_special_characters(md_parser):
 
 def test_multiple_same_level_headers(md_parser):
     """Test parsing multiple headers of the same level."""
-    markdown = """## Section A
+    markdown = dedent("""
+        ## Section A
 
-Content A.
+        Content A.
 
-## Section B
+        ## Section B
 
-Content B.
+        Content B.
 
-## Section C
+        ## Section C
 
-Content C."""
+        Content C.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert len(results) == 3
@@ -326,13 +349,15 @@ Content C."""
 
 def test_deep_nesting(md_parser):
     """Test deeply nested headers."""
-    markdown = """# Level 1
-## Level 2
-### Level 3
-#### Level 4
-##### Level 5
-###### Level 6
-##### Back to Level 5"""
+    markdown = dedent("""
+        # Level 1
+        ## Level 2
+        ### Level 3
+        #### Level 4
+        ##### Level 5
+        ###### Level 6
+        ##### Back to Level 5
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert len(results) == 7
@@ -360,14 +385,15 @@ def test_header_at_end_of_file(md_parser):
 
 def test_whitespace_between_sections(md_parser):
     """Test handling of whitespace between sections."""
-    markdown = """# Header 1
+    markdown = dedent("""
+        # Header 1
 
 
 
-## Header 2
+        ## Header 2
 
 
-"""
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert len(results) == 2
@@ -381,16 +407,18 @@ def test_whitespace_between_sections(md_parser):
 
 def test_content_with_code_blocks(md_parser):
     """Test that code blocks are not specially handled by the parser."""
-    markdown = """# Main Header
+    markdown = dedent("""
+        # Main Header
 
-```
-# This is not a header
-## Neither is this
-```
+        ```
+        # This is not a header
+        ## Neither is this
+        ```
 
-## Real Header
+        ## Real Header
 
-Content."""
+        Content.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # Parser doesn't understand code blocks, so it finds headers inside them
@@ -404,12 +432,14 @@ Content."""
 
 def test_inline_hashes_not_headers(md_parser):
     """Test that # symbols not at line start are not headers."""
-    markdown = """# Real Header
+    markdown = dedent("""
+        # Real Header
 
-This has a # symbol in the middle.
-And another #hashtag here.
+        This has a # symbol in the middle.
+        And another #hashtag here.
 
-## Another Real Header"""
+        ## Another Real Header
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert len(results) == 2
@@ -428,11 +458,13 @@ def test_multiple_spaces_after_hash(md_parser):
 
 def test_header_level_determines_hierarchy(md_parser):
     """Test that header level correctly determines parent scope."""
-    markdown = """# Top
-### Skip Level 2
-## Back to Level 2
-#### Deep
-# New Top"""
+    markdown = dedent("""
+        # Top
+        ### Skip Level 2
+        ## Back to Level 2
+        #### Deep
+        # New Top
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert len(results) == 5
@@ -452,13 +484,15 @@ def test_header_level_determines_hierarchy(md_parser):
 
 def test_unicode_content(md_parser):
     """Test parsing markdown with unicode content."""
-    markdown = """# Ünïcödé Héädér
+    markdown = dedent("""
+        # Ünïcödé Héädér
 
-Some content with émojis 🎉🎊.
+        Some content with émojis 🎉🎊.
 
-## 中文标题
+        ## 中文标题
 
-More content."""
+        More content.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     assert len(results) == 2
@@ -468,9 +502,11 @@ More content."""
 
 def test_empty_header_name(md_parser):
     """Test that headers must have content after the hash."""
-    markdown = """#
-# Valid Header
-##"""
+    markdown = dedent("""
+        #
+        # Valid Header
+        ##
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # Headers without text should not match (need space + text)
@@ -481,13 +517,15 @@ def test_empty_header_name(md_parser):
 
 def test_section_ends_before_same_level_header(md_parser):
     """Test that a section ends when a header of same level appears."""
-    markdown = """## Section 1
+    markdown = dedent("""
+        ## Section 1
 
-Content 1.
+        Content 1.
 
-## Section 2
+        ## Section 2
 
-Content 2."""
+        Content 2.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     content1 = results[0][0]
@@ -498,13 +536,15 @@ Content 2."""
 
 def test_section_ends_before_higher_level_header(md_parser):
     """Test that a section ends when a higher-level header appears."""
-    markdown = """### Level 3
+    markdown = dedent("""
+        ### Level 3
 
-Content.
+        Content.
 
-## Level 2
+        ## Level 2
 
-More content."""
+        More content.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     content1 = results[0][0]
@@ -515,17 +555,19 @@ More content."""
 
 def test_section_continues_through_lower_level_headers(md_parser):
     """Test that a section includes all lower-level headers."""
-    markdown = """# Main
+    markdown = dedent("""
+        # Main
 
-Intro.
+        Intro.
 
-## Subsection
+        ## Subsection
 
-Details.
+        Details.
 
-### Sub-subsection
+        ### Sub-subsection
 
-More details."""
+        More details.
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # The main section should continue until EOF (no higher or same level header)
@@ -537,9 +579,11 @@ More details."""
 
 def test_parent_scope_with_gaps_in_levels(md_parser):
     """Test parent scope when there are gaps in header levels."""
-    markdown = """# Level 1
-#### Level 4 (skipped 2 and 3)
-## Level 2"""
+    markdown = dedent("""
+        # Level 1
+        #### Level 4 (skipped 2 and 3)
+        ## Level 2
+    """).strip()
     results = list(md_parser.parse(markdown))
 
     # Level 4 should still have Level 1 as parent (most recent lower level)

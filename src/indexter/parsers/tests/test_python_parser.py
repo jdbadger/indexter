@@ -1,5 +1,6 @@
 """Tests for the PythonParser."""
 
+from textwrap import dedent
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,64 +17,88 @@ def py_parser():
 @pytest.fixture
 def simple_function():
     """Sample Python with a simple function."""
-    return """def greet(name):
-    \"\"\"Say hello to someone.\"\"\"
-    return f"Hello, {name}!"
-"""
+    return (
+        dedent("""
+        def greet(name):
+            \"\"\"Say hello to someone.\"\"\"
+            return f"Hello, {name}!"
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def simple_class():
     """Sample Python with a simple class."""
-    return """class Person:
-    \"\"\"A person class.\"\"\"
-    
-    def __init__(self, name):
-        self.name = name
-    
-    def greet(self):
-        return f"Hello, I'm {self.name}"
-"""
+    return (
+        dedent("""
+        class Person:
+            \"\"\"A person class.\"\"\"
+            
+            def __init__(self, name):
+                self.name = name
+            
+            def greet(self):
+                return f"Hello, I'm {self.name}"
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def async_function():
     """Sample Python with an async function."""
-    return """async def fetch_data(url):
-    \"\"\"Fetch data from a URL.\"\"\"
-    return await client.get(url)
-"""
+    return (
+        dedent("""
+        async def fetch_data(url):
+            \"\"\"Fetch data from a URL.\"\"\"
+            return await client.get(url)
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def decorated_function():
     """Sample Python with decorated function."""
-    return """@decorator
-@another_decorator
-def decorated_func():
-    \"\"\"A decorated function.\"\"\"
-    pass
-"""
+    return (
+        dedent("""
+        @decorator
+        @another_decorator
+        def decorated_func():
+            \"\"\"A decorated function.\"\"\"
+            pass
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def constants():
     """Sample Python with constants."""
-    return """MAX_SIZE = 100
-MIN_SIZE = 10
-API_KEY = "secret"
-normalVar = "not a constant"
-"""
+    return (
+        dedent("""
+        MAX_SIZE = 100
+        MIN_SIZE = 10
+        API_KEY = "secret"
+        normalVar = "not a constant"
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def imports():
     """Sample Python with imports."""
-    return """import os
-import sys
-from pathlib import Path
-from typing import List, Dict
-"""
+    return (
+        dedent("""
+        import os
+        import sys
+        from pathlib import Path
+        from typing import List, Dict
+    """).strip()
+        + "\n"
+    )
 
 
 def test_parser_initialization(py_parser):
@@ -297,18 +322,20 @@ def test_parse_empty_python(py_parser):
 
 def test_parse_comments_only(py_parser):
     """Test parsing Python with only comments."""
-    code = """# This is a comment
-# Another comment
-"""
+    code = dedent("""
+        # This is a comment
+        # Another comment
+    """).strip()
     results = list(py_parser.parse(code))
     assert len(results) == 0
 
 
 def test_parse_function_without_docstring(py_parser):
     """Test parsing function without docstring."""
-    code = """def simple():
-    pass
-"""
+    code = dedent("""
+        def simple():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert len(results) == 1
     assert results[0][1]["documentation"] is None
@@ -316,9 +343,10 @@ def test_parse_function_without_docstring(py_parser):
 
 def test_parse_class_without_docstring(py_parser):
     """Test parsing class without docstring."""
-    code = """class Simple:
-    pass
-"""
+    code = dedent("""
+        class Simple:
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert len(results) == 1
     assert results[0][1]["documentation"] is None
@@ -326,11 +354,12 @@ def test_parse_class_without_docstring(py_parser):
 
 def test_parse_nested_function(py_parser):
     """Test parsing nested function."""
-    code = """def outer():
-    def inner():
-        return 42
-    return inner()
-"""
+    code = dedent("""
+        def outer():
+            def inner():
+                return 42
+            return inner()
+    """).strip()
     results = list(py_parser.parse(code))
     # Should find both outer and inner
     assert len(results) == 2
@@ -341,10 +370,11 @@ def test_parse_nested_function(py_parser):
 
 def test_parse_nested_class(py_parser):
     """Test parsing nested class."""
-    code = """class Outer:
-    class Inner:
-        pass
-"""
+    code = dedent("""
+        class Outer:
+            class Inner:
+                pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert len(results) == 2
     names = [r[1]["node_name"] for r in results]
@@ -354,9 +384,10 @@ def test_parse_nested_class(py_parser):
 
 def test_signature_extraction(py_parser):
     """Test signature extraction for functions."""
-    code = """def func(a, b, c=10):
-    pass
-"""
+    code = dedent("""
+        def func(a, b, c=10):
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     signature = results[0][1]["signature"]
     assert signature == "def func(a, b, c=10)"
@@ -364,9 +395,10 @@ def test_signature_extraction(py_parser):
 
 def test_signature_with_type_hints(py_parser):
     """Test signature extraction with type hints."""
-    code = """def typed_func(name: str, age: int) -> str:
-    return name
-"""
+    code = dedent("""
+        def typed_func(name: str, age: int) -> str:
+            return name
+    """).strip()
     results = list(py_parser.parse(code))
     signature = results[0][1]["signature"]
     assert "name: str" in signature
@@ -376,12 +408,13 @@ def test_signature_with_type_hints(py_parser):
 
 def test_byte_positions(py_parser):
     """Test byte position tracking."""
-    code = """def first():
-    pass
-
-def second():
-    pass
-"""
+    code = dedent("""
+        def first():
+            pass
+        
+        def second():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     for _, info in results:
@@ -391,12 +424,13 @@ def second():
 
 def test_line_numbers(py_parser):
     """Test line number tracking (1-based)."""
-    code = """def func1():
-    pass
-
-def func2():
-    pass
-"""
+    code = dedent("""
+        def func1():
+            pass
+        
+        def func2():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     assert results[0][1]["start_line"] == 1
@@ -405,10 +439,11 @@ def func2():
 
 def test_parent_scope_nested_method(py_parser):
     """Test parent scope for nested class methods."""
-    code = """class Outer:
-    def method(self):
-        pass
-"""
+    code = dedent("""
+        class Outer:
+            def method(self):
+                pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     method = [r for r in results if r[1]["node_name"] == "method"][0]
@@ -417,21 +452,23 @@ def test_parent_scope_nested_method(py_parser):
 
 def test_parent_scope_no_class(py_parser):
     """Test parent scope for top-level function."""
-    code = """def standalone():
-    pass
-"""
+    code = dedent("""
+        def standalone():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert results[0][1]["parent_scope"] is None
 
 
 def test_decorators_multiple(py_parser):
     """Test extraction of multiple decorators."""
-    code = """@deco1
-@deco2
-@deco3
-def func():
-    pass
-"""
+    code = dedent("""
+        @deco1
+        @deco2
+        @deco3
+        def func():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     decorators = results[0][1]["extra"]["decorators"]
     assert "@deco1" in decorators
@@ -441,11 +478,12 @@ def func():
 
 def test_decorators_with_arguments(py_parser):
     """Test decorators with arguments."""
-    code = """@app.route('/home')
-@login_required
-def home():
-    pass
-"""
+    code = dedent("""
+        @app.route('/home')
+        @login_required
+        def home():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     decorators = results[0][1]["extra"]["decorators"]
     assert "@app.route('/home')" in decorators
@@ -454,10 +492,11 @@ def home():
 
 def test_async_decorated_function(py_parser):
     """Test async function with decorators."""
-    code = """@decorator
-async def async_decorated():
-    pass
-"""
+    code = dedent("""
+        @decorator
+        async def async_decorated():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     assert len(results) == 1
@@ -468,10 +507,11 @@ async def async_decorated():
 
 def test_class_with_inheritance(py_parser):
     """Test class with base classes."""
-    code = """class Child(Parent1, Parent2):
-    '''A child class.'''
-    pass
-"""
+    code = dedent("""
+        class Child(Parent1, Parent2):
+            '''A child class.'''
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     assert len(results) == 1
@@ -481,11 +521,12 @@ def test_class_with_inheritance(py_parser):
 
 def test_staticmethod_decorator(py_parser):
     """Test staticmethod decorator."""
-    code = """class MyClass:
-    @staticmethod
-    def static_method():
-        pass
-"""
+    code = dedent("""
+        class MyClass:
+            @staticmethod
+            def static_method():
+                pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     method_results = [r for r in results if r[1]["node_type"] == "method"]
@@ -495,11 +536,12 @@ def test_staticmethod_decorator(py_parser):
 
 def test_classmethod_decorator(py_parser):
     """Test classmethod decorator."""
-    code = """class MyClass:
-    @classmethod
-    def class_method(cls):
-        pass
-"""
+    code = dedent("""
+        class MyClass:
+            @classmethod
+            def class_method(cls):
+                pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     method_results = [r for r in results if r[1]["node_type"] == "method"]
@@ -509,11 +551,12 @@ def test_classmethod_decorator(py_parser):
 
 def test_property_decorator(py_parser):
     """Test property decorator."""
-    code = """class MyClass:
-    @property
-    def value(self):
-        return self._value
-"""
+    code = dedent("""
+        class MyClass:
+            @property
+            def value(self):
+                return self._value
+    """).strip()
     results = list(py_parser.parse(code))
 
     method_results = [r for r in results if r[1]["node_type"] == "method"]
@@ -523,13 +566,14 @@ def test_property_decorator(py_parser):
 
 def test_multiline_docstring(py_parser):
     """Test multiline docstring."""
-    code = '''def func():
-    """
-    This is a multiline
-    docstring.
-    """
-    pass
-'''
+    code = dedent('''
+        def func():
+            """
+            This is a multiline
+            docstring.
+            """
+            pass
+    ''').strip()
     results = list(py_parser.parse(code))
     assert len(results) == 1
     # Docstring should be extracted (may have whitespace)
@@ -538,10 +582,11 @@ def test_multiline_docstring(py_parser):
 
 def test_expression_statement_docstring(py_parser):
     """Test docstring wrapped in expression_statement."""
-    code = """def func():
-    "Docstring as expression."
-    pass
-"""
+    code = dedent("""
+        def func():
+            "Docstring as expression."
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert results[0][1]["documentation"] == "Docstring as expression."
 
@@ -550,10 +595,11 @@ def test_direct_string_literal_docstring(py_parser):
     """Test docstring as direct string literal (not in expression_statement)."""
     # Note: In Python, docstrings are typically wrapped in expression_statement
     # but tree-sitter might parse them differently in edge cases
-    code = '''class Test:
-    """Class docstring."""
-    pass
-'''
+    code = dedent('''
+        class Test:
+            """Class docstring."""
+            pass
+    ''').strip()
     results = list(py_parser.parse(code))
     # This should extract the docstring
     assert results[0][1]["documentation"] == "Class docstring."
@@ -561,18 +607,20 @@ def test_direct_string_literal_docstring(py_parser):
 
 def test_no_decorators_for_non_decorated(py_parser):
     """Test that non-decorated functions have empty decorators."""
-    code = """def simple():
-    pass
-"""
+    code = dedent("""
+        def simple():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert results[0][1]["extra"]["decorators"] == ""
 
 
 def test_is_async_false_for_sync(py_parser):
     """Test is_async is false for sync functions."""
-    code = """def sync_func():
-    pass
-"""
+    code = dedent("""
+        def sync_func():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert results[0][1]["extra"]["is_async"] == "false"
 
@@ -602,11 +650,12 @@ def test_get_content(py_parser):
 
 def test_get_parent_scope_nested_class(py_parser):
     """Test _get_parent_scope finds enclosing class."""
-    code = """class Outer:
-    class Inner:
-        def method(self):
-            pass
-"""
+    code = dedent("""
+        class Outer:
+            class Inner:
+                def method(self):
+                    pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     # Method should have Inner as parent
@@ -625,8 +674,7 @@ def test_get_signature_returns_none_for_class(py_parser):
 
 def test_parse_lambda_not_captured(py_parser):
     """Test that lambda functions are not captured."""
-    code = """x = lambda a: a + 1
-"""
+    code = """x = lambda a: a + 1"""
     results = list(py_parser.parse(code))
     # Should not capture lambda, only module-level constants
     # x is lowercase, so not a constant
@@ -635,15 +683,16 @@ def test_parse_lambda_not_captured(py_parser):
 
 def test_parse_multiple_classes(py_parser):
     """Test parsing multiple classes."""
-    code = """class First:
-    pass
-
-class Second:
-    pass
-
-class Third:
-    pass
-"""
+    code = dedent("""
+        class First:
+            pass
+        
+        class Second:
+            pass
+        
+        class Third:
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     class_results = [r for r in results if r[1]["node_type"] == "class"]
@@ -657,11 +706,12 @@ class Third:
 
 def test_parse_decorated_class(py_parser):
     """Test parsing decorated class."""
-    code = """@dataclass
-class Person:
-    name: str
-    age: int
-"""
+    code = dedent("""
+        @dataclass
+        class Person:
+            name: str
+            age: int
+    """).strip()
     results = list(py_parser.parse(code))
 
     assert len(results) == 1
@@ -671,8 +721,7 @@ class Person:
 
 def test_import_from_without_module(py_parser):
     """Test import from statement without module name."""
-    code = """from . import something
-"""
+    code = """from . import something"""
     results = list(py_parser.parse(code))
     # This should be handled gracefully
     assert len(results) >= 0
@@ -685,15 +734,16 @@ def test_language_property(py_parser):
 
 def test_all_results_have_required_fields(py_parser):
     """Test that all parsed results have required fields."""
-    code = """def func():
-    pass
-
-class MyClass:
-    def method(self):
-        pass
-
-MAX_SIZE = 100
-"""
+    code = dedent("""
+        def func():
+            pass
+        
+        class MyClass:
+            def method(self):
+                pass
+        
+        MAX_SIZE = 100
+    """).strip()
     results = list(py_parser.parse(code))
 
     required_fields = [
@@ -717,9 +767,10 @@ MAX_SIZE = 100
 
 def test_extra_always_has_decorators_and_is_async(py_parser):
     """Test that extra always contains decorators and is_async."""
-    code = """def func():
-    pass
-"""
+    code = dedent("""
+        def func():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
 
     extra = results[0][1]["extra"]
@@ -736,10 +787,15 @@ def test_process_match_no_def_nodes(py_parser):
 
 def test_process_match_skips_decorated_inner(py_parser):
     """Test that process_match skips function inside decorated_definition."""
-    code = b"""@decorator
-def func():
-    pass
-"""
+    code = (
+        dedent("""
+        @decorator
+        def func():
+            pass
+    """)
+        .strip()
+        .encode()
+    )
     # Parse to verify behavior - the decorated_definition captures the whole thing
     results = list(py_parser.parse(code.decode()))
     # Should only get one result (the decorated definition, not the inner function separately)
@@ -793,10 +849,11 @@ def test_get_documentation_expression_statement_with_string(py_parser):
 
 def test_is_async_for_decorated_async(py_parser):
     """Test _is_async for decorated async function."""
-    code = """@decorator
-async def func():
-    pass
-"""
+    code = dedent("""
+        @decorator
+        async def func():
+            pass
+    """).strip()
     results = list(py_parser.parse(code))
     assert results[0][1]["extra"]["is_async"] == "true"
 
@@ -841,8 +898,7 @@ def test_get_signature_no_body(py_parser):
 
 def test_import_from_relative(py_parser):
     """Test import from with relative import."""
-    code = """from ..parent import module
-"""
+    code = """from ..parent import module"""
     results = list(py_parser.parse(code))
     # Should handle relative imports
     assert len(results) >= 0

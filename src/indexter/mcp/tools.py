@@ -1,14 +1,11 @@
-"""MCP tool implementations for indexter.
+"""
+MCP tool implementations for Indexter.
 
 Tools perform actions and can mutate state.
 """
 
-from indexter.config.mcp import MCPSettings
 from indexter.exceptions import RepoNotFoundError
 from indexter.models import IndexResult, Repo
-
-# Load settings at module level
-settings = MCPSettings()
 
 
 async def index_repo(name: str, full: bool = False) -> dict:
@@ -41,7 +38,6 @@ async def index_repo(name: str, full: bool = False) -> dict:
 async def search_repo(
     name: str,
     query: str,
-    limit: int | None = None,
     file_path: str | None = None,
     language: str | None = None,
     node_type: str | None = None,
@@ -57,7 +53,6 @@ async def search_repo(
     Args:
         name: The repository name.
         query: Natural language search query.
-        limit: Maximum results to return (default from settings).
         file_path: Filter by file path (exact match or prefix with trailing /).
         language: Filter by programming language (e.g., 'python', 'javascript').
         node_type: Filter by node type (e.g., 'function', 'class', 'method').
@@ -70,9 +65,10 @@ async def search_repo(
     """
     try:
         repo = await Repo.get(name)
+        limit = repo.settings.top_k if repo.settings else 20
         results = await repo.search(
             query=query,
-            limit=limit or settings.default_top_k,
+            limit=limit,
             file_path=file_path,
             language=language,
             node_type=node_type,

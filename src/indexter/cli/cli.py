@@ -1,4 +1,31 @@
-"""Main CLI app and commands."""
+"""
+Main CLI application and command definitions.
+
+This module provides the main entry point for the Indexter CLI application,
+which enables semantic code context retrieval for AI agents via RAG (Retrieval
+Augmented Generation). It includes commands for initializing repositories,
+indexing code, searching indexed content, and managing repository status.
+
+The CLI is built using Typer for command-line parsing and Rich for enhanced
+terminal output with colors, tables, and progress indicators.
+
+Typical usage:
+    $ indexter init /path/to/repo
+    $ indexter index repo-name
+    $ indexter search "query" repo-name
+    $ indexter status
+"""
+
+# NOTE: This file uses 'cast' from typing to help with type checking of anyio.run()
+# anyio.run() is typed as returning T | None, but in practice, the functions it calls
+# always return a value of type T or raise an exception. To satisfy the type checker, we use
+# cast() to assert the expected return type. This does not affect runtime behavior, only
+# static type checking.
+#
+# e.g.:
+# repo = cast(Repo, anyio.run(Repo.init, repo_path.resolve()))
+#
+# This tells the type checker that we expect Repo.init to return a Repo instance.
 
 import logging
 from pathlib import Path
@@ -12,8 +39,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from indexter import __version__
-from indexter.config import settings
-from indexter.exceptions import InvalidGitRepositoryError, RepoExistsError, RepoNotFoundError
+from indexter.exceptions import RepoExistsError, RepoNotFoundError
 from indexter.models import IndexResult, Repo
 
 from .config import config_app
@@ -26,31 +52,25 @@ app = typer.Typer(
 )
 app.add_typer(config_app, name="config")
 
+
 console = Console()
 
 
 def version_callback(value: bool) -> None:
-    """Print version and exit."""
+    """Print the application version and exit.
+
+    This callback is triggered when the --version flag is used. It displays
+    the current version of Indexter and exits the application.
+
+    Args:
+        value: If True, print the version and exit. If False, do nothing.
+
+    Raises:
+        typer.Exit: Always raised when value is True to exit the application.
+    """
     if value:
         console.print(f"indexter {__version__}")
         raise typer.Exit()
-
-
-def setup_logging(verbose: bool = False) -> None:
-    """Set up logging with rich handler."""
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        handlers=[RichHandler(console=console, show_time=False, show_path=False)],
-    )
-
-
-def setup_global_config() -> None:
-    """Ensure global config file exists."""
-    if not settings.global_config_file.exists():
-        settings.create_global_config()
-        console.print(f"[dim]Created global config: {settings.global_config_file}[/dim]")
 
 
 @app.callback()
@@ -61,24 +81,61 @@ def main(
         typer.Option("--version", callback=version_callback, is_eager=True, help="Show version"),
     ] = None,
 ) -> None:
-    """indexter - Enhanced codebase context for AI agents via RAG."""
-    setup_global_config()
-    setup_logging(verbose)
+    """
+    Indexter - Semantic Code Context For Your LLM.
+
+    This is the main callback function for the CLI application. It sets up
+    logging configuration and handles global options like verbose output
+    and version display.
+
+    Args:
+        verbose: Enable verbose debug logging output. Defaults to False.
+        version: When provided, displays version and exits. This parameter
+            is handled by version_callback. Defaults to None.
+
+    Returns:
+        None: This function configures logging and does not return a value.
+    """
+    # Set up logging with rich handler
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_time=False, show_path=False)],
+    )
 
 
 @app.command()
 def init(
     repo_path: Annotated[Path, typer.Argument(help="Path to the git repository to index")],
 ) -> None:
-    """Initialize a git repository for indexing."""
+    """Initialize a git repository for indexing.
+
+    Registers a git repository with Indexter, preparing it for semantic indexing.
+    This command validates the repository path, creates necessary metadata, and
+    adds it to the list of managed repositories.
+
+    Args:
+        repo_path: Filesystem path to the git repository to initialize. The path
+            will be resolved to an absolute path.
+
+    Raises:
+        typer.Exit: Exits with code 1 if the repository already exists or if an
+            unexpected error occurs during initialization.
+
+    Examples:
+        $ indexter init /home/user/projects/myrepo
+        ✓ Added myrepo to indexter
+
+        Repository 'myrepo' initialized successfully!
+
+        Next steps:
+          1. Run indexter index myrepo to index the repository.
+          2. Use indexter search 'your query' myrepo to search the indexed code.
+    """
     try:
-        # anyio.run is typed as returning T | None, but Repo.init raises on error
-        # cast() is compile-time only and doesn't affect runtime exception handling
         repo = cast(Repo, anyio.run(Repo.init, repo_path.resolve()))
         console.print(f"[green]✓[/green] Added [bold]{repo.name}[/bold] to indexter")
-    except InvalidGitRepositoryError as e:
-        console.print(f"[red]✗[/red] {e}")
-        raise typer.Exit(1) from e
     except RepoExistsError as e:
         console.print(f"[red]✗[/red] {e}")
         raise typer.Exit(1) from e
@@ -109,11 +166,33 @@ def index(
         ),
     ] = False,
 ) -> None:
-    """
-    Sync a git repository to the vector store.
+    """Sync a git repository to the vector store.
 
-    If the repository is already indexed, only changed files are
-    synced unless '--full' is specified.
+    Indexes or updates the vector store with code from the specified repository.
+    By default, only changed files are synced for efficiency. Use --full to
+    force complete re-indexing of all files.
+
+    The command tracks added, updated, and deleted nodes, and reports any
+    errors encountered during the indexing process.
+
+    Args:
+        name: Name of the repository to index. Must be a repository previously
+            initialized with 'indexter init'.
+        full: If True, forces full re-indexing of all files in the repository,
+            ignoring incremental change detection. Defaults to False.
+
+    Raises:
+        typer.Exit: Exits with code 1 if the repository is not found or if an
+            unexpected error occurs.
+
+    Examples:
+        $ indexter index myrepo
+        ✓ myrepo: +15 ~3 -2 (5 files synced) (1 files deleted)
+        Indexing complete!
+
+        $ indexter index myrepo --full
+        ✓ myrepo: +150 ~0 -0 (50 files synced) (0 files deleted)
+        Indexing complete!
     """
     try:
         # anyio.run is typed as returning T | None, but Repo.get raises on error
@@ -180,7 +259,31 @@ def search(
         int, typer.Option("--limit", "-l", help="Number of results to return", show_default=True)
     ] = 10,
 ) -> None:
-    """Search indexed nodes in a repository."""
+    """Search indexed nodes in a repository.
+
+    Performs semantic search across the indexed codebase using vector similarity.
+    Returns the most relevant code snippets ranked by similarity score, displayed
+    in a formatted table with scores, content previews, and file paths.
+
+    Args:
+        query: Natural language search query describing the code you're looking for.
+        name: Name of the repository to search. Must be an indexed repository.
+        limit: Maximum number of search results to return. Defaults to 10.
+
+    Raises:
+        typer.Exit: Exits with code 1 if the repository is not found or if an
+            unexpected error occurs.
+
+    Examples:
+        $ indexter search "authentication middleware" myrepo
+        ┏━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+        ┃ Score ┃ Content          ┃ Document Path    ┃
+        ┡━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+        │ 0.856 │ def authenticate...│ src/auth/mid...  │
+        └───────┴──────────────────┴──────────────────┘
+
+        $ indexter search "error handling" myrepo --limit 5
+    """
     try:
         # anyio.run is typed as returning T | None, but Repo.get raises on error
         repo = cast(Repo, anyio.run(Repo.get, name))
@@ -222,7 +325,26 @@ def search(
 
 @app.command()
 def status() -> None:
-    """Show status of indexed repositories."""
+    """Show status of indexed repositories.
+
+    Displays a table of all repositories managed by Indexter, including their
+    paths, indexing statistics (nodes, files, stale files), and current status.
+    This helps track which repositories are indexed and identify those needing
+    updates.
+
+    Returns:
+        None: This function prints a formatted table to the console and does
+            not return a value.
+
+    Examples:
+        $ indexter status
+        ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━┓
+        ┃ Name    ┃ Path           ┃ Nodes ┃ Files ┃ Stale Files ┃
+        ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━┩
+        │ myrepo  │ /home/user/... │ 1250  │ 45    │ 2           │
+        │ webapp  │ /home/user/... │ 3420  │ 128   │ 0           │
+        └─────────┴────────────────┴───────┴───────┴─────────────┘
+    """
     # Repository status
     # anyio.run is typed as returning T | None, but Repo.list always returns a list
     repos = cast(list[Repo], anyio.run(Repo.list))
@@ -270,7 +392,24 @@ def status() -> None:
 def forget(
     name: Annotated[str, typer.Argument(help="Name of the repository to forget")],
 ) -> None:
-    """Forget a repository (remove from indexter and delete indexed data)."""
+    """Forget a repository (remove from indexter and delete indexed data).
+
+    Removes a repository from Indexter's management and deletes all associated
+    indexed data from the vector store. This operation cannot be undone. The
+    original repository files remain unchanged.
+
+    Args:
+        name: Name of the repository to remove. Must be a previously initialized
+            repository.
+
+    Raises:
+        typer.Exit: Exits with code 1 if the repository is not found or if an
+            unexpected error occurs during removal.
+
+    Examples:
+        $ indexter forget myrepo
+        ✓ Repository 'myrepo' is forgotten.
+    """
     try:
         anyio.run(Repo.remove, name)
     except RepoNotFoundError as e:

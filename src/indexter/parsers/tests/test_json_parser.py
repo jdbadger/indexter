@@ -1,6 +1,7 @@
 """Tests for the JsonParser."""
 
 import json
+from textwrap import dedent
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,15 +24,17 @@ def simple_object_json():
 @pytest.fixture
 def nested_object_json():
     """Sample JSON with nested objects."""
-    return """{
-  "user": {
-    "name": "Alice",
-    "address": {
-      "city": "NYC",
-      "zip": "10001"
-    }
-  }
-}"""
+    return dedent("""
+        {
+          "user": {
+            "name": "Alice",
+            "address": {
+              "city": "NYC",
+              "zip": "10001"
+            }
+          }
+        }
+    """).strip()
 
 
 @pytest.fixture
@@ -43,28 +46,32 @@ def array_json():
 @pytest.fixture
 def object_array_json():
     """Sample JSON with array of objects."""
-    return """[
-  {"id": 1, "name": "Item 1"},
-  {"id": 2, "name": "Item 2"}
-]"""
+    return dedent("""
+        [
+          {"id": 1, "name": "Item 1"},
+          {"id": 2, "name": "Item 2"}
+        ]
+    """).strip()
 
 
 @pytest.fixture
 def complex_json():
     """Sample JSON with complex nested structure."""
-    return """{
-  "users": [
-    {"id": 1, "name": "Alice"},
-    {"id": 2, "name": "Bob"}
-  ],
-  "settings": {
-    "theme": "dark",
-    "notifications": {
-      "email": true,
-      "push": false
-    }
-  }
-}"""
+    return dedent("""
+        {
+          "users": [
+            {"id": 1, "name": "Alice"},
+            {"id": 2, "name": "Bob"}
+          ],
+          "settings": {
+            "theme": "dark",
+            "notifications": {
+              "email": true,
+              "push": false
+            }
+          }
+        }
+    """).strip()
 
 
 def test_parser_initialization(json_parser):
@@ -265,9 +272,11 @@ def test_parse_nested_arrays(json_parser):
 
 def test_byte_and_line_positions(json_parser):
     """Test that byte and line positions are calculated."""
-    json_str = """{
-  "key": "value"
-}"""
+    json_str = dedent("""
+        {
+          "key": "value"
+        }
+    """).strip()
     results = list(json_parser.parse(json_str))
 
     assert len(results) == 1
@@ -315,17 +324,19 @@ def test_array_with_mixed_types(json_parser):
 
 def test_deeply_nested_structure(json_parser):
     """Test deeply nested JSON structure."""
-    json_str = """{
-  "level1": {
-    "level2": {
-      "level3": {
-        "level4": {
-          "value": "deep"
+    json_str = dedent("""
+        {
+          "level1": {
+            "level2": {
+              "level3": {
+                "level4": {
+                  "value": "deep"
+                }
+              }
+            }
+          }
         }
-      }
-    }
-  }
-}"""
+    """).strip()
     results = list(json_parser.parse(json_str))
 
     # Should yield all 5 nested objects
@@ -340,15 +351,17 @@ def test_deeply_nested_structure(json_parser):
 
 def test_object_with_array_containing_nested_objects(json_parser):
     """Test object containing array with nested objects."""
-    json_str = """{
-  "items": [
-    {
-      "nested": {
-        "value": 1
-      }
-    }
-  ]
-}"""
+    json_str = dedent("""
+        {
+          "items": [
+            {
+              "nested": {
+                "value": 1
+              }
+            }
+          ]
+        }
+    """).strip()
     results = list(json_parser.parse(json_str))
 
     # Should yield: root, items array, items[0] object, nested object
@@ -363,11 +376,13 @@ def test_object_with_array_containing_nested_objects(json_parser):
 
 def test_multiple_top_level_keys(json_parser):
     """Test object with multiple top-level keys containing nested structures."""
-    json_str = """{
-  "key1": {"nested": "value"},
-  "key2": [1, 2, 3],
-  "key3": {"another": "object"}
-}"""
+    json_str = dedent("""
+        {
+          "key1": {"nested": "value"},
+          "key2": [1, 2, 3],
+          "key3": {"another": "object"}
+        }
+    """).strip()
     results = list(json_parser.parse(json_str))
 
     # Should yield: root, key1 object, key2 array, key3 object
@@ -409,15 +424,17 @@ def test_language_is_always_json(json_parser):
 
 def test_path_construction(json_parser):
     """Test that path is correctly constructed for nested structures."""
-    json_str = """{
-  "a": {
-    "b": {
-      "c": [
-        {"d": "value"}
-      ]
-    }
-  }
-}"""
+    json_str = dedent("""
+        {
+          "a": {
+            "b": {
+              "c": [
+                {"d": "value"}
+              ]
+            }
+          }
+        }
+    """).strip()
     results = list(json_parser.parse(json_str))
 
     paths = [r[1]["extra"]["path"] for r in results]
@@ -431,13 +448,15 @@ def test_path_construction(json_parser):
 
 def test_parent_scope_tracking(json_parser):
     """Test that parent_scope is correctly tracked."""
-    json_str = """{
-  "parent": {
-    "child": {
-      "grandchild": {"nested": "value"}
-    }
-  }
-}"""
+    json_str = dedent("""
+        {
+          "parent": {
+            "child": {
+              "grandchild": {"nested": "value"}
+            }
+          }
+        }
+    """).strip()
     results = list(json_parser.parse(json_str))
 
     # root has no parent
@@ -464,11 +483,13 @@ def test_whitespace_handling(json_parser):
     results_compact = list(json_parser.parse(compact))
 
     # Pretty-printed JSON
-    pretty = """{
-  "a": {
-    "b": "c"
-  }
-}"""
+    pretty = dedent("""
+        {
+          "a": {
+            "b": "c"
+          }
+        }
+    """).strip()
     results_pretty = list(json_parser.parse(pretty))
 
     # Both should yield same structure (2 objects)
@@ -537,12 +558,14 @@ def test_array_index_tracking(json_parser):
 
 def test_mixed_nested_arrays_and_objects(json_parser):
     """Test complex mix of arrays and objects."""
-    json_str = """{
-  "data": [
-    [{"x": 1}],
-    {"y": [{"z": 2}]}
-  ]
-}"""
+    json_str = dedent("""
+        {
+          "data": [
+            [{"x": 1}],
+            {"y": [{"z": 2}]}
+          ]
+        }
+    """).strip()
     results = list(json_parser.parse(json_str))
 
     # Should yield multiple nodes

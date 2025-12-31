@@ -1,5 +1,6 @@
 """Tests for the RustParser."""
 
+from textwrap import dedent
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,118 +17,170 @@ def rust_parser():
 @pytest.fixture
 def simple_function():
     """Sample Rust with a simple function."""
-    return """fn greet(name: &str) -> String {
-    format!("Hello, {}", name)
-}
-"""
+    return (
+        dedent("""
+        fn greet(name: &str) -> String {
+            format!("Hello, {}", name)
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def simple_struct():
     """Sample Rust with a simple struct."""
-    return """/// A person struct
-struct Person {
-    name: String,
-    age: u32,
-}
-"""
+    return (
+        dedent("""
+        /// A person struct
+        struct Person {
+            name: String,
+            age: u32,
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def simple_enum():
     """Sample Rust with a simple enum."""
-    return """/// An option-like enum
-enum MyOption {
-    Some(i32),
-    None,
-}
-"""
+    return (
+        dedent("""
+        /// An option-like enum
+        enum MyOption {
+            Some(i32),
+            None,
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def simple_trait():
     """Sample Rust with a simple trait."""
-    return """/// A greeting trait
-trait Greet {
-    fn greet(&self) -> String;
-}
-"""
+    return (
+        dedent("""
+        /// A greeting trait
+        trait Greet {
+            fn greet(&self) -> String;
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def impl_block():
     """Sample Rust with an impl block."""
-    return """impl Person {
-    fn new(name: String, age: u32) -> Self {
-        Person { name, age }
-    }
-}
-"""
+    return (
+        dedent("""
+        impl Person {
+            fn new(name: String, age: u32) -> Self {
+                Person { name, age }
+            }
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def async_function():
     """Sample Rust with an async function."""
-    return """async fn fetch_data(url: &str) -> Result<String, Error> {
-    // implementation
-}
-"""
+    return (
+        dedent("""
+        async fn fetch_data(url: &str) -> Result<String, Error> {
+            // implementation
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def unsafe_function():
     """Sample Rust with an unsafe function."""
-    return """unsafe fn raw_ptr_deref(ptr: *const i32) -> i32 {
-    *ptr
-}
-"""
+    return (
+        dedent("""
+        unsafe fn raw_ptr_deref(ptr: *const i32) -> i32 {
+            *ptr
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def pub_function():
     """Sample Rust with a public function."""
-    return """pub fn public_api() -> i32 {
-    42
-}
-"""
+    return (
+        dedent("""
+        pub fn public_api() -> i32 {
+            42
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def constant():
     """Sample Rust with a constant."""
-    return """const MAX_SIZE: usize = 100;
-"""
+    return (
+        dedent("""
+        const MAX_SIZE: usize = 100;
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def static_var():
     """Sample Rust with a static variable."""
-    return """static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
-"""
+    return (
+        dedent("""
+        static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def type_alias():
     """Sample Rust with a type alias."""
-    return """type Result<T> = std::result::Result<T, Error>;
-"""
+    return (
+        dedent("""
+        type Result<T> = std::result::Result<T, Error>;
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def use_declaration():
     """Sample Rust with use declarations."""
-    return """use std::io::Read;
-use std::collections::HashMap as HMap;
-"""
+    return (
+        dedent("""
+        use std::io::Read;
+        use std::collections::HashMap as HMap;
+    """).strip()
+        + "\n"
+    )
 
 
 @pytest.fixture
 def module_decl():
     """Sample Rust with a module declaration."""
-    return """mod utils {
-    pub fn helper() {}
-}
-"""
+    return (
+        dedent("""
+        mod utils {
+            pub fn helper() {}
+        }
+    """).strip()
+        + "\n"
+    )
 
 
 def test_parser_initialization(rust_parser):
@@ -157,7 +210,7 @@ def test_parse_simple_function(rust_parser, simple_function):
     results = list(rust_parser.parse(simple_function))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "function"
     assert info["node_name"] == "greet"
@@ -173,7 +226,7 @@ def test_parse_simple_struct(rust_parser, simple_struct):
     results = list(rust_parser.parse(simple_struct))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "struct"
     assert info["node_name"] == "Person"
@@ -185,7 +238,7 @@ def test_parse_simple_enum(rust_parser, simple_enum):
     results = list(rust_parser.parse(simple_enum))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "enum"
     assert info["node_name"] == "MyOption"
@@ -227,7 +280,7 @@ def test_parse_async_function(rust_parser, async_function):
     results = list(rust_parser.parse(async_function))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_name"] == "fetch_data"
     assert info["extra"]["is_async"] == "true"
@@ -239,7 +292,7 @@ def test_parse_unsafe_function(rust_parser, unsafe_function):
     results = list(rust_parser.parse(unsafe_function))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_name"] == "raw_ptr_deref"
     assert info["extra"]["is_unsafe"] == "true"
@@ -251,7 +304,7 @@ def test_parse_pub_function(rust_parser, pub_function):
     results = list(rust_parser.parse(pub_function))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_name"] == "public_api"
     assert info["extra"]["is_pub"] == "true"
@@ -263,7 +316,7 @@ def test_parse_constant(rust_parser, constant):
     results = list(rust_parser.parse(constant))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "constant"
     assert info["node_name"] == "MAX_SIZE"
@@ -274,7 +327,7 @@ def test_parse_static_var(rust_parser, static_var):
     results = list(rust_parser.parse(static_var))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "static"
     assert info["node_name"] == "GLOBAL_COUNT"
@@ -285,7 +338,7 @@ def test_parse_type_alias(rust_parser, type_alias):
     results = list(rust_parser.parse(type_alias))
 
     assert len(results) == 1
-    content, info = results[0]
+    _, info = results[0]
 
     assert info["node_type"] == "type_alias"
     assert info["node_name"] == "Result"
@@ -324,19 +377,21 @@ def test_parse_empty_rust(rust_parser):
 
 def test_parse_comments_only(rust_parser):
     """Test parsing Rust with only comments."""
-    code = """// This is a comment
-// Another comment
-"""
+    code = dedent("""
+        // This is a comment
+        // Another comment
+    """).strip()
     results = list(rust_parser.parse(code))
     assert len(results) == 0
 
 
 def test_doc_comment_triple_slash(rust_parser):
     """Test triple slash doc comments."""
-    code = """/// This is a doc comment
-/// on multiple lines
-fn documented() {}
-"""
+    code = dedent("""
+        /// This is a doc comment
+        /// on multiple lines
+        fn documented() {}
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -347,12 +402,13 @@ fn documented() {}
 
 def test_doc_comment_block(rust_parser):
     """Test block doc comments."""
-    code = """/**
- * This is a block doc comment
- * with multiple lines
- */
-fn documented() {}
-"""
+    code = dedent("""
+        /**
+         * This is a block doc comment
+         * with multiple lines
+         */
+        fn documented() {}
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -363,10 +419,11 @@ fn documented() {}
 
 def test_inner_doc_comment(rust_parser):
     """Test inner doc comments (//!)."""
-    code = """//! Module level documentation
-//! More details
-fn func() {}
-"""
+    code = dedent("""
+        //! Module level documentation
+        //! More details
+        fn func() {}
+    """).strip()
     results = list(rust_parser.parse(code))
 
     # The function should be found
@@ -376,12 +433,13 @@ fn func() {}
 
 def test_attributes(rust_parser):
     """Test parsing attributes."""
-    code = """#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct Attributed {
-    field: i32,
-}
-"""
+    code = dedent("""
+        #[derive(Debug, Clone)]
+        #[allow(dead_code)]
+        struct Attributed {
+            field: i32,
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -392,10 +450,11 @@ struct Attributed {
 
 def test_trait_method_signature(rust_parser):
     """Test trait method signature extraction."""
-    code = """trait Display {
-    fn display(&self) -> String;
-}
-"""
+    code = dedent("""
+        trait Display {
+            fn display(&self) -> String;
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     # Should find trait and method
@@ -406,12 +465,13 @@ def test_trait_method_signature(rust_parser):
 
 def test_method_in_trait_impl(rust_parser):
     """Test method in trait impl."""
-    code = """impl Greet for Person {
-    fn greet(&self) -> String {
-        format!("Hi, {}", self.name)
-    }
-}
-"""
+    code = dedent("""
+        impl Greet for Person {
+            fn greet(&self) -> String {
+                format!("Hi, {}", self.name)
+            }
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     # Should find impl and method
@@ -423,10 +483,11 @@ def test_method_in_trait_impl(rust_parser):
 
 def test_async_unsafe_function(rust_parser):
     """Test function that is both async and unsafe."""
-    code = """async unsafe fn dangerous_async() {
-    // implementation
-}
-"""
+    code = dedent("""
+        async unsafe fn dangerous_async() {
+            // implementation
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -437,10 +498,11 @@ def test_async_unsafe_function(rust_parser):
 
 def test_pub_async_function(rust_parser):
     """Test public async function."""
-    code = """pub async fn public_async() -> Result<()> {
-    Ok(())
-}
-"""
+    code = dedent("""
+        pub async fn public_async() -> Result<()> {
+            Ok(())
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -451,10 +513,11 @@ def test_pub_async_function(rust_parser):
 
 def test_generic_function(rust_parser):
     """Test parsing generic function."""
-    code = """fn generic<T>(value: T) -> T {
-    value
-}
-"""
+    code = dedent("""
+        fn generic<T>(value: T) -> T {
+            value
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -464,10 +527,11 @@ def test_generic_function(rust_parser):
 
 def test_generic_struct(rust_parser):
     """Test parsing generic struct."""
-    code = """struct Container<T> {
-    value: T,
-}
-"""
+    code = dedent("""
+        struct Container<T> {
+            value: T,
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -476,10 +540,11 @@ def test_generic_struct(rust_parser):
 
 def test_lifetime_annotations(rust_parser):
     """Test parsing with lifetime annotations."""
-    code = """fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
-    if x.len() > y.len() { x } else { y }
-}
-"""
+    code = dedent("""
+        fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+            if x.len() > y.len() { x } else { y }
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -489,13 +554,14 @@ def test_lifetime_annotations(rust_parser):
 
 def test_where_clause(rust_parser):
     """Test parsing function with where clause."""
-    code = """fn process<T>(item: T)
-where
-    T: Clone + Debug,
-{
-    // implementation
-}
-"""
+    code = dedent("""
+        fn process<T>(item: T)
+        where
+            T: Clone + Debug,
+        {
+            // implementation
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -504,16 +570,17 @@ where
 
 def test_multiple_structs(rust_parser):
     """Test parsing multiple structs."""
-    code = """struct First {
-    a: i32,
-}
+    code = dedent("""
+        struct First {
+            a: i32,
+        }
 
-struct Second {
-    b: String,
-}
+        struct Second {
+            b: String,
+        }
 
-struct Third;
-"""
+        struct Third;
+    """).strip()
     results = list(rust_parser.parse(code))
 
     struct_results = [r for r in results if r[1]["node_type"] == "struct"]
@@ -527,8 +594,9 @@ struct Third;
 
 def test_tuple_struct(rust_parser):
     """Test parsing tuple struct."""
-    code = """struct Point(i32, i32);
-"""
+    code = dedent("""
+        struct Point(i32, i32);
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -538,13 +606,14 @@ def test_tuple_struct(rust_parser):
 
 def test_enum_with_variants(rust_parser):
     """Test parsing enum with various variant types."""
-    code = """enum Message {
-    Quit,
-    Move { x: i32, y: i32 },
-    Write(String),
-    ChangeColor(i32, i32, i32),
-}
-"""
+    code = dedent("""
+        enum Message {
+            Quit,
+            Move { x: i32, y: i32 },
+            Write(String),
+            ChangeColor(i32, i32, i32),
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert len(results) == 1
@@ -554,8 +623,9 @@ def test_enum_with_variants(rust_parser):
 
 def test_unsafe_impl(rust_parser):
     """Test parsing unsafe impl."""
-    code = """unsafe impl Send for MyType {}
-"""
+    code = dedent("""
+        unsafe impl Send for MyType {}
+    """).strip()
     results = list(rust_parser.parse(code))
 
     impl_results = [r for r in results if r[1]["node_type"] == "impl"]
@@ -565,10 +635,11 @@ def test_unsafe_impl(rust_parser):
 
 def test_unsafe_trait(rust_parser):
     """Test parsing unsafe trait."""
-    code = """unsafe trait UnsafeTrait {
-    fn unsafe_method(&self);
-}
-"""
+    code = dedent("""
+        unsafe trait UnsafeTrait {
+            fn unsafe_method(&self);
+        }
+    """).strip()
     results = list(rust_parser.parse(code))
 
     trait_results = [r for r in results if r[1]["node_type"] == "trait"]
@@ -578,10 +649,11 @@ def test_unsafe_trait(rust_parser):
 
 def test_byte_positions(rust_parser):
     """Test byte position tracking."""
-    code = """fn first() {}
+    code = dedent("""
+        fn first() {}
 
-fn second() {}
-"""
+        fn second() {}
+    """).strip()
     results = list(rust_parser.parse(code))
 
     for _, info in results:
@@ -591,10 +663,11 @@ fn second() {}
 
 def test_line_numbers(rust_parser):
     """Test line number tracking (1-based)."""
-    code = """fn func1() {}
+    code = dedent("""
+        fn func1() {}
 
-fn func2() {}
-"""
+        fn func2() {}
+    """).strip()
     results = list(rust_parser.parse(code))
 
     assert results[0][1]["start_line"] == 1

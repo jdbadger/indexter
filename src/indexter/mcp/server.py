@@ -1,58 +1,40 @@
-"""indexter MCP Server.
+"""
+Indexter MCP Server.
 
 A FastMCP server exposing repository indexing and semantic search capabilities.
 """
 
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+import json
 
 from fastmcp import FastMCP
 
-from indexter.config.mcp import MCPSettings
+from indexter.config import settings
 
 from .prompts import get_search_workflow_prompt
-from .resources import get_repo_status, list_repos
+from .resources import repo_list, repo_status
 from .tools import index_repo, search_repo
-
-
-@dataclass
-class AppContext:
-    """Application context available during server lifespan."""
-
-    settings: MCPSettings
-
-
-@asynccontextmanager
-async def lifespan(server: FastMCP):
-    """Initialize server resources on startup."""
-    settings = MCPSettings()
-    yield AppContext(settings=settings)
-
 
 # Create the MCP server
 mcp = FastMCP(
     "indexter",
-    instructions="Semantic code search and repository indexing for AI agents",
-    lifespan=lifespan,
+    instructions="Repository indexing and semantic code search for AI agents",
 )
 
 
 # Register resources
-@mcp.resource("repos://list")
-async def repos_list() -> str:
-    """List all configured repositories with their names and paths."""
-    import json
-
-    repos = await list_repos()
+@mcp.resource("repos://")
+async def list_repos() -> str:
+    """
+    List all configured repositories with their names and paths.
+    """
+    repos = await repo_list()
     return json.dumps(repos, indent=2)
 
 
-@mcp.resource("repo://{name}/status")
-async def repo_status(name: str) -> str:
+@mcp.resource("repos://{name}")
+async def get_repo_status(name: str) -> str:
     """Get the indexing status of a repository."""
-    import json
-
-    status = await get_repo_status(name)
+    status = await repo_status(name)
     return json.dumps(status, indent=2)
 
 
@@ -62,7 +44,8 @@ async def index(
     name: str,
     full: bool = False,
 ) -> dict:
-    """Index a repository's code.
+    """
+    Index a repository's code.
 
     Performs incremental indexing by default. Use full=True to force complete re-index.
     Always index before searching to ensure results reflect current file state.
@@ -74,14 +57,14 @@ async def index(
 async def search(
     name: str,
     query: str,
-    limit: int | None = None,
     file_path: str | None = None,
     language: str | None = None,
     node_type: str | None = None,
     node_name: str | None = None,
     has_documentation: bool | None = None,
 ) -> dict:
-    """Semantic search across a repository's indexed code.
+    """
+    Semantic search across a repository's indexed code.
 
     Returns code chunks ranked by semantic similarity to the query.
     Supports filtering by file path, language, node type, and more.
@@ -89,7 +72,6 @@ async def search(
     return await search_repo(
         name=name,
         query=query,
-        limit=limit,
         file_path=file_path,
         language=language,
         node_type=node_type,
@@ -101,9 +83,17 @@ async def search(
 # Register prompts
 @mcp.prompt()
 def search_workflow() -> str:
-    """Guide for effectively searching code repositories with indexter."""
+    """Guide for effectively searching code repositories with Indexter."""
     return get_search_workflow_prompt()
 
 
+def run_server() -> None:
+    """Run the MCP server based on configuration settings."""
+    if settings.mcp.transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        mcp.run(transport="http", host=settings.mcp.host, port=settings.mcp.port)
+
+
 if __name__ == "__main__":
-    mcp.run()
+    run_server()

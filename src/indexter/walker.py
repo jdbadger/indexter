@@ -1,4 +1,153 @@
-"""File system walker that respects .gitignore and indexter config."""
+"""
+Asynchronous file system walker with intelligent filtering for code repositories.
+
+This module provides efficient file traversal for Git repositories, implementing
+smart filtering to identify and process only relevant source files while skipping
+binaries, build artifacts, and ignored paths.
+
+The walker is a critical component of Indexter's indexing pipeline, responsible
+for discovering files to parse and index. It combines multiple filtering strategies
+to ensure only meaningful code files are processed.
+
+Architecture
+------------
+The module consists of two main classes:
+
+1. **IgnorePatternMatcher**: Pattern matching engine using gitignore-style rules
+2. **Walker**: Asynchronous file system traverser with multi-level filtering
+
+Filtering Strategy
+------------------
+Files are filtered through multiple layers to ensure efficiency:
+
+1. **Pattern Matching**: .gitignore rules, global patterns, and repo-specific patterns
+2. **Extension-Based**: Binary file extensions (images, archives, executables, etc.)
+3. **Content Detection**: Minified files (.min.js, .min.css)
+4. **Size Limits**: Configurable maximum file size threshold
+5. **Empty Files**: Zero-byte files are skipped
+6. **Encoding**: Files that cannot be read as text are excluded
+
+Pattern Matching
+----------------
+The IgnorePatternMatcher uses gitignore-style wildcards:
+
+- `*.pyc` - Match files by extension
+- `__pycache__/` - Match directories (trailing slash)
+- `build/` - Ignore entire directory trees
+- `*.min.js` - Exclude minified files
+- `!important.log` - Negative patterns (re-include files)
+
+Patterns are loaded from multiple sources in order:
+1. Global default patterns from Indexter configuration
+2. Repository .gitignore file
+3. Repository-specific patterns from indexter.toml
+
+Asynchronous I/O
+----------------
+The Walker uses anyio for asynchronous file operations, enabling:
+
+- Non-blocking directory traversal
+- Concurrent file reading
+- Efficient handling of large repositories
+- Graceful handling of permission errors and missing files
+
+File reading implements a fallback strategy:
+1. Try UTF-8 encoding (most source code)
+2. Fall back to Latin-1 for legacy files
+3. Skip files that cannot be decoded
+
+Content Hashing
+---------------
+Each file's content is hashed using SHA-256 combined with its path:
+
+    hash = sha256(f"{relative_path}:{file_content}")
+
+This creates a unique fingerprint for change detection in incremental indexing.
+The path is included in the hash to detect file moves/renames.
+
+Classes
+-------
+IgnorePatternMatcher:
+    Compiles and matches paths against gitignore-style patterns using the
+    pathspec library. Supports dynamic pattern addition and file-based loading.
+
+Walker:
+    Main traversal class that walks a repository asynchronously, applying all
+    filtering rules and yielding file information dictionaries for eligible files.
+
+Examples
+--------
+Basic usage with a repository:
+
+    >>> from indexter.models import Repo
+    >>> from indexter.walker import Walker
+    >>>
+    >>> repo = await Repo.get("my-project")
+    >>> walker = Walker(repo)
+    >>>
+    >>> async for file_info in walker.walk():
+    ...     print(f"Found: {file_info['path']} ({file_info['size_bytes']} bytes)")
+    ...     print(f"Hash: {file_info['hash']}")
+
+Custom ignore patterns:
+
+    >>> matcher = IgnorePatternMatcher()
+    >>> matcher.add_patterns(["*.log", "temp/", "*.tmp"])
+    >>> matcher.add_patterns_from_file(Path(".dockerignore"))
+    >>>
+    >>> if matcher.should_ignore("debug.log"):
+    ...     print("File will be ignored")
+
+Processing files selectively:
+
+    >>> walker = Walker(repo)
+    >>> python_files = []
+    >>>
+    >>> async for file_info in walker.walk():
+    ...     if file_info['path'].endswith('.py'):
+    ...         python_files.append(file_info)
+    >>>
+    >>> print(f"Found {len(python_files)} Python files")
+
+Performance Considerations
+--------------------------
+- Directory pruning: Entire ignored directories are skipped without recursion
+- Early filtering: Extensions and patterns are checked before file I/O
+- Async I/O: Multiple files can be read concurrently
+- Memory efficiency: Files are yielded one at a time (generator pattern)
+- Stat caching: File metadata is read once per file
+
+Binary File Detection
+---------------------
+The following extensions are automatically skipped:
+
+- Images: .png, .jpg, .gif, .svg, .ico, .webp
+- Videos: .mp4, .avi, .mov, .mkv, .webm
+- Audio: .mp3, .wav
+- Documents: .pdf, .doc, .docx, .xls, .xlsx, .ppt
+- Archives: .zip, .tar, .gz, .rar, .7z
+- Executables: .exe, .dll, .so, .dylib
+- Fonts: .woff, .ttf, .eot, .otf
+- Databases: .sqlite, .db, .pickle
+
+Configuration
+-------------
+Walker behavior is controlled through repository settings:
+
+- max_file_size: Skip files larger than this threshold (default: 1MB)
+- ignore_patterns: Additional patterns beyond .gitignore
+
+Global defaults can be set in ~/.config/indexter/indexter.toml.
+
+Notes
+-----
+- All file operations are asynchronous and require an event loop
+- The walker automatically handles permission errors and I/O issues
+- Symlinks are followed but not recursively (to prevent cycles)
+- File paths are always relative to the repository root
+- The walker is stateless and can be reused multiple times
+- Pattern matching is case-sensitive on Linux/macOS, case-insensitive on Windows
+"""
 
 from __future__ import annotations
 
@@ -11,12 +160,10 @@ import anyio
 import pathspec
 
 from .config import settings
-from .config.repo import RepoFileConfig
-from .exceptions import validate_git_repository
 from .utils import compute_hash
 
 if TYPE_CHECKING:
-    pass
+    from .models import Repo
 
 
 logger = logging.getLogger(__name__)
@@ -30,12 +177,12 @@ class IgnorePatternMatcher:
         self._patterns = patterns or []
         self._spec = pathspec.PathSpec.from_lines("gitwildmatch", self._patterns)
 
-    async def add_patterns_from_file(self, file_path: Path) -> None:
-        """Add patterns from a gitignore-style file asynchronously."""
-        apath = anyio.Path(file_path)
-        if await apath.exists():
+    def add_patterns_from_file(self, file_path: Path) -> None:
+        """Add patterns from a gitignore-style file."""
+        path = Path(file_path)
+        if path.exists():
             try:
-                content = await apath.read_text()
+                content = path.read_text()
                 lines = content.splitlines()
                 self._patterns.extend(lines)
                 self._spec = pathspec.PathSpec.from_lines("gitwildmatch", self._patterns)
@@ -101,92 +248,23 @@ class Walker:
         ".pickle",
         ".pkl",
         ".min.js",
-        ".min.css",  # Minified files
+        ".min.css",
     }
 
-    def __init__(self, repo_path: Path, config: RepoFileConfig | None = None):
-        """Initialize the walker for a repository.
+    def __init__(self, repo: Repo):
+        """Initialize the walker for a repository."""
+        self.repo = repo
+        self.repo_path = repo.path
+        self.repo_settings = repo.settings
+        self._matcher = self._build_matcher()
 
-        NOTE: This constructor performs sync validation only. Use the async
-        factory method `RepoWalker.create()` for full async initialization.
-
-        Args:
-            repo_path: Path to the repository root.
-            config: Optional per-repo configuration from .indexter.conf.
-        """
-        self.repo_path = repo_path.resolve()
-        self._config = config
-        self._validate_repo()
-        # These will be set by _async_init or create()
-        self._max_file_size = 10 * 1024 * 1024  # Default 10 MB
-        self._extra_ignore_patterns: list[str] = []
-        self._matcher = IgnorePatternMatcher(settings.default_ignore_patterns.copy())
-        self._initialized = False
-
-    @classmethod
-    async def create(cls, repo_path: Path) -> Walker:
-        """Async factory method to create and initialize a RepoWalker.
-
-        Args:
-            repo_path: Path to the repository root.
-
-        Returns:
-            Fully initialized RepoWalker instance.
-        """
-        walker = cls(repo_path)
-        await walker._async_init()
-        return walker
-
-    async def _async_init(self) -> None:
-        """Async initialization - load config and build matcher."""
-        await self._load_config()
-        self._matcher = await self._build_matcher()
-        self._initialized = True
-
-    async def _load_config(self) -> None:
-        """Load per-repo configuration asynchronously."""
-        if self._config is None:
-            # Load from .indexter.conf if it exists
-            self._config = await RepoFileConfig.from_repo(self.repo_path)
-
-        # Apply config overrides
-        self._max_file_size = self._config.max_file_size
-        self._extra_ignore_patterns = self._config.ignore_patterns
-
-        if self._extra_ignore_patterns:
-            logger.debug(f"Extra ignore patterns: {self._extra_ignore_patterns}")
-
-    @staticmethod
-    async def _read_document_content(file_path: Path) -> str | None:
-        """Read file content with encoding fallback asynchronously."""
-        try:
-            return await anyio.Path(file_path).read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            try:
-                return await anyio.Path(file_path).read_text(encoding="latin-1")
-            except Exception:
-                return None
-        except Exception:
-            return None
-
-    def _validate_repo(self) -> None:
-        """Validate that the path is a git repository."""
-        if not self.repo_path.is_dir():
-            raise ValueError(f"{self.repo_path} is not a directory")
-        validate_git_repository(self.repo_path)
-
-    async def _build_matcher(self) -> IgnorePatternMatcher:
-        """Build the ignore pattern matcher asynchronously."""
-        matcher = IgnorePatternMatcher(settings.default_ignore_patterns.copy())
-
-        # Add .gitignore patterns
-        gitignore_path = self.repo_path / ".gitignore"
-        await matcher.add_patterns_from_file(gitignore_path)
-
-        # Add extra patterns from indexter.toml or pyproject.toml [tool.indexter]
-        if self._extra_ignore_patterns:
-            matcher.add_patterns(self._extra_ignore_patterns)
-
+    def _build_matcher(self) -> IgnorePatternMatcher:
+        """Build the ignore pattern matcher."""
+        matcher = IgnorePatternMatcher(settings.ignore_patterns.copy())
+        gitignore_path = Path(self.repo_path) / ".gitignore"
+        matcher.add_patterns_from_file(gitignore_path)
+        if self.repo_settings.ignore_patterns:
+            matcher.add_patterns(self.repo_settings.ignore_patterns)
         return matcher
 
     def _is_binary_file(self, path: Path) -> bool:
@@ -198,8 +276,21 @@ class Walker:
         name = path.name.lower()
         return ".min." in name or name.endswith(".min")
 
+    @staticmethod
+    async def _read_content(file_path: anyio.Path) -> str | None:
+        """Read file content asynchronously with encoding fallback."""
+        try:
+            return await file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            try:
+                return await file_path.read_text(encoding="latin-1")
+            except Exception:
+                return None
+        except Exception:
+            return None
+
     async def _walk_recursive(self, directory: anyio.Path) -> AsyncIterator[anyio.Path]:
-        """Recursively walk a directory yielding files asynchronously.
+        """Recursively walk a directory yielding files.
 
         Args:
             directory: Directory to walk.
@@ -220,10 +311,7 @@ class Walker:
             try:
                 relative = entry.relative_to(self.repo_path)
                 relative_str = str(relative)
-
-                # Check if directory should be ignored (early pruning)
                 if await entry.is_dir():
-                    # Add trailing slash for directory matching
                     if self._matcher.should_ignore(relative_str + "/"):
                         logger.debug(f"Pruning directory: {relative_str}")
                         continue
@@ -232,7 +320,6 @@ class Walker:
                 elif await entry.is_file():
                     yield entry
             except OSError as e:
-                # Handle stat errors (permissions, broken symlinks, etc.)
                 logger.warning(f"Error accessing {entry}: {e}")
                 continue
 
@@ -242,55 +329,44 @@ class Walker:
         Yields:
             Dict with path, size_bytes, mtime, content, and content_hash.
         """
-        if not self._initialized:
-            await self._async_init()
-
         async for path in self._walk_recursive(anyio.Path(self.repo_path)):
             relative_path = str(path.relative_to(self.repo_path))
 
-            # Check ignore patterns
             if self._matcher.should_ignore(relative_path):
                 logger.debug(f"Ignoring (pattern match): {relative_path}")
                 continue
 
-            # Skip binary files
             if self._is_binary_file(Path(path)):
                 logger.debug(f"Ignoring (binary): {relative_path}")
                 continue
 
-            # Skip minified files
             if self._is_minified(Path(path)):
                 logger.debug(f"Ignoring (minified): {relative_path}")
                 continue
 
-            # Get file stats
             try:
                 stat = await path.stat()
             except OSError as e:
                 logger.warning(f"Cannot stat {relative_path}: {e}")
                 continue
 
-            # Skip large files (use config value)
-            if stat.st_size > self._max_file_size:
+            if stat.st_size > self.repo_settings.max_file_size:
                 logger.debug(f"Ignoring (too large): {relative_path}")
                 continue
 
-            # Skip empty files
             if stat.st_size == 0:
                 logger.debug(f"Ignoring (empty): {relative_path}")
                 continue
 
-            # Compute document content_bytes and content_hash
-            content = await self._read_document_content(Path(path))
+            content = await self._read_content(path)
             if content is None:
                 logger.debug(f"Ignoring (cannot read): {relative_path}")
                 continue
-            hash = compute_hash(f"{relative_path}:{content}")
 
             yield {
                 "path": relative_path,
                 "size_bytes": stat.st_size,
                 "mtime": stat.st_mtime,
                 "content": content,
-                "hash": hash,
+                "hash": compute_hash(f"{relative_path}:{content}"),
             }

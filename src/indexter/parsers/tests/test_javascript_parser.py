@@ -1,5 +1,6 @@
 """Tests for the JavaScriptParser."""
 
+from textwrap import dedent
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -17,87 +18,103 @@ def js_parser():
 @pytest.fixture
 def simple_function_js():
     """Sample JavaScript with a simple function."""
-    return """function greet(name) {
-    return `Hello, ${name}!`;
-}"""
+    return dedent("""
+        function greet(name) {
+            return `Hello, ${name}!`;
+        }
+    """).strip()
 
 
 @pytest.fixture
 def arrow_function_js():
     """Sample JavaScript with arrow functions."""
-    return """const add = (a, b) => a + b;
-
-const multiply = (x, y) => {
-    return x * y;
-};"""
+    return dedent("""
+        const add = (a, b) => a + b;
+        
+        const multiply = (x, y) => {
+            return x * y;
+        };
+    """).strip()
 
 
 @pytest.fixture
 def class_js():
     """Sample JavaScript with a class."""
-    return """class Calculator {
-    add(a, b) {
-        return a + b;
-    }
-    
-    subtract(a, b) {
-        return a - b;
-    }
-}"""
+    return dedent("""
+        class Calculator {
+            add(a, b) {
+                return a + b;
+            }
+            
+            subtract(a, b) {
+                return a - b;
+            }
+        }
+    """).strip()
 
 
 @pytest.fixture
 def async_function_js():
     """Sample JavaScript with async functions."""
-    return """async function fetchData() {
-    const response = await fetch('/api/data');
-    return response.json();
-}"""
+    return dedent("""
+        async function fetchData() {
+            const response = await fetch('/api/data');
+            return response.json();
+        }
+    """).strip()
 
 
 @pytest.fixture
 def generator_function_js():
     """Sample JavaScript with generator function."""
-    return """function* countUp(max) {
-    for (let i = 0; i < max; i++) {
-        yield i;
-    }
-}"""
+    return dedent("""
+        function* countUp(max) {
+            for (let i = 0; i < max; i++) {
+                yield i;
+            }
+        }
+    """).strip()
 
 
 @pytest.fixture
 def jsdoc_function_js():
     """Sample JavaScript with JSDoc comments."""
-    return """/**
- * Calculate the sum of two numbers
- * @param {number} a - First number
- * @param {number} b - Second number
- * @returns {number} The sum
- */
-function add(a, b) {
-    return a + b;
-}"""
+    return dedent("""
+        /**
+         * Calculate the sum of two numbers
+         * @param {number} a - First number
+         * @param {number} b - Second number
+         * @returns {number} The sum
+         */
+        function add(a, b) {
+            return a + b;
+        }
+    """).strip()
 
 
 @pytest.fixture
 def import_export_js():
     """Sample JavaScript with imports and exports."""
-    return """import { useState } from 'react';
-import axios from 'axios';
-
-export function Component() {
-    return null;
-}
-
-export default MyComponent;"""
+    return dedent("""
+        import { useState } from 'react';
+        import axios from 'axios';
+        
+        export function Component() {
+            return null;
+        }
+        
+        export default MyComponent;
+    """).strip()
 
 
 @pytest.fixture
 def constants_js():
     """Sample JavaScript with constants."""
-    return """const API_KEY = 'secret123';
-const MAX_RETRIES = 3;
-const config = { timeout: 5000 };"""
+    return dedent("""
+        const API_KEY = 'secret123';
+        const MAX_RETRIES = 3;
+        const config = { timeout: 5000 };
+    """).strip()
 
 
 def test_parser_initialization(js_parser):
@@ -291,11 +308,13 @@ def test_parse_jsdoc_single_line():
 def test_parse_jsdoc_multi_line():
     """Test JSDoc parsing with multi-line comment."""
     parser = JavaScriptParser()
-    comment = """/**
- * First line
- * Second line
- * Third line
- */"""
+    comment = dedent("""
+        /**
+         * First line
+         * Second line
+         * Third line
+         */
+    """).strip()
 
     result = parser._parse_jsdoc(comment)
     assert "First line" in result
@@ -403,9 +422,11 @@ def test_parse_empty_js(js_parser):
 
 def test_parse_comments_only(js_parser):
     """Test parsing JavaScript with only comments."""
-    js = """// Comment 1
-/* Comment 2 */
-/** JSDoc comment */"""
+    js = dedent("""
+        // Comment 1
+        /* Comment 2 */
+        /** JSDoc comment */
+    """).strip()
 
     results = list(js_parser.parse(js))
     assert len(results) == 0
@@ -413,9 +434,11 @@ def test_parse_comments_only(js_parser):
 
 def test_parse_variable_declarations(js_parser):
     """Test that non-constant variable declarations are skipped."""
-    js = """let counter = 0;
-var oldStyle = 'test';
-const regular = 'value';"""
+    js = dedent("""
+        let counter = 0;
+        var oldStyle = 'test';
+        const regular = 'value';
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -426,11 +449,13 @@ const regular = 'value';"""
 
 def test_parse_method_in_class(js_parser):
     """Test that methods have correct parent scope."""
-    js = """class MyClass {
-    myMethod() {
-        return 'test';
-    }
-}"""
+    js = dedent("""
+        class MyClass {
+            myMethod() {
+                return 'test';
+            }
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -443,12 +468,14 @@ def test_parse_method_in_class(js_parser):
 
 def test_parse_nested_function(js_parser):
     """Test parsing nested functions."""
-    js = """function outer() {
-    function inner() {
-        return 'nested';
-    }
-    return inner;
-}"""
+    js = dedent("""
+        function outer() {
+            function inner() {
+                return 'nested';
+            }
+            return inner;
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -460,8 +487,10 @@ def test_parse_nested_function(js_parser):
 
 def test_byte_positions_accuracy(js_parser):
     """Test that byte positions are accurate."""
-    js = """function first() {}
-function second() {}"""
+    js = dedent("""
+        function first() {}
+        function second() {}
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -476,13 +505,15 @@ function second() {}"""
 
 def test_line_numbers_accuracy(js_parser):
     """Test that line numbers are accurate (1-based)."""
-    js = """function first() {
-    return 1;
-}
-
-function second() {
-    return 2;
-}"""
+    js = dedent("""
+        function first() {
+            return 1;
+        }
+        
+        function second() {
+            return 2;
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -497,9 +528,11 @@ function second() {
 
 def test_signature_extraction(js_parser):
     """Test signature extraction for functions."""
-    js = """function add(a, b, c) {
-    return a + b + c;
-}"""
+    js = dedent("""
+        function add(a, b, c) {
+            return a + b + c;
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
     assert len(results) == 1
@@ -524,9 +557,11 @@ def test_arrow_function_signature(js_parser):
 
 def test_extra_metadata(js_parser):
     """Test extra metadata fields."""
-    js = """async function* asyncGen() {
-    yield 1;
-}"""
+    js = dedent("""
+        async function* asyncGen() {
+            yield 1;
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
     assert len(results) == 1
@@ -539,9 +574,11 @@ def test_extra_metadata(js_parser):
 
 def test_parse_export_function(js_parser):
     """Test parsing exported functions."""
-    js = """export function exportedFunc() {
-    return 'exported';
-}"""
+    js = dedent("""
+        export function exportedFunc() {
+            return 'exported';
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -552,9 +589,11 @@ def test_parse_export_function(js_parser):
 
 def test_parse_export_default(js_parser):
     """Test parsing default exports."""
-    js = """export default function() {
-    return 'default';
-}"""
+    js = dedent("""
+        export default function() {
+            return 'default';
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -564,9 +603,11 @@ def test_parse_export_default(js_parser):
 
 def test_parse_named_exports(js_parser):
     """Test parsing named exports."""
-    js = """const foo = 1;
-const bar = 2;
-export { foo, bar };"""
+    js = dedent("""
+        const foo = 1;
+        const bar = 2;
+        export { foo, bar };
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -577,15 +618,17 @@ export { foo, bar };"""
 
 def test_parse_class_with_constructor(js_parser):
     """Test parsing class with constructor."""
-    js = """class Person {
-    constructor(name) {
-        this.name = name;
-    }
-    
-    getName() {
-        return this.name;
-    }
-}"""
+    js = dedent("""
+        class Person {
+            constructor(name) {
+                this.name = name;
+            }
+            
+            getName() {
+                return this.name;
+            }
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -599,10 +642,12 @@ def test_parse_class_with_constructor(js_parser):
 
 def test_parse_async_arrow_function(js_parser):
     """Test parsing async arrow functions."""
-    js = """const fetchUser = async (id) => {
-    const response = await fetch(`/user/${id}`);
-    return response.json();
-};"""
+    js = dedent("""
+        const fetchUser = async (id) => {
+            const response = await fetch(`/user/${id}`);
+            return response.json();
+        };
+    """).strip()
 
     results = list(js_parser.parse(js))
     assert len(results) == 1
@@ -614,9 +659,11 @@ def test_parse_async_arrow_function(js_parser):
 
 def test_documentation_is_none_without_jsdoc(js_parser):
     """Test that functions without JSDoc have None documentation."""
-    js = """function noDoc() {
-    return 'test';
-}"""
+    js = dedent("""
+        function noDoc() {
+            return 'test';
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
     assert len(results) == 1
@@ -627,13 +674,15 @@ def test_documentation_is_none_without_jsdoc(js_parser):
 
 def test_parse_multiple_classes(js_parser):
     """Test parsing multiple classes."""
-    js = """class First {
-    method1() {}
-}
-
-class Second {
-    method2() {}
-}"""
+    js = dedent("""
+        class First {
+            method1() {}
+        }
+        
+        class Second {
+            method2() {}
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -739,9 +788,11 @@ def test_get_export_name_default(js_parser):
 
 def test_get_signature_arrow_with_body(js_parser):
     """Test signature extraction for arrow function with body."""
-    js = """const func = (a, b) => {
-    return a + b;
-};"""
+    js = dedent("""
+        const func = (a, b) => {
+            return a + b;
+        };
+    """).strip()
 
     results = list(js_parser.parse(js))
     assert len(results) == 1
@@ -765,7 +816,9 @@ def test_get_content(js_parser):
 
 def test_parse_import_from(js_parser):
     """Test parsing import from statements."""
-    js = """import { Component } from 'react';"""
+    js = dedent("""
+        import { Component } from 'react';
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -775,7 +828,9 @@ def test_parse_import_from(js_parser):
 
 def test_parse_import_default(js_parser):
     """Test parsing default import statements."""
-    js = """import React from 'react';"""
+    js = dedent("""
+        import React from 'react';
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -785,9 +840,11 @@ def test_parse_import_default(js_parser):
 
 def test_extra_metadata_regular_function(js_parser):
     """Test extra metadata for regular functions."""
-    js = """function regular() {
-    return 'test';
-}"""
+    js = dedent("""
+        function regular() {
+            return 'test';
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
     assert len(results) == 1
@@ -800,11 +857,13 @@ def test_extra_metadata_regular_function(js_parser):
 
 def test_parse_method_with_async(js_parser):
     """Test parsing async methods in classes."""
-    js = """class API {
-    async getData() {
-        return await fetch('/data');
-    }
-}"""
+    js = dedent("""
+        class API {
+            async getData() {
+                return await fetch('/data');
+            }
+        }
+    """).strip()
 
     results = list(js_parser.parse(js))
 
@@ -818,11 +877,13 @@ def test_parse_method_with_async(js_parser):
 
 def test_jsdoc_with_empty_lines(js_parser):
     """Test JSDoc parsing with empty lines."""
-    comment = """/**
- * First paragraph
- * 
- * Second paragraph
- */"""
+    comment = dedent("""
+        /**
+         * First paragraph
+         * 
+         * Second paragraph
+         */
+    """).strip()
 
     result = js_parser._parse_jsdoc(comment)
     assert result is not None
@@ -832,11 +893,11 @@ def test_jsdoc_with_empty_lines(js_parser):
 
 def test_parse_export_anonymous_class(js_parser):
     """Test export of anonymous class (export default)."""
-    code = """
-    export default class {
-        method() {}
-    }
-    """
+    code = dedent("""
+        export default class {
+            method() {}
+        }
+    """).strip()
     elements = list(js_parser.parse(code))
     exports = [e for e in elements if e[1]["node_type"] == "export"]
     assert len(exports) == 1
@@ -845,9 +906,9 @@ def test_parse_export_anonymous_class(js_parser):
 
 def test_parse_export_lexical_declaration(js_parser):
     """Test export of lexical declaration (const/let)."""
-    code = """
-    export const API_KEY = "secret";
-    """
+    code = dedent("""
+        export const API_KEY = "secret";
+    """).strip()
     elements = list(js_parser.parse(code))
     exports = [e for e in elements if e[1]["node_type"] == "export"]
     assert len(exports) == 1
@@ -856,10 +917,10 @@ def test_parse_export_lexical_declaration(js_parser):
 
 def test_parse_export_identifier(js_parser):
     """Test export of identifier."""
-    code = """
-    const value = 42;
-    export default value;
-    """
+    code = dedent("""
+        const value = 42;
+        export default value;
+    """).strip()
     elements = list(js_parser.parse(code))
     # Should find the export
     exports = [e for e in elements if e[1]["node_type"] == "export"]

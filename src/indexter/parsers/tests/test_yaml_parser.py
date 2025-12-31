@@ -1,5 +1,6 @@
 """Tests for the YamlParser."""
 
+from textwrap import dedent
 from unittest.mock import Mock
 
 import pytest
@@ -16,43 +17,51 @@ def yaml_parser():
 @pytest.fixture
 def simple_yaml():
     """Sample YAML with simple mapping."""
-    return """name: test
-version: 1.0
-description: A test YAML file"""
+    return dedent("""
+        name: test
+        version: 1.0
+        description: A test YAML file
+    """).strip()
 
 
 @pytest.fixture
 def nested_yaml():
     """Sample YAML with nested mappings."""
-    return """database:
-  host: localhost
-  port: 5432
-  credentials:
-    username: admin
-    password: secret"""
+    return dedent("""
+        database:
+          host: localhost
+          port: 5432
+          credentials:
+            username: admin
+            password: secret
+    """).strip()
 
 
 @pytest.fixture
 def sequence_yaml():
     """Sample YAML with sequences."""
-    return """items:
-  - name: first
-    value: 1
-  - name: second
-    value: 2"""
+    return dedent("""
+        items:
+          - name: first
+            value: 1
+          - name: second
+            value: 2
+    """).strip()
 
 
 @pytest.fixture
 def mixed_yaml():
     """Sample YAML with mixed mappings and sequences."""
-    return """config:
-  servers:
-    - host: server1
-      port: 8080
-    - host: server2
-      port: 8081
-  settings:
-    enabled: true"""
+    return dedent("""
+        config:
+          servers:
+            - host: server1
+              port: 8080
+            - host: server2
+              port: 8081
+          settings:
+            enabled: true
+    """).strip()
 
 
 def test_parser_initialization(yaml_parser):

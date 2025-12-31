@@ -1,5 +1,7 @@
 """Tests for the TomlParser."""
 
+from textwrap import dedent
+
 import pytest
 
 from indexter.parsers.toml import TomlParser
@@ -14,66 +16,76 @@ def toml_parser():
 @pytest.fixture
 def simple_toml():
     """Sample TOML with simple key-value pairs."""
-    return """title = "Test Config"
-version = "1.0.0"
-enabled = true"""
+    return dedent("""
+        title = "Test Config"
+        version = "1.0.0"
+        enabled = true
+    """).strip()
 
 
 @pytest.fixture
 def table_toml():
     """Sample TOML with a table."""
-    return """[database]
-host = "localhost"
-port = 5432
-enabled = true"""
+    return dedent("""
+        [database]
+        host = "localhost"
+        port = 5432
+        enabled = true
+    """).strip()
 
 
 @pytest.fixture
 def nested_table_toml():
     """Sample TOML with nested tables."""
-    return """[server]
-host = "localhost"
-
-[server.ssl]
-enabled = true
-cert = "/path/to/cert"
-
-[server.ssl.options]
-verify = true"""
+    return dedent("""
+        [server]
+        host = "localhost"
+        
+        [server.ssl]
+        enabled = true
+        cert = "/path/to/cert"
+        
+        [server.ssl.options]
+        verify = true
+    """).strip()
 
 
 @pytest.fixture
 def table_array_toml():
     """Sample TOML with array of tables."""
-    return """[[products]]
-name = "Hammer"
-sku = 12345
-
-[[products]]
-name = "Nail"
-sku = 67890"""
+    return dedent("""
+        [[products]]
+        name = "Hammer"
+        sku = 12345
+        
+        [[products]]
+        name = "Nail"
+        sku = 67890
+    """).strip()
 
 
 @pytest.fixture
 def mixed_toml():
     """Sample TOML with mixed content."""
-    return """title = "Application Config"
-
-[database]
-host = "localhost"
-port = 5432
-
-[database.pool]
-min = 5
-max = 20
-
-[[servers]]
-host = "alpha"
-port = 8080
-
-[[servers]]
-host = "beta"
-port = 8081"""
+    return dedent("""
+        title = "Application Config"
+        
+        [database]
+        host = "localhost"
+        port = 5432
+        
+        [database.pool]
+        min = 5
+        max = 20
+        
+        [[servers]]
+        host = "alpha"
+        port = 8080
+        
+        [[servers]]
+        host = "beta"
+        port = 8081
+    """).strip()
 
 
 def test_parser_initialization(toml_parser):
@@ -188,7 +200,7 @@ def test_node_info_structure(toml_parser, table_toml):
     """Test that node info has all required fields."""
     results = list(toml_parser.parse(table_toml))
 
-    for content, info in results:
+    for _, info in results:
         assert "language" in info
         assert "node_type" in info
         assert "node_name" in info
@@ -224,11 +236,13 @@ def test_empty_content(toml_parser):
 
 def test_parse_quoted_keys(toml_parser):
     """Test parsing TOML with quoted keys."""
-    toml_content = '''["quoted.key"]
-value = 123
+    toml_content = """
+    ["quoted.key"]
+    value = 123
 
-[normal]
-"spaced key" = "value"'''
+    [normal]
+    "spaced key" = "value"
+    """
 
     results = list(toml_parser.parse(toml_content))
 

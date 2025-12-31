@@ -1,4 +1,252 @@
-"""Qdrant vector store integration with fastembed."""
+"""
+Vector database integration using Qdrant and FastEmbed for semantic code search.
+
+This module provides a high-level interface to a Qdrant vector database, handling
+code embedding generation, storage, and semantic search. It's a critical component
+of Indexter's search infrastructure, enabling natural language queries over code.
+
+The module abstracts away the complexity of vector operations, embedding generation,
+and collection management, providing a simple API for storing and searching code nodes.
+
+Architecture
+------------
+The module consists of a single VectorStore class with three operational modes:
+
+1. **Local Mode**: File-based storage using Qdrant's embedded database
+2. **Memory Mode**: In-memory storage for testing and development
+3. **Remote Mode**: Connection to a remote Qdrant server for production
+
+Storage Modes
+-------------
+The storage mode is configured via settings.store.mode:
+
+Local (Serverless):
+    Uses Qdrant's embedded database, storing data in ~/.local/share/indexter/store.
+    No external server required. Best for single-user, single-machine scenarios.
+
+    Configuration:
+        mode = "local"
+
+Memory (Testing):
+    All data stored in RAM, lost on process termination. Fast and clean for tests.
+    Useful for development and CI/CD pipelines.
+
+    Configuration:
+        mode = "memory"
+
+Remote (Production):
+    Connects to a standalone Qdrant server. Supports clustering, replication,
+    and multi-client access. Best for team environments and production deployments.
+
+    Configuration:
+        mode = "remote"
+        host = "localhost"
+        port = 6333
+        grpc_port = 6334
+        api_key = "optional-api-key"
+
+Embedding Generation
+--------------------
+The module uses FastEmbed for automatic embedding generation:
+
+- Models are lazy-loaded on first use
+- Embeddings are generated automatically during upsert
+- Default model: "BAAI/bge-small-en-v1.5" (384 dimensions)
+- Model can be configured globally or per-repository
+
+FastEmbed integration provides:
+- No manual embedding generation required
+- Efficient batch processing
+- Automatic dimensionality handling
+- CPU-optimized inference
+
+The embedding process:
+1. Text content is extracted from code nodes
+2. FastEmbed generates vector embeddings on-the-fly
+3. Vectors are stored alongside metadata in Qdrant
+4. Search queries are embedded using the same model
+
+Collections
+-----------
+Each repository gets its own Qdrant collection for isolation:
+
+Collection Naming:
+    Collections are named "indexter_{repo_name}" where repo_name is the
+    repository directory name. For example, "my-project" becomes
+    "indexter_my-project".
+
+Collection Schema:
+    Each point (node) in a collection contains:
+    - Vector: Dense embedding of the code content
+    - Payload: Metadata including file path, node type, language, etc.
+    - ID: UUID of the node
+
+Point Payload Structure:
+    {
+        "document": str,        # Full code content
+        "hash": str,           # Document content hash
+        "repo_path": str,      # Repository root path
+        "document_path": str,  # File path within repo
+        "language": str,       # Programming language
+        "node_type": str,      # Type: function, class, method, etc.
+        "node_name": str,      # Name of the code construct
+        "start_byte": int,     # Start position in file
+        "end_byte": int,       # End position in file
+        "start_line": int,     # Start line number
+        "end_line": int,       # End line number
+        "documentation": str,  # Docstring/comments
+        "parent_scope": str,   # Enclosing class/module
+        "signature": str,      # Function signature
+        # Additional language-specific fields in extra dict
+    }
+
+Search Capabilities
+-------------------
+The search method supports both semantic search and metadata filtering:
+
+Semantic Search:
+    Uses vector similarity (cosine distance) to find code semantically similar
+    to the query text. Queries can be natural language or code snippets.
+
+Metadata Filters:
+    - file_path: Search within specific files or directories
+    - language: Filter by programming language
+    - node_type: Filter by code construct (function, class, etc.)
+    - node_name: Filter by exact name
+    - has_documentation: Filter documented/undocumented code
+
+Filters can be combined for precise queries like "find Python functions named
+'authenticate' with documentation in the auth/ directory".
+
+Change Detection
+----------------
+The store maintains document hashes for efficient change detection:
+
+- get_document_hashes(): Returns all indexed file hashes
+- Incremental indexing compares hashes to detect changes
+- Only modified files trigger re-indexing
+- Deleted files trigger cleanup of associated nodes
+
+Hash Structure:
+    Each document hash is a SHA-256 of "{file_path}:{content}", enabling
+    detection of both content changes and file moves/renames.
+
+Classes
+-------
+VectorStore:
+    Main interface to the vector database. Manages collections, nodes, and
+    search operations. Implements lazy initialization and connection pooling.
+
+Singleton Pattern:
+    A module-level `store` instance is provided for convenient access across
+    the application without managing multiple connections.
+
+Examples
+--------
+Basic operations:
+
+    >>> from indexter.store import store
+    >>>
+    >>> # Create a collection for a repository
+    >>> await store.create_collection("indexter_myproject")
+    >>>
+    >>> # Store nodes with automatic embedding
+    >>> from indexter.models import Node, NodeMetadata
+    >>> nodes = [...]  # List of parsed code nodes
+    >>> await store.upsert_nodes("indexter_myproject", nodes)
+    >>>
+    >>> # Count indexed nodes
+    >>> count = await store.count_nodes("indexter_myproject")
+    >>> print(f"Indexed {count} code nodes")
+
+Semantic search:
+
+    >>> # Search for authentication code
+    >>> results = await store.search(
+    ...     collection_name="indexter_myproject",
+    ...     query="user authentication and password validation",
+    ...     limit=5
+    ... )
+    >>>
+    >>> for result in results:
+    ...     print(f"{result['score']:.3f} - {result['node_name']}")
+    ...     print(f"  {result['file_path']}:{result['start_line']}")
+
+Filtered search:
+
+    >>> # Find Python classes with documentation
+    >>> results = await store.search(
+    ...     collection_name="indexter_myproject",
+    ...     query="data processing",
+    ...     language="python",
+    ...     node_type="class",
+    ...     has_documentation=True,
+    ...     limit=10
+    ... )
+
+Change detection workflow:
+
+    >>> # Get current indexed file hashes
+    >>> stored_hashes = await store.get_document_hashes("indexter_myproject")
+    >>>
+    >>> # Compare with local file hashes to find changes
+    >>> local_hashes = await repo.get_document_hashes()
+    >>> modified = [p for p in local_hashes if stored_hashes.get(p) != local_hashes[p]]
+    >>>
+    >>> # Delete stale nodes and re-index
+    >>> if modified:
+    ...     await store.delete_by_document_paths("indexter_myproject", modified)
+
+Performance Considerations
+--------------------------
+- Batch Operations: Upserts are batched to reduce network overhead
+- Connection Pooling: Single client instance shared across operations
+- Lazy Initialization: Client created only when first needed
+- Collection Caching: In-memory cache prevents redundant existence checks
+- Scroll API: Large result sets use cursor-based pagination
+- Vector Compression: Qdrant's built-in quantization reduces memory usage
+
+Best Practices
+--------------
+1. Use collection per repository for isolation and cleanup
+2. Batch upsert operations when indexing many files
+3. Use metadata filters to narrow search scope before semantic search
+4. Delete by document path when re-indexing modified files
+5. Monitor collection sizes with count_nodes()
+6. Use local mode for development, remote for production
+
+Configuration
+-------------
+Store behavior is controlled through global settings:
+
+    [store]
+    mode = "local"              # local, memory, or remote
+    host = "localhost"          # Remote server host
+    port = 6333                 # HTTP API port
+    grpc_port = 6334           # gRPC port (faster)
+    prefer_grpc = true         # Use gRPC when available
+    api_key = ""               # Optional authentication
+
+    # Global embedding model
+    embedding_model = "BAAI/bge-small-en-v1.5"
+
+Limitations
+-----------
+- Maximum collection size depends on available disk/memory
+- Search performance degrades with collections over ~1M points
+- Embedding generation is CPU-bound (no GPU acceleration in FastEmbed)
+- Exact text search not supported (semantic only)
+- Updates require delete + re-insert (no true update operation)
+
+Notes
+-----
+- All operations are asynchronous and require an event loop
+- The store singleton is thread-safe but not process-safe
+- Collection names must be valid Qdrant identifiers
+- Vector dimensionality is fixed per collection (determined by embedding model)
+- Metadata filters use exact matching (no fuzzy search)
+- Empty collections are valid but search returns no results
+"""
 
 from __future__ import annotations
 
@@ -7,8 +255,7 @@ from typing import TYPE_CHECKING
 
 from qdrant_client import AsyncQdrantClient, models
 
-from indexter.config import settings
-from indexter.config.store import StoreMode
+from .config import StoreMode, settings
 
 if TYPE_CHECKING:
     from indexter.models import Node
@@ -34,7 +281,7 @@ class VectorStore:
 
             if mode == StoreMode.local:
                 # Local file-based storage (serverless)
-                store_path = settings.store.path or (settings.data_dir / "store")
+                store_path = settings.data_dir / "store"
                 store_path.mkdir(parents=True, exist_ok=True)
                 logger.info(f"Using local Qdrant storage at {store_path}")
                 self._client = AsyncQdrantClient(path=str(store_path))
@@ -44,22 +291,26 @@ class VectorStore:
                 self._client = AsyncQdrantClient(location=":memory:")
             else:
                 # Remote Qdrant server
-                logger.info(f"Connecting to Qdrant (async) at {settings.store.url}")
+                logger.info(
+                    f"Connecting to Qdrant (async) at {settings.store.host}:{settings.store.port}"
+                )
                 self._client = AsyncQdrantClient(
-                    url=settings.store.url,
+                    host=settings.store.host,
+                    port=settings.store.port,
+                    grpc_port=settings.store.grpc_port,
+                    prefer_grpc=settings.store.prefer_grpc,
                     api_key=settings.store.api_key,
-                    prefer_grpc=settings.store.use_grpc,
                 )
 
             # Set the embedding model for fastembed
-            self._client.set_model(settings.embedding.model_name)
-            self._embedding_model_name = settings.embedding.model_name
+            self._client.set_model(settings.embedding_model)
+            self._embedding_model_name = settings.embedding_model
             # Get the vector name used by fastembed (e.g., 'fast-bge-small-en-v1.5')
             if self._vector_name is None:
                 vector_params = self._client.get_fastembed_vector_params()
                 self._vector_name = list(vector_params.keys())[0]
             logger.info(
-                f"Using embedding model (async): {settings.embedding.model_name} "
+                f"Using embedding model (async): {self._embedding_model_name} "
                 f"(vector: {self._vector_name})"
             )
         return self._client
@@ -398,5 +649,4 @@ class VectorStore:
         return formatted_results
 
 
-# Global store instance
 store = VectorStore()

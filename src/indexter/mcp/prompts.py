@@ -1,4 +1,5 @@
-"""MCP prompt implementations for Indexter.
+"""
+MCP prompt implementations for Indexter.
 
 Prompts provide reusable templates for common agent workflows.
 """
@@ -8,7 +9,7 @@ SEARCH_WORKFLOW_PROMPT = """\
 
 When searching code in a repository using Indexter:
 
-1. **List available repositories** using the `repos://list` resource to see
+1. **List available repositories** using the `repos://` resource to see
    which repos are configured.
 
 2. **Sync before searching** - Always call `index` before `search` to ensure
@@ -31,10 +32,10 @@ When searching code in a repository using Indexter:
 repos = read_resource("repos://list")
 
 # 2. Sync to get latest state
-index_result = call_tool("index_repo", name="my-project")
+index_result = call_tool("index", name="my-project")
 
 # 3. Search with filters
-results = call_tool("search_repo", 
+results = call_tool("search", 
     name="my-project",
     query="authentication middleware",
     language="python",

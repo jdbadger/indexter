@@ -3,7 +3,9 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastmcp.client import Client
 
+from indexter.mcp.server import mcp
 from indexter.models import IndexResult
 
 
@@ -88,3 +90,14 @@ def sample_repo_status():
         "documents_indexed": 25,
         "documents_indexed_stale": 0,
     }
+
+
+@pytest.fixture
+async def mcp_client():
+    """Create a FastMCP Client connected to the indexter server.
+
+    This fixture follows FastMCP best practices by wrapping the server
+    in a Client instance for realistic testing that matches actual usage.
+    """
+    async with Client(transport=mcp) as client:
+        yield client

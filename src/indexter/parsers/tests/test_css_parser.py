@@ -1,5 +1,6 @@
 """Tests for the CssParser."""
 
+from textwrap import dedent
 from unittest.mock import Mock
 
 import pytest
@@ -17,61 +18,69 @@ def css_parser():
 @pytest.fixture
 def simple_css():
     """Sample CSS with a simple rule."""
-    return """.container {
-    width: 100%;
-    margin: 0 auto;
-}"""
+    return dedent("""
+        .container {
+            width: 100%;
+            margin: 0 auto;
+        }
+    """).strip()
 
 
 @pytest.fixture
 def at_rule_css():
     """Sample CSS with at-rules."""
-    return """@media (max-width: 768px) {
-    .container {
-        width: 100%;
-    }
-}
-
-@keyframes slide {
-    from { left: 0; }
-    to { left: 100px; }
-}"""
+    return dedent("""
+        @media (max-width: 768px) {
+            .container {
+                width: 100%;
+            }
+        }
+        
+        @keyframes slide {
+            from { left: 0; }
+            to { left: 100px; }
+        }
+    """).strip()
 
 
 @pytest.fixture
 def nested_css():
     """Sample CSS with nested rules."""
-    return """@media screen and (min-width: 900px) {
-    .container {
-        max-width: 1200px;
-    }
-}"""
+    return dedent("""
+        @media screen and (min-width: 900px) {
+            .container {
+                max-width: 1200px;
+            }
+        }
+    """).strip()
 
 
 @pytest.fixture
 def complex_css():
     """Complex CSS with multiple selectors and properties."""
-    return """/* Header styles */
-.header,
-.nav-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-}
-
-@import url('https://fonts.googleapis.com/css2?family=Roboto');
-
-@supports (display: grid) {
-    .grid-container {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-    }
-}
-
-#main-content {
-    background-color: #fff;
-}"""
+    return dedent("""
+        /* Header styles */
+        .header,
+        .nav-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+        }
+        
+        @import url('https://fonts.googleapis.com/css2?family=Roboto');
+        
+        @supports (display: grid) {
+            .grid-container {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        
+        #main-content {
+            background-color: #fff;
+        }
+    """).strip()
 
 
 def test_parser_initialization(css_parser):
@@ -145,12 +154,12 @@ def test_parse_nested_rules(css_parser, nested_css):
     assert len(results) == 2
 
     # @media rule
-    media_content, media_info = results[0]
+    _, media_info = results[0]
     assert media_info["node_type"] == "at-rule"
     assert media_info["node_name"] == "@media"
 
     # Nested .container rule
-    container_content, container_info = results[1]
+    _, container_info = results[1]
     assert container_info["node_type"] == "rule"
     assert container_info["parent_scope"] == "@media"
 
@@ -356,10 +365,12 @@ def test_get_extra_no_block(css_parser):
 
 def test_parse_multiple_selectors():
     """Test parsing rules with multiple selectors."""
-    css = """.header,
-.footer {
-    padding: 20px;
-}"""
+    css = dedent("""
+        .header,
+        .footer {
+            padding: 20px;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -373,9 +384,11 @@ def test_parse_multiple_selectors():
 
 def test_parse_id_selector():
     """Test parsing ID selectors."""
-    css = """#unique-element {
-    display: block;
-}"""
+    css = dedent("""
+        #unique-element {
+            display: block;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -388,9 +401,11 @@ def test_parse_id_selector():
 
 def test_parse_attribute_selector():
     """Test parsing attribute selectors."""
-    css = """[data-type="button"] {
-    cursor: pointer;
-}"""
+    css = dedent("""
+        [data-type="button"] {
+            cursor: pointer;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -411,8 +426,10 @@ def test_parse_empty_css():
 
 def test_parse_css_with_only_comments():
     """Test parsing CSS with only comments."""
-    css = """/* This is a comment */
-/* Another comment */"""
+    css = dedent("""
+        /* This is a comment */
+        /* Another comment */
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -421,11 +438,13 @@ def test_parse_css_with_only_comments():
 
 def test_parse_supports_at_rule():
     """Test parsing @supports at-rule."""
-    css = """@supports (display: grid) {
-    .container {
-        display: grid;
-    }
-}"""
+    css = dedent("""
+        @supports (display: grid) {
+            .container {
+                display: grid;
+            }
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -441,8 +460,10 @@ def test_parse_supports_at_rule():
 
 def test_byte_positions_accuracy():
     """Test that byte positions are accurate."""
-    css = """.first { color: red; }
-.second { color: blue; }"""
+    css = dedent("""
+        .first { color: red; }
+        .second { color: blue; }
+    """).strip()
 
     parser = CssParser()
     results = list(parser.parse(css))
@@ -458,13 +479,15 @@ def test_byte_positions_accuracy():
 
 def test_line_numbers_accuracy():
     """Test that line numbers are accurate (1-based)."""
-    css = """.first {
-    color: red;
-}
-
-.second {
-    color: blue;
-}"""
+    css = dedent("""
+        .first {
+            color: red;
+        }
+        
+        .second {
+            color: blue;
+        }
+    """).strip()
 
     parser = CssParser()
     results = list(parser.parse(css))
@@ -482,11 +505,13 @@ def test_line_numbers_accuracy():
 
 def test_parse_charset_at_rule():
     """Test parsing @charset at-rule."""
-    css = """@charset "UTF-8";
-
-.container {
-    width: 100%;
-}"""
+    css = dedent("""
+        @charset "UTF-8";
+        
+        .container {
+            width: 100%;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -502,10 +527,12 @@ def test_parse_charset_at_rule():
 
 def test_parse_font_face():
     """Test parsing @font-face at-rule."""
-    css = """@font-face {
-    font-family: "CustomFont";
-    src: url("font.woff2");
-}"""
+    css = dedent("""
+        @font-face {
+            font-family: "CustomFont";
+            src: url("font.woff2");
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -518,13 +545,15 @@ def test_parse_font_face():
 
 def test_parse_pseudo_selectors():
     """Test parsing rules with pseudo-selectors."""
-    css = """a:hover {
-    color: blue;
-}
-
-.button::before {
-    content: "";
-}"""
+    css = dedent("""
+        a:hover {
+            color: blue;
+        }
+        
+        .button::before {
+            content: "";
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -538,13 +567,15 @@ def test_parse_pseudo_selectors():
 
 def test_parse_combined_selectors():
     """Test parsing rules with combined selectors."""
-    css = """div > p {
-    margin: 0;
-}
-
-.class1 + .class2 {
-    padding: 10px;
-}"""
+    css = dedent("""
+        div > p {
+            margin: 0;
+        }
+        
+        .class1 + .class2 {
+            padding: 10px;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -554,10 +585,12 @@ def test_parse_combined_selectors():
 
 def test_parse_with_calc():
     """Test parsing rules with calc() function."""
-    css = """.container {
-    width: calc(100% - 20px);
-    height: calc(100vh - 50px);
-}"""
+    css = dedent("""
+        .container {
+            width: calc(100% - 20px);
+            height: calc(100vh - 50px);
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -568,14 +601,16 @@ def test_parse_with_calc():
 
 def test_parse_css_variables():
     """Test parsing CSS custom properties (variables)."""
-    css = """:root {
-    --main-color: #06c;
-    --accent-color: #f90;
-}
-
-.button {
-    background-color: var(--main-color);
-}"""
+    css = dedent("""
+        :root {
+            --main-color: #06c;
+            --accent-color: #f90;
+        }
+        
+        .button {
+            background-color: var(--main-color);
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -589,11 +624,13 @@ def test_parse_css_variables():
 
 def test_parse_media_query_with_conditions():
     """Test parsing complex media queries."""
-    css = """@media (min-width: 768px) and (max-width: 1024px) {
-    .responsive {
-        display: flex;
-    }
-}"""
+    css = dedent("""
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .responsive {
+                display: flex;
+            }
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -606,11 +643,13 @@ def test_parse_media_query_with_conditions():
 
 def test_parse_import_url():
     """Test parsing @import statement."""
-    css = """@import url('custom.css');
-
-.main {
-    color: black;
-}"""
+    css = dedent("""
+        @import url('custom.css');
+        
+        .main {
+            color: black;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -625,13 +664,15 @@ def test_parse_import_url():
 
 def test_parse_descendant_selectors():
     """Test parsing descendant combinators."""
-    css = """.parent .child {
-    color: red;
-}
-
-header nav ul li {
-    list-style: none;
-}"""
+    css = dedent("""
+        .parent .child {
+            color: red;
+        }
+        
+        header nav ul li {
+            list-style: none;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -641,10 +682,12 @@ header nav ul li {
 
 def test_parse_animation_keyframes():
     """Test parsing @keyframes with multiple steps."""
-    css = """@keyframes fadeIn {
-    0% { opacity: 0; }
-    100% { opacity: 1; }
-}"""
+    css = dedent("""
+        @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -655,12 +698,14 @@ def test_parse_animation_keyframes():
 
 def test_declaration_count_extra():
     """Test that extra field contains declaration count."""
-    css = """.button {
-    color: white;
-    background-color: blue;
-    padding: 10px;
-    border-radius: 5px;
-}"""
+    css = dedent("""
+        .button {
+            color: white;
+            background-color: blue;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -675,11 +720,13 @@ def test_declaration_count_extra():
 
 def test_media_query_value_extra():
     """Test that media queries include value in extra field."""
-    css = """@media screen and (min-width: 768px) {
-    .container {
-        width: 750px;
-    }
-}"""
+    css = dedent("""
+        @media screen and (min-width: 768px) {
+            .container {
+                width: 750px;
+            }
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -695,13 +742,15 @@ def test_media_query_value_extra():
 
 def test_nested_media_queries():
     """Test parsing nested media queries."""
-    css = """@media screen {
-    @media (min-width: 768px) {
-        .nested {
-            display: block;
+    css = dedent("""
+        @media screen {
+            @media (min-width: 768px) {
+                .nested {
+                    display: block;
+                }
+            }
         }
-    }
-}"""
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -711,13 +760,15 @@ def test_nested_media_queries():
 
 def test_parse_unicode_content():
     """Test parsing CSS with Unicode characters."""
-    css = """.emoji::before {
-    content: "🎉";
-}
-
-.unicode {
-    font-family: "Noto Sans CJK JP", sans-serif;
-}"""
+    css = dedent("""
+        .emoji::before {
+            content: "🎉";
+        }
+        
+        .unicode {
+            font-family: "Noto Sans CJK JP", sans-serif;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -729,11 +780,13 @@ def test_parse_unicode_content():
 
 def test_parse_grid_template():
     """Test parsing modern CSS grid properties."""
-    css = """.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    grid-gap: 1rem;
-}"""
+    css = dedent("""
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-gap: 1rem;
+        }
+    """).strip()
     parser = CssParser()
     results = list(parser.parse(css))
 
@@ -869,7 +922,7 @@ def test_process_match_generic_at_rule_without_keyword():
     result = parser.process_match(match, source_bytes)
 
     assert result is not None
-    content, node_info = result
+    _, node_info = result
     assert node_info["node_name"] == "@rule"  # Fallback name
 
 

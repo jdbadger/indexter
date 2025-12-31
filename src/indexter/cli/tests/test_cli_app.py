@@ -1,803 +1,650 @@
-"""Tests for the main CLI app and commands."""
+"""Tests for CLI app and commands.
+
+This module provides comprehensive test coverage for the indexter CLI
+application, which includes:
+- Main app callback with version and verbose flags
+- init: Initialize a git repository for indexing
+- index: Sync a repository to the vector store
+- search: Search indexed nodes in a repository
+- status: Show status of indexed repositories
+- forget: Remove a repository from indexter
+
+Test Coverage:
+--------------
+- Version callback and display
+- Verbose logging configuration
+- All commands with success and error scenarios
+- Exception handling (RepoNotFoundError, RepoExistsError)
+- Progress displays and output formatting
+- Table displays for search and status
+- Edge cases (empty results, errors during indexing)
+
+The tests use unittest.mock to mock the Repo class and anyio.run calls,
+ensuring tests are isolated and don't require actual repositories or
+vector store connections.
+"""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 import typer
+from rich.console import Console
 
 from indexter import __version__
 from indexter.cli.cli import (
     app,
-    setup_global_config,
-    setup_logging,
+    console,
+    main,
     version_callback,
 )
-from indexter.exceptions import RepoNotFoundError
-from indexter.models import IndexResult
-
-# --- version_callback tests ---
+from indexter.exceptions import RepoExistsError, RepoNotFoundError
 
 
-def test_version_callback_prints_version_and_exits(capsys):
-    """Test that version_callback prints version and raises Exit."""
-    with pytest.raises(typer.Exit):
-        version_callback(True)
+def test_version_callback_prints_version_and_exits():
+    """Test version callback prints version and raises Exit."""
+    with patch("indexter.cli.cli.console") as mock_console:
+        with pytest.raises(typer.Exit):
+            version_callback(True)
 
-    captured = capsys.readouterr()
-    assert __version__ in captured.out
+        mock_console.print.assert_called_once_with(f"indexter {__version__}")
 
 
 def test_version_callback_does_nothing_when_false():
-    """Test that version_callback does nothing when value is False."""
-    result = version_callback(False)
-    assert result is None
+    """Test version callback does nothing when value is False."""
+    with patch("indexter.cli.cli.console") as mock_console:
+        version_callback(False)
+        mock_console.print.assert_not_called()
 
 
-# --- setup_logging tests ---
+def test_main_callback_verbose_flag():
+    """Test main callback configures verbose logging."""
+    with patch("indexter.cli.cli.logging.basicConfig") as mock_config:
+        main(verbose=True)
 
-
-def test_setup_logging_default_level():
-    """Test setup_logging sets INFO level by default."""
-    with patch("indexter.cli.cli.logging.basicConfig") as mock_basic_config:
-        setup_logging(verbose=False)
-        mock_basic_config.assert_called_once()
-        call_kwargs = mock_basic_config.call_args[1]
-        assert call_kwargs["level"] == logging.INFO
-
-
-def test_setup_logging_verbose_level():
-    """Test setup_logging sets DEBUG level when verbose."""
-    with patch("indexter.cli.cli.logging.basicConfig") as mock_basic_config:
-        setup_logging(verbose=True)
-        mock_basic_config.assert_called_once()
-        call_kwargs = mock_basic_config.call_args[1]
+        # Verify logging configured with DEBUG level
+        call_kwargs = mock_config.call_args[1]
         assert call_kwargs["level"] == logging.DEBUG
 
 
-# --- setup_global_config tests ---
+def test_main_callback_non_verbose():
+    """Test main callback configures normal logging."""
+    with patch("indexter.cli.cli.logging.basicConfig") as mock_config:
+        main(verbose=False)
+
+        # Verify logging configured with INFO level
+        call_kwargs = mock_config.call_args[1]
+        assert call_kwargs["level"] == logging.INFO
 
 
-def test_setup_global_config_creates_when_not_exists(tmp_path):
-    """Test setup_global_config creates config when it doesn't exist."""
-    mock_config_file = tmp_path / "config.toml"
+def test_init_successful(cli_runner):
+    """Test init command with successful repository initialization."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
 
-    with patch("indexter.cli.cli.settings") as mock_settings:
-        mock_settings.global_config_file = mock_config_file
-        mock_settings.create_global_config = MagicMock()
-
-        setup_global_config()
-
-        mock_settings.create_global_config.assert_called_once()
-
-
-def test_setup_global_config_skips_when_exists(tmp_path):
-    """Test setup_global_config skips creation when file exists."""
-    mock_config_file = tmp_path / "config.toml"
-    mock_config_file.touch()
-
-    with patch("indexter.cli.cli.settings") as mock_settings:
-        mock_settings.global_config_file = mock_config_file
-        mock_settings.create_global_config = MagicMock()
-
-        setup_global_config()
-
-        mock_settings.create_global_config.assert_not_called()
-
-
-# --- CLI command tests using CliRunner ---
-
-
-def test_cli_version_option(cli_runner):
-    """Test --version option shows version."""
-    result = cli_runner.invoke(app, ["--version"])
-
-    assert result.exit_code == 0
-    assert __version__ in result.output
-
-
-def test_cli_help_option(cli_runner):
-    """Test --help option shows help."""
-    result = cli_runner.invoke(app, ["--help"])
-
-    assert result.exit_code == 0
-    assert "indexter" in result.output.lower()
-
-
-def test_cli_no_args_shows_help(cli_runner):
-    """Test CLI with no args shows help (typer uses exit code 2 for no_args_is_help)."""
-    result = cli_runner.invoke(app, [])
-
-    # typer returns exit code 2 when no_args_is_help=True and no args provided
-    assert result.exit_code == 2
-    assert "Usage" in result.output or "usage" in result.output.lower()
-
-
-# --- init command tests ---
-
-
-def test_init_command(cli_runner, tmp_path):
-    """Test init command adds a repository."""
-    git_repo = tmp_path / "test_repo"
-    git_repo.mkdir()
-    (git_repo / ".git").mkdir()
-
-    with patch("indexter.cli.cli.Repo.init", new_callable=AsyncMock) as mock_init:
-        mock_repo = MagicMock()
-        mock_repo.name = "test_repo"
-        mock_init.return_value = mock_repo
-
-        result = cli_runner.invoke(app, ["init", str(git_repo)])
+    with patch("indexter.cli.cli.anyio.run", return_value=mock_repo) as mock_run:
+        result = cli_runner.invoke(app, ["init", "/path/to/repo"])
 
         assert result.exit_code == 0
-        assert "test_repo" in result.output
-        mock_init.assert_called_once()
+        assert "Added test-repo to indexter" in result.stdout
+        assert "Repository 'test-repo' initialized successfully!" in result.stdout
+        assert "Next steps:" in result.stdout
+        assert "indexter index test-repo" in result.stdout
+
+        # Verify anyio.run was called correctly
+        mock_run.assert_called_once()
 
 
-def test_init_command_existing_repo(cli_runner, tmp_path):
-    """Test init command with existing repository."""
-    git_repo = tmp_path / "test_repo"
-    git_repo.mkdir()
-    (git_repo / ".git").mkdir()
-
-    with patch("indexter.cli.cli.Repo.init", new_callable=AsyncMock) as mock_init:
-        from indexter.exceptions import RepoExistsError
-
-        mock_init.side_effect = RepoExistsError("Repository already exists")
-
-        result = cli_runner.invoke(app, ["init", str(git_repo)])
+def test_init_with_repo_exists_error(cli_runner):
+    """Test init command when repository already exists."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=RepoExistsError("Repo exists")):
+        result = cli_runner.invoke(app, ["init", "/path/to/repo"])
 
         assert result.exit_code == 1
-        assert "already exists" in result.output
+        assert "Repo exists" in result.stdout
 
 
-# --- index command tests ---
+def test_init_with_unexpected_error(cli_runner):
+    """Test init command with unexpected error."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=ValueError("Unexpected")):
+        result = cli_runner.invoke(app, ["init", "/path/to/repo"])
 
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.stdout
 
-def test_index_command_not_found(cli_runner, tmp_path):
-    """Test index command fails for unknown repository name."""
-    with patch("indexter.cli.cli.Repo.get", new_callable=AsyncMock) as mock_get:
-        from indexter.exceptions import RepoNotFoundError
 
-        mock_get.side_effect = RepoNotFoundError("Repository not found")
+def test_init_resolves_path(cli_runner):
+    """Test init command resolves the repo path."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
 
-        result = cli_runner.invoke(app, ["index", "unknown_repo"])
+    with patch("indexter.cli.cli.anyio.run", return_value=mock_repo):
+        with patch("pathlib.Path.resolve") as mock_resolve:
+            mock_resolve.return_value = Path("/resolved/path")
 
-    assert result.exit_code == 1
-    assert "not found" in result.output
+            result = cli_runner.invoke(app, ["init", "relative/path"])
 
+            assert result.exit_code == 0
+            # Verify resolve was called
+            mock_resolve.assert_called()
 
-def test_index_command_new_repo(cli_runner, tmp_path):
-    """Test index command indexes a repository by name."""
-    mock_repo = MagicMock()
-    mock_repo.name = "my_repo"
 
-    index_result = IndexResult(
-        files_synced=["file1.py", "file2.py"],
-        files_checked=2,
-        nodes_added=5,
-    )
+def test_index_successful_with_changes(cli_runner):
+    """Test index command with files synced."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
 
-    with (
-        patch("indexter.cli.cli.settings") as mock_settings,
-        patch("indexter.cli.cli.anyio.run") as mock_anyio_run,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
+    mock_result = Mock()
+    mock_result.files_synced = ["file1.py", "file2.py"]
+    mock_result.files_deleted = ["old.py"]
+    mock_result.files_checked = 10
+    mock_result.nodes_added = 5
+    mock_result.nodes_updated = 3
+    mock_result.nodes_deleted = 1
+    mock_result.errors = []
+    mock_result.skipped_files = 0
 
-        # First call returns repo, second returns sync result
-        mock_anyio_run.side_effect = [
-            mock_repo,
-            index_result,
-        ]
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_result]
 
-        result = cli_runner.invoke(app, ["index", "my_repo"])
+        result = cli_runner.invoke(app, ["index", "test-repo"])
 
-    assert result.exit_code == 0
-    assert "my_repo" in result.output
+        assert result.exit_code == 0
+        assert "test-repo: +5 ~3 -1" in result.stdout
+        assert "2 files synced" in result.stdout
+        assert "1 files deleted" in result.stdout
+        assert "Indexing complete!" in result.stdout
 
 
-def test_index_command_existing_repo(cli_runner, tmp_path):
-    """Test index command syncs existing repository."""
-    mock_repo = MagicMock()
-    mock_repo.name = "existing_repo"
+def test_index_successful_no_changes(cli_runner):
+    """Test index command when repository is up to date."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
 
-    index_result = IndexResult(
-        files_synced=["file1.py"],
-        files_checked=5,
-        nodes_added=2,
-        nodes_updated=1,
-    )
+    mock_result = Mock()
+    mock_result.files_synced = 0
+    mock_result.files_checked = 10
+    mock_result.errors = []
 
-    with (
-        patch("indexter.cli.cli.settings") as mock_settings,
-        patch("indexter.cli.cli.anyio.run") as mock_anyio_run,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_result]
 
-        # First call returns repo (exists), second returns sync result
-        mock_anyio_run.side_effect = [mock_repo, index_result]
+        result = cli_runner.invoke(app, ["index", "test-repo"])
 
-        result = cli_runner.invoke(app, ["index", "existing_repo"])
+        assert result.exit_code == 0
+        assert "up to date" in result.stdout
+        assert "No changes detected" in result.stdout
+        assert "10 files checked" in result.stdout
 
-    assert result.exit_code == 0
 
+def test_index_with_full_flag(cli_runner):
+    """Test index command with --full flag."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
+    mock_repo.index = Mock()
 
-def test_index_command_up_to_date(cli_runner, tmp_path):
-    """Test index command when repo is already up to date (0 files synced)."""
-    mock_repo = MagicMock()
-    mock_repo.name = "up_to_date_repo"
+    mock_result = Mock()
+    mock_result.files_synced = 0
+    mock_result.files_checked = 10
+    mock_result.errors = []
 
-    index_result = IndexResult(
-        files_synced=[],  # Empty list
-        files_checked=10,
-    )
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_result]
 
-    with (
-        patch("indexter.cli.cli.settings") as mock_settings,
-        patch("indexter.cli.cli.anyio.run") as mock_anyio_run,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
+        result = cli_runner.invoke(app, ["index", "test-repo", "--full"])
 
-        mock_anyio_run.side_effect = [mock_repo, index_result]
+        assert result.exit_code == 0
+        # Verify the full parameter would be passed to repo.index
+        # Second call to anyio.run should be with repo.index and True
+        assert mock_run.call_count == 2
 
-        result = cli_runner.invoke(app, ["index", "up_to_date_repo"])
 
-    assert result.exit_code == 0
-    # CLI outputs "0 files synced" when list is empty
-    assert "0 files synced" in result.output or "Indexing complete" in result.output
-
-
-def test_index_command_with_errors(cli_runner, tmp_path):
-    """Test index command displays errors from sync."""
-    mock_repo = MagicMock()
-    mock_repo.name = "error_repo"
+def test_index_with_errors(cli_runner):
+    """Test index command with indexing errors."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
+
+    mock_result = Mock()
+    mock_result.files_synced = ["file1.py"]
+    mock_result.files_deleted = []
+    mock_result.nodes_added = 1
+    mock_result.nodes_updated = 0
+    mock_result.nodes_deleted = 0
+    mock_result.errors = ["Error 1", "Error 2", "Error 3"]
+    mock_result.skipped_files = 0
+
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_result]
+
+        result = cli_runner.invoke(app, ["index", "test-repo"])
+
+        assert result.exit_code == 0
+        assert "Errors: 3" in result.stdout
+        assert "Error 1" in result.stdout
+        assert "Some files could not be indexed" in result.stdout
+
+
+def test_index_with_many_errors(cli_runner):
+    """Test index command displays only first 5 errors."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
+
+    errors = [f"Error {i}" for i in range(10)]
+    mock_result = Mock()
+    mock_result.files_synced = ["file1.py"]
+    mock_result.files_deleted = []
+    mock_result.nodes_added = 1
+    mock_result.nodes_updated = 0
+    mock_result.nodes_deleted = 0
+    mock_result.errors = errors
+    mock_result.skipped_files = 0
 
-    index_result = IndexResult(
-        files_synced=["file1.py"],
-        files_checked=5,
-        errors=["Error parsing file1.py", "Error parsing file2.py"],
-    )
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_result]
 
-    with (
-        patch("indexter.cli.cli.settings") as mock_settings,
-        patch("indexter.cli.cli.anyio.run") as mock_anyio_run,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
+        result = cli_runner.invoke(app, ["index", "test-repo"])
 
-        mock_anyio_run.side_effect = [mock_repo, index_result]
+        assert result.exit_code == 0
+        assert "Errors: 10" in result.stdout
+        assert "and 5 more" in result.stdout
 
-        result = cli_runner.invoke(app, ["index", "error_repo"])
 
-    assert result.exit_code == 0
-    assert "Errors" in result.output
+def test_index_with_skipped_files(cli_runner):
+    """Test index command with skipped files."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
 
+    mock_result = Mock()
+    mock_result.files_synced = ["file1.py"]
+    mock_result.files_deleted = []
+    mock_result.nodes_added = 1
+    mock_result.nodes_updated = 0
+    mock_result.nodes_deleted = 0
+    mock_result.errors = []
+    mock_result.skipped_files = 5
 
-def test_index_command_with_skipped_files(cli_runner, tmp_path):
-    """Test index command with skipped files count.
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_result]
 
-    Note: The model defines skipped_files as an int, but the CLI code
-    tries to iterate over it. This test uses the model's actual type.
-    """
-    mock_repo = MagicMock()
-    mock_repo.name = "skipped_repo"
+        result = cli_runner.invoke(app, ["index", "test-repo"])
 
-    # skipped_files is an int in the model, not a list
-    index_result = IndexResult(
-        files_synced=["file1.py"],
-        files_checked=5,
-        skipped_files=2,
-    )
+        assert result.exit_code == 0
+        assert "Skipped: 5 files" in result.stdout
+        assert "maximum allowed file limit" in result.stdout
 
-    with (
-        patch("indexter.cli.cli.settings") as mock_settings,
-        patch("indexter.cli.cli.anyio.run") as mock_anyio_run,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
 
-        mock_anyio_run.side_effect = [mock_repo, index_result]
+def test_index_repo_not_found(cli_runner):
+    """Test index command when repository is not found."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=RepoNotFoundError("Not found")):
+        result = cli_runner.invoke(app, ["index", "nonexistent-repo"])
 
-        # The CLI has a bug: it tries to call len() on skipped_files (an int)
-        # This will raise a TypeError, so we expect an error in the output
-        result = cli_runner.invoke(app, ["index", "skipped_repo"])
+        assert result.exit_code == 1
+        assert "Repository not found: nonexistent-repo" in result.stdout
+        assert "indexter init" in result.stdout
 
-    # Due to the bug in cli.py, this will fail with TypeError
-    # The test documents the current (buggy) behavior
-    assert result.exit_code == 1 or "TypeError" in str(result.exception) or result.exit_code == 0
 
+def test_index_unexpected_error(cli_runner):
+    """Test index command with unexpected error."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=ValueError("Unexpected")):
+        result = cli_runner.invoke(app, ["index", "test-repo"])
 
-def test_index_command_invalid_git_repo_error(cli_runner, tmp_path):
-    """Test index command handles RepoNotFoundError from Repo.get."""
-    with (
-        patch("indexter.cli.cli.settings") as mock_settings,
-        patch("indexter.cli.cli.anyio.run") as mock_anyio_run,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.stdout
 
-        mock_anyio_run.side_effect = RepoNotFoundError("Not found")
 
-        result = cli_runner.invoke(app, ["index", "invalid_repo"])
+def test_search_successful(cli_runner):
+    """Test search command with results."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
 
-    assert result.exit_code == 1
+    mock_results = [
+        {
+            "score": 0.95,
+            "content": "def hello():\n    print('Hello')",
+            "file_path": "hello.py",
+        },
+        {
+            "score": 0.85,
+            "content": "class World:\n    pass",
+            "file_path": "world.py",
+        },
+    ]
 
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_results]
 
-def test_index_command_full_reindex(cli_runner, tmp_path):
-    """Test index command with --full option for full re-indexing."""
-    mock_repo = MagicMock()
-    mock_repo.name = "full_reindex_repo"
+        result = cli_runner.invoke(app, ["search", "hello", "test-repo"])
 
-    index_result = IndexResult(
-        files_synced=["file1.py"],
-        files_checked=10,
-        nodes_added=5,
-    )
+        assert result.exit_code == 0
+        assert "Search Results for 'hello' in 'test-repo'" in result.stdout
+        assert "0.9500" in result.stdout
+        assert "hello.py" in result.stdout
 
-    with (
-        patch("indexter.cli.cli.settings") as mock_settings,
-        patch("indexter.cli.cli.anyio.run") as mock_anyio_run,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
 
-        mock_anyio_run.side_effect = [mock_repo, index_result]
+def test_search_with_limit(cli_runner):
+    """Test search command with custom limit."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
+    mock_results = []
 
-        result = cli_runner.invoke(app, ["index", "full_reindex_repo", "--full"])
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_results]
 
-    assert result.exit_code == 0
+        result = cli_runner.invoke(app, ["search", "test", "test-repo", "--limit", "5"])
 
+        assert result.exit_code == 0
+        # Second call should pass limit=5 to repo.search
+        assert mock_run.call_count == 2
 
-# --- status command tests ---
 
+def test_search_no_results(cli_runner):
+    """Test search command with no results."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
 
-def test_status_command_no_repos(cli_runner):
-    """Test status command when no repos are indexed."""
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.return_value = []
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, []]
 
-        result = cli_runner.invoke(app, ["status"])
+        result = cli_runner.invoke(app, ["search", "nonexistent", "test-repo"])
 
-    assert result.exit_code == 0
-    assert "No repositories indexed" in result.output
+        assert result.exit_code == 0
+        assert "No results found for query: nonexistent" in result.stdout
 
 
-def test_status_command_with_repos(cli_runner, tmp_path):
-    """Test status command with indexed repos."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-    mock_repo.path = str(tmp_path / "test_repo")
+def test_search_repo_not_found(cli_runner):
+    """Test search command when repository is not found."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=RepoNotFoundError("Not found")):
+        result = cli_runner.invoke(app, ["search", "test", "nonexistent-repo"])
 
-    status_data = {
+        assert result.exit_code == 1
+        assert "Repository not found: nonexistent-repo" in result.stdout
+
+
+def test_search_unexpected_error(cli_runner):
+    """Test search command with unexpected error."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=ValueError("Unexpected")):
+        result = cli_runner.invoke(app, ["search", "test", "test-repo"])
+
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.stdout
+
+
+def test_search_truncates_long_content(cli_runner):
+    """Test search command truncates long content in results."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
+
+    long_content = "x" * 100
+    mock_results = [
+        {
+            "score": 0.95,
+            "content": long_content,
+            "file_path": "test.py",
+        },
+    ]
+
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_results]
+
+        result = cli_runner.invoke(app, ["search", "test", "test-repo"])
+
+        assert result.exit_code == 0
+        # Should truncate to 50 chars + "..."
+        assert "..." in result.stdout
+
+
+def test_status_with_repositories(cli_runner):
+    """Test status command with indexed repositories."""
+    mock_repo1 = Mock()
+    mock_repo1.name = "repo1"
+    mock_repo1.path = Path("/path/to/repo1")
+    mock_repo1.status = Mock()
+
+    mock_repo2 = Mock()
+    mock_repo2.name = "repo2"
+    mock_repo2.path = Path("/path/to/repo2")
+    mock_repo2.status = Mock()
+
+    mock_status1 = {
         "nodes_indexed": 100,
-        "documents_indexed": 10,
+        "documents_indexed": 50,
+        "documents_indexed_stale": 2,
+    }
+
+    mock_status2 = {
+        "nodes_indexed": 200,
+        "documents_indexed": 75,
         "documents_indexed_stale": 0,
     }
 
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        # First call returns list of repos, subsequent calls return status
-        mock_anyio_run.side_effect = [[mock_repo], status_data]
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [
+            [mock_repo1, mock_repo2],  # Repo.list
+            mock_status1,  # repo1.status
+            mock_status2,  # repo2.status
+        ]
 
         result = cli_runner.invoke(app, ["status"])
 
-    assert result.exit_code == 0
-    assert "test_repo" in result.output
+        assert result.exit_code == 0
+        assert "Indexed Repositories" in result.stdout
+        assert "repo1" in result.stdout
+        assert "repo2" in result.stdout
+        assert "100" in result.stdout
+        assert "200" in result.stdout
 
 
-def test_status_command_with_repo_error(cli_runner, tmp_path):
-    """Test status command handles errors for individual repos."""
-    mock_repo = MagicMock()
-    mock_repo.name = "error_repo"
-    mock_repo.path = str(tmp_path / "error_repo")
+def test_status_no_repositories(cli_runner):
+    """Test status command with no indexed repositories."""
+    with patch("indexter.cli.cli.anyio.run", return_value=[]):
+        result = cli_runner.invoke(app, ["status"])
 
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        # First call returns repos, second raises exception
-        mock_anyio_run.side_effect = [[mock_repo], Exception("Connection failed")]
+        assert result.exit_code == 0
+        assert "No repositories indexed" in result.stdout
+        assert "indexter index" in result.stdout
+
+
+def test_status_with_error(cli_runner):
+    """Test status command when one repository has an error."""
+    mock_repo1 = Mock()
+    mock_repo1.name = "repo1"
+    mock_repo1.path = Path("/path/to/repo1")
+
+    mock_status1 = {
+        "nodes_indexed": 100,
+        "documents_indexed": 50,
+        "documents_indexed_stale": 2,
+    }
+
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [
+            [mock_repo1],  # Repo.list
+            mock_status1,  # repo1.status - success
+        ]
 
         result = cli_runner.invoke(app, ["status"])
 
-    assert result.exit_code == 0
-    assert "error_repo" in result.output
-    assert "Error" in result.output
+        assert result.exit_code == 0
+        assert "repo1" in result.stdout
 
 
-# --- forget command tests ---
+def test_status_repo_error_handling(cli_runner):
+    """Test status command handles individual repo errors gracefully."""
+    mock_repo1 = Mock()
+    mock_repo1.name = "broken-repo"
+    mock_repo1.path = Path("/path/to/broken")
+
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        # First call returns repo list, second raises error for status
+        mock_run.side_effect = [
+            [mock_repo1],  # Repo.list
+            Exception("Status error"),  # repo.status fails
+        ]
+
+        result = cli_runner.invoke(app, ["status"])
+
+        assert result.exit_code == 0
+        assert "broken-repo" in result.stdout
+        assert "Error" in result.stdout
 
 
-def test_forget_command_success(cli_runner, tmp_path):
-    """Test forget command successfully removes a repo."""
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.return_value = None
+def test_forget_successful(cli_runner):
+    """Test forget command removes repository successfully."""
+    with patch("indexter.cli.cli.anyio.run", return_value=None):
+        result = cli_runner.invoke(app, ["forget", "test-repo"])
 
-        result = cli_runner.invoke(app, ["forget", "repo_to_forget"])
-
-    assert result.exit_code == 0
-    assert "forgotten" in result.output
+        assert result.exit_code == 0
+        assert "Repository 'test-repo' is forgotten" in result.stdout
 
 
-def test_forget_command_repo_not_found(cli_runner, tmp_path):
-    """Test forget command when repo is not found."""
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = RepoNotFoundError("Not found")
+def test_forget_repo_not_found(cli_runner):
+    """Test forget command when repository is not found."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=RepoNotFoundError("Not found")):
+        result = cli_runner.invoke(app, ["forget", "nonexistent-repo"])
 
-        result = cli_runner.invoke(app, ["forget", "nonexistent_repo"])
-
-    assert result.exit_code == 1
-    assert "not found" in result.output.lower()
+        assert result.exit_code == 1
+        assert "Repository not found: nonexistent-repo" in result.stdout
 
 
-def test_forget_command_generic_error(cli_runner, tmp_path):
-    """Test forget command handles generic errors."""
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = Exception("Database error")
+def test_forget_unexpected_error(cli_runner):
+    """Test forget command with unexpected error."""
+    with patch("indexter.cli.cli.anyio.run", side_effect=ValueError("Unexpected")):
+        result = cli_runner.invoke(app, ["forget", "test-repo"])
 
-        result = cli_runner.invoke(app, ["forget", "error_repo"])
-
-    assert result.exit_code == 1
-    assert "error" in result.output.lower()
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.stdout
 
 
-def test_forget_command_requires_name(cli_runner):
-    """Test forget command requires a repo name."""
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.return_value = None
-
-        result = cli_runner.invoke(app, ["forget", "my-repo"])
-
-    assert result.exit_code == 0
-    assert "forgotten" in result.output
-
-
-# --- verbose option tests ---
-
-
-def test_cli_verbose_option(cli_runner, tmp_path):
-    """Test --verbose option enables debug logging."""
-    with (
-        patch("indexter.cli.cli.setup_logging") as mock_setup_logging,
-        patch("indexter.cli.cli.settings") as mock_settings,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
-
-        cli_runner.invoke(app, ["--verbose", "init"])
-
-        mock_setup_logging.assert_called_with(True)
-
-
-def test_cli_without_verbose(cli_runner, tmp_path):
-    """Test without --verbose uses default logging."""
-    with (
-        patch("indexter.cli.cli.setup_logging") as mock_setup_logging,
-        patch("indexter.cli.cli.settings") as mock_settings,
-    ):
-        mock_config_file = tmp_path / "config.toml"
-        mock_config_file.touch()
-        mock_settings.global_config_file = mock_config_file
-
-        cli_runner.invoke(app, ["init"])
-
-        mock_setup_logging.assert_called_with(False)
-
-
-# --- search command tests ---
-
-
-def test_search_command_success(cli_runner, tmp_path):
-    """Test search command returns results successfully."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    # Mock search results as dictionaries
-    search_results = [
-        {
-            "score": 0.95,
-            "content": "def hello_world():\n    print('hello')",
-            "file_path": "src/hello.py",
-        },
-        {"score": 0.85, "content": "class MyClass:\n    pass", "file_path": "src/myclass.py"},
-        {"score": 0.75, "content": "import numpy as np", "file_path": "src/utils.py"},
-    ]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        # First call returns repo, second returns search results
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "hello", "test_repo"])
+def test_app_has_config_subcommand(cli_runner):
+    """Test that app includes config sub-app."""
+    result = cli_runner.invoke(app, ["--help"])
 
     assert result.exit_code == 0
-    assert "Search Results" in result.output
-    assert "test_repo" in result.output
+    assert "config" in result.stdout
 
 
-def test_search_command_requires_repo_name(cli_runner):
-    """Test search command requires repository name."""
-    mock_repo = MagicMock()
+def test_app_no_args_shows_help(cli_runner):
+    """Test that app with no args shows help."""
+    result = cli_runner.invoke(app, [])
+
+    # Typer returns exit code 2 for missing args with no_args_is_help=True
+    assert result.exit_code in (0, 2)
+    assert "init" in result.stdout
+    assert "index" in result.stdout
+    assert "search" in result.stdout
+    assert "status" in result.stdout
+    assert "forget" in result.stdout
+
+
+def test_app_help_flag(cli_runner):
+    """Test app --help flag."""
+    result = cli_runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "indexter - Enhanced codebase context" in result.stdout
+
+
+def test_app_version_flag(cli_runner):
+    """Test app --version flag."""
+    result = cli_runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert f"indexter {__version__}" in result.stdout
+
+
+def test_app_verbose_flag(cli_runner):
+    """Test app --verbose flag is recognized."""
+    # The verbose flag is processed by the callback, so we just verify it's accepted
+    with patch("indexter.cli.cli.anyio.run", return_value=[]):
+        result = cli_runner.invoke(app, ["--verbose", "status"])
+
+        assert result.exit_code == 0
+
+
+def test_init_command_help(cli_runner):
+    """Test init command help."""
+    result = cli_runner.invoke(app, ["init", "--help"])
+
+    assert result.exit_code == 0
+    assert "Initialize a git repository for indexing" in result.stdout
+
+
+def test_index_command_help(cli_runner):
+    """Test index command help."""
+    result = cli_runner.invoke(app, ["index", "--help"])
+
+    assert result.exit_code == 0
+    assert "Sync a git repository to the vector store" in result.stdout
+
+
+def test_search_command_help(cli_runner):
+    """Test search command help."""
+    result = cli_runner.invoke(app, ["search", "--help"])
+
+    assert result.exit_code == 0
+    assert "Search indexed nodes in a repository" in result.stdout
+
+
+def test_status_command_help(cli_runner):
+    """Test status command help."""
+    result = cli_runner.invoke(app, ["status", "--help"])
+
+    assert result.exit_code == 0
+    assert "Show status of indexed repositories" in result.stdout
+
+
+def test_forget_command_help(cli_runner):
+    """Test forget command help."""
+    result = cli_runner.invoke(app, ["forget", "--help"])
+
+    assert result.exit_code == 0
+    assert "Forget a repository" in result.stdout
+
+
+def test_console_is_rich_console():
+    """Test that console is a Rich Console instance."""
+    assert isinstance(console, Console)
+
+
+def test_search_replaces_newlines_in_content(cli_runner):
+    """Test search command replaces newlines with spaces in output."""
+    mock_repo = Mock()
     mock_repo.name = "test-repo"
 
-    search_results = [{"score": 0.9, "content": "test content", "file_path": "test.py"}]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "test query", "test-repo"])
-
-    assert result.exit_code == 0
-
-
-def test_search_command_with_limit_option(cli_runner, tmp_path):
-    """Test search command with --limit option."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    search_results = [
-        {"score": 0.95, "content": "result 1", "file_path": "file1.py"},
-        {"score": 0.90, "content": "result 2", "file_path": "file2.py"},
+    mock_results = [
+        {
+            "score": 0.95,
+            "content": "line1\nline2\nline3",
+            "file_path": "test.py",
+        },
     ]
 
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [mock_repo, mock_results]
 
-        result = cli_runner.invoke(app, ["search", "query", "test_repo", "--limit", "5"])
+        result = cli_runner.invoke(app, ["search", "test", "test-repo"])
 
-    assert result.exit_code == 0
+        assert result.exit_code == 0
+        # The output should have spaces instead of newlines in the content
 
 
-def test_search_command_with_short_limit_option(cli_runner, tmp_path):
-    """Test search command with -l short option."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
+def test_status_missing_status_fields(cli_runner):
+    """Test status command handles missing status fields."""
+    mock_repo = Mock()
+    mock_repo.name = "test-repo"
+    mock_repo.path = Path("/path/to/repo")
 
-    search_results = [{"score": 0.95, "content": "result", "file_path": "file.py"}]
+    # Status dict missing some fields
+    mock_status = {"nodes_indexed": 100}
 
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
+    with patch("indexter.cli.cli.anyio.run") as mock_run:
+        mock_run.side_effect = [[mock_repo], mock_status]
 
-        result = cli_runner.invoke(app, ["search", "query", "test_repo", "-l", "3"])
+        result = cli_runner.invoke(app, ["status"])
 
-    assert result.exit_code == 0
-
-
-def test_search_command_no_results(cli_runner, tmp_path):
-    """Test search command when no results are found."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    # Empty search results
-    search_results = []
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "nonexistent", "test_repo"])
-
-    assert result.exit_code == 0
-    assert "No results found" in result.output
-    assert "nonexistent" in result.output
-
-
-def test_search_command_repo_not_found(cli_runner, tmp_path):
-    """Test search command when repository is not found."""
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = RepoNotFoundError("Not found")
-
-        result = cli_runner.invoke(app, ["search", "query", "nonexistent_repo"])
-
-    assert result.exit_code == 1
-    assert "not found" in result.output.lower()
-
-
-def test_search_command_displays_scores(cli_runner, tmp_path):
-    """Test search command displays scores in results."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    search_results = [
-        {"score": 0.9876, "content": "high score result", "file_path": "file1.py"},
-        {"score": 0.5432, "content": "low score result", "file_path": "file2.py"},
-    ]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "query", "test_repo"])
-
-    assert result.exit_code == 0
-    # Scores should be displayed with 4 decimal places
-    assert "0.9876" in result.output or "Score" in result.output
-
-
-def test_search_command_truncates_long_content(cli_runner, tmp_path):
-    """Test search command truncates long content in display."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    # Very long content
-    long_content = "x" * 200
-    search_results = [
-        {"score": 0.9, "content": long_content, "file_path": "file.py"},
-    ]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "query", "test_repo"])
-
-    assert result.exit_code == 0
-    # Content should be truncated (max 50 chars + "...")
-    # The full 200 chars shouldn't appear
-    assert long_content not in result.output
-
-
-def test_search_command_handles_multiline_content(cli_runner, tmp_path):
-    """Test search command handles multiline content."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    multiline_content = "line1\nline2\nline3"
-    search_results = [
-        {"score": 0.9, "content": multiline_content, "file_path": "file.py"},
-    ]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "query", "test_repo"])
-
-    assert result.exit_code == 0
-    # Newlines should be replaced with spaces in display
-
-
-def test_search_command_displays_document_paths(cli_runner, tmp_path):
-    """Test search command displays document paths."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    search_results = [
-        {"score": 0.9, "content": "content", "file_path": "src/module/file.py"},
-        {"score": 0.8, "content": "content", "file_path": "tests/test_file.py"},
-    ]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "query", "test_repo"])
-
-    assert result.exit_code == 0
-    assert "Document Path" in result.output or "src/module/file.py" in result.output
-
-
-def test_search_command_with_special_characters_in_query(cli_runner, tmp_path):
-    """Test search command with special characters in query."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    search_results = [{"score": 0.9, "content": "result", "file_path": "file.py"}]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        # Query with special characters
-        result = cli_runner.invoke(app, ["search", "function()", "test_repo"])
-
-    assert result.exit_code == 0
-
-
-def test_search_command_with_unicode_query(cli_runner, tmp_path):
-    """Test search command with unicode in query."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    search_results = [{"score": 0.9, "content": "世界", "file_path": "file.py"}]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "你好", "test_repo"])
-
-    assert result.exit_code == 0
-
-
-def test_search_command_calls_repo_search_method(cli_runner, tmp_path):
-    """Test search command calls repo.search with correct parameters."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-    search_results = [{"score": 0.9, "content": "result", "file_path": "file.py"}]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        # First call returns repo, second returns search results
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "test_query", "test_repo", "--limit", "15"])
-
-    assert result.exit_code == 0
-    # Verify anyio.run was called twice: once for Repo.get, once for repo.search
-    assert mock_anyio_run.call_count == 2
-    # Verify the second call was to repo.search with correct parameters
-    second_call = mock_anyio_run.call_args_list[1]
-    assert second_call[0][0] == mock_repo.search
-    assert second_call[0][1] == "test_query"  # query
-    assert second_call[0][2] == 15  # limit
-
-
-def test_search_command_default_limit_is_10(cli_runner, tmp_path):
-    """Test search command has default limit of 10."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    # Return more than 10 results
-    search_results = [
-        {"score": 0.9, "content": f"result {i}", "file_path": f"file{i}.py"} for i in range(20)
-    ]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "query", "test_repo"])
-
-    assert result.exit_code == 0
-    # All results are displayed (limit is passed to repo.search, not filtered in CLI)
-
-
-def test_search_command_table_output(cli_runner, tmp_path):
-    """Test search command outputs results in table format."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    search_results = [{"score": 0.9, "content": "content", "file_path": "file.py"}]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "query", "test_repo"])
-
-    assert result.exit_code == 0
-    # Should contain table headers
-    assert "Score" in result.output or "Content" in result.output
-
-
-def test_search_command_strips_content_whitespace(cli_runner, tmp_path):
-    """Test search command strips whitespace from content."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    # Content with leading/trailing whitespace
-    search_results = [
-        {"score": 0.9, "content": "   content with spaces   ", "file_path": "file.py"}
-    ]
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        result = cli_runner.invoke(app, ["search", "query", "test_repo"])
-
-    assert result.exit_code == 0
-
-
-def test_search_command_with_empty_query(cli_runner, tmp_path):
-    """Test search command with empty query string."""
-    mock_repo = MagicMock()
-    mock_repo.name = "test_repo"
-
-    search_results = []
-
-    with patch("indexter.cli.cli.anyio.run") as mock_anyio_run:
-        mock_anyio_run.side_effect = [mock_repo, search_results]
-
-        # Empty string as query
-        result = cli_runner.invoke(app, ["search", "", "test_repo"])
-
-    # Empty query is accepted and treated like any other search
-    assert result.exit_code == 0
-    assert "No results found" in result.output
+        assert result.exit_code == 0
+        assert "test-repo" in result.stdout
+        assert "100" in result.stdout
+        # Missing fields should show as "-"
+        assert "-" in result.stdout

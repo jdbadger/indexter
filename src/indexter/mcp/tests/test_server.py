@@ -1,272 +1,276 @@
-"""Tests for indexter.mcp.server module."""
+"""Tests for indexter MCP server configuration and endpoints."""
 
-import importlib
-from dataclasses import is_dataclass
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-from fastmcp import FastMCP as orig_fastmcp
+from indexter.mcp.server import mcp
 
-from indexter.config.mcp import MCPSettings
-from indexter.config.mcp import MCPSettings as orig_settings
-from indexter.mcp import server
-from indexter.mcp.prompts import get_search_workflow_prompt as orig_prompt
-from indexter.mcp.resources import get_repo_status as orig_get_status
-from indexter.mcp.resources import list_repos as orig_list_repos
-from indexter.mcp.server import (
-    AppContext,
-    FastMCP,
-    get_repo_status,
-    get_search_workflow_prompt,
-    index_repo,
-    lifespan,
-    list_repos,
-    mcp,
-    search_repo,
-)
-from indexter.mcp.server import MCPSettings as ServerMCPSettings
-from indexter.mcp.tools import index_repo as orig_index
-from indexter.mcp.tools import search_repo as orig_search
-
-# ============================================================================
-# AppContext Tests
-# ============================================================================
-
-
-def test_app_context_initialization():
-    """Test AppContext dataclass initialization."""
-
-    settings = MCPSettings()
-    context = AppContext(settings=settings)
-
-    assert context.settings == settings
-    assert isinstance(context.settings, MCPSettings)
-
-
-def test_app_context_settings_attribute():
-    """Test AppContext has settings attribute."""
-
-    settings = MCPSettings(host="example.com", port=9999, default_top_k=20)
-    context = AppContext(settings=settings)
-
-    assert context.settings.host == "example.com"
-    assert context.settings.port == 9999
-    assert context.settings.default_top_k == 20
-
-
-# ============================================================================
-# lifespan Tests
-# ============================================================================
-
-
-@pytest.mark.asyncio
-async def test_lifespan_yields_app_context():
-    """Test lifespan context manager yields AppContext."""
-
-    mock_server = MagicMock()
-
-    async with lifespan(mock_server) as context:
-        assert isinstance(context, AppContext)
-        assert isinstance(context.settings, MCPSettings)
-
-
-@pytest.mark.asyncio
-async def test_lifespan_creates_settings():
-    """Test lifespan creates MCPSettings on startup."""
-
-    mock_server = MagicMock()
-
-    with patch("indexter.mcp.server.MCPSettings") as MockSettings:
-        MockSettings.return_value = MCPSettings()
-
-        async with lifespan(mock_server) as context:
-            MockSettings.assert_called_once()
-            assert isinstance(context.settings, MCPSettings)
-
-
-# ============================================================================
-# Integration Tests with Dependencies Mocked
-# ============================================================================
-
-
-@pytest.mark.asyncio
-async def test_repos_list_integration():
-    """Test repos_list functionality with mocked dependencies."""
-    repo_data = [
-        {"name": "repo1", "path": "/path/to/repo1"},
-        {"name": "repo2", "path": "/path/to/repo2"},
-    ]
-
-    with patch("indexter.mcp.server.list_repos", AsyncMock(return_value=repo_data)) as mock_list:
-        # Re-import to get fresh decorated function
-        importlib.reload(server)
-
-        # The function is wrapped by the decorator, but we can verify the mock was set up
-        assert mock_list is not None
-
-
-@pytest.mark.asyncio
-async def test_repo_status_integration(sample_repo_status):
-    """Test repo_status functionality with mocked dependencies."""
-    with patch(
-        "indexter.mcp.server.get_repo_status", AsyncMock(return_value=sample_repo_status)
-    ) as mock_status:
-        importlib.reload(server)
-
-        assert mock_status is not None
-
-
-@pytest.mark.asyncio
-async def test_index_tool_integration(sample_index_result):
-    """Test index tool functionality with mocked dependencies."""
-    with patch(
-        "indexter.mcp.server.index", AsyncMock(return_value=sample_index_result.model_dump())
-    ) as mock_index:
-        importlib.reload(server)
-
-        assert mock_index is not None
-
-
-@pytest.mark.asyncio
-async def test_search_tool_integration():
-    """Test search tool functionality with mocked dependencies."""
-    mock_results = {"results": [], "count": 0}
-
-    with patch(
-        "indexter.mcp.server.search_repo", AsyncMock(return_value=mock_results)
-    ) as mock_search:
-        importlib.reload(server)
-
-        assert mock_search is not None
-
-
-# ============================================================================
-# Module Structure Tests
-# ============================================================================
-
-
-def test_module_imports_list_repos():
-    """Test module imports list_repos from resources."""
-
-    assert hasattr(server, "list_repos")
-
-
-def test_module_imports_get_repo_status():
-    """Test module imports get_repo_status from resources."""
-
-    assert hasattr(server, "get_repo_status")
-
-
-def test_module_imports_index_repo():
-    """Test module imports index_repo from tools."""
-
-    assert hasattr(server, "index_repo")
-
-
-def test_module_imports_search_repo():
-    """Test module imports search_repo from tools."""
-
-    assert hasattr(server, "search_repo")
-
-
-def test_module_imports_get_search_workflow_prompt():
-    """Test module imports get_search_workflow_prompt from prompts."""
-
-    assert hasattr(server, "get_search_workflow_prompt")
-
-
-# ============================================================================
-# MCP Server Instance Tests
-# ============================================================================
+# Server Configuration Tests
 
 
 def test_mcp_server_exists():
-    """Test MCP server instance exists."""
-
+    """Test that the MCP server instance is created."""
     assert mcp is not None
+    assert hasattr(mcp, "run")
 
 
 def test_mcp_server_name():
-    """Test MCP server has correct name."""
-
+    """Test that the MCP server has the correct name."""
     assert mcp.name == "indexter"
 
 
-def test_mcp_server_has_instructions():
-    """Test MCP server has instructions."""
+@patch("indexter.mcp.server.settings")
+def test_run_server_stdio_transport(mock_settings):
+    """Test run_server function with stdio transport."""
+    from indexter.mcp.server import run_server
 
-    assert hasattr(mcp, "instructions")
-    assert isinstance(mcp.instructions, str)
-    assert len(mcp.instructions) > 0
-    assert "semantic" in mcp.instructions.lower() or "code" in mcp.instructions.lower()
+    mock_settings.mcp.transport = "stdio"
 
-
-def test_mcp_server_has_lifespan():
-    """Test MCP server has lifespan context manager."""
-
-    # Verify lifespan is defined
-    assert lifespan is not None
+    with patch.object(mcp, "run") as mock_run:
+        run_server()
+        mock_run.assert_called_once_with(transport="stdio")
 
 
-def test_app_context_dataclass():
-    """Test AppContext is a proper dataclass."""
-    assert is_dataclass(AppContext)
+@patch("indexter.mcp.server.settings")
+def test_run_server_http_transport(mock_settings):
+    """Test run_server function with http transport."""
+    from indexter.mcp.server import run_server
+
+    mock_settings.mcp.transport = "http"
+    mock_settings.mcp.host = "0.0.0.0"
+    mock_settings.mcp.port = 3000
+
+    with patch.object(mcp, "run") as mock_run:
+        run_server()
+        mock_run.assert_called_once_with(transport="http", host="0.0.0.0", port=3000)
 
 
-# ============================================================================
-# Function Signature Tests
-# ============================================================================
+@patch("indexter.mcp.server.settings")
+def test_run_server_custom_http_config(mock_settings):
+    """Test run_server function with custom http configuration."""
+    from indexter.mcp.server import run_server
+
+    mock_settings.mcp.transport = "http"
+    mock_settings.mcp.host = "127.0.0.1"
+    mock_settings.mcp.port = 8888
+
+    with patch.object(mcp, "run") as mock_run:
+        run_server()
+        mock_run.assert_called_once_with(transport="http", host="127.0.0.1", port=8888)
 
 
-def test_repos_list_function_signature():
-    """Test repos_list has correct signature."""
-
-    # The function exists in the module
-    assert hasattr(server, "list_repos")
+# MCP Protocol Endpoint Registration Tests
 
 
-def test_index_function_signature():
-    """Test index tool has correct parameter names."""
-    # Verify index is imported
-    assert hasattr(server, "index_repo")
+async def test_mcp_server_has_resources(mcp_client):
+    """Test that MCP server registers resource endpoints."""
+    resources = await mcp_client.list_resources()
+
+    # Should have at least the repos:// resource
+    uris = [str(r.uri) for r in resources]
+    assert "repos://" in uris
 
 
-def test_search_function_signature():
-    """Test search tool has correct parameter names."""
-    # Verify search_repo is imported
-    assert hasattr(server, "search_repo")
+async def test_mcp_server_has_resource_templates(mcp_client):
+    """Test that MCP server registers resource templates."""
+    templates = await mcp_client.list_resource_templates()
+
+    # Should have repos://{name} template
+    uri_templates = [rt.uriTemplate for rt in templates]
+    assert any("repos://{name}" in template for template in uri_templates)
 
 
-# ============================================================================
-# Dependency Integration Tests
-# ============================================================================
+async def test_mcp_server_has_tools(mcp_client):
+    """Test that MCP server registers tool endpoints."""
+    tools = await mcp_client.list_tools()
+
+    tool_names = [t.name for t in tools]
+    assert "index" in tool_names
+    assert "search" in tool_names
 
 
-def test_imports_from_resources_module():
-    """Test server imports functions from resources module."""
-    # Verify they're the same functions
-    assert list_repos is orig_list_repos
-    assert get_repo_status is orig_get_status
+async def test_mcp_server_has_prompts(mcp_client):
+    """Test that MCP server registers prompt endpoints."""
+    prompts = await mcp_client.list_prompts()
+
+    prompt_names = [p.name for p in prompts]
+    assert "search_workflow" in prompt_names
 
 
-def test_imports_from_tools_module():
-    """Test server imports functions from tools module."""
-    # Verify they're the same functions
-    assert index_repo is orig_index
-    assert search_repo is orig_search
+async def test_mcp_server_resources_accessible(mcp_client):
+    """Test that registered resources are accessible."""
+    # List all resources
+    resources = await mcp_client.list_resources()
+
+    # Each resource should be accessible
+    for resource in resources:
+        content = await mcp_client.read_resource(resource.uri)
+        assert content is not None
 
 
-def test_imports_from_prompts_module():
-    """Test server imports functions from prompts module."""
-    # Verify they're the same function
-    assert get_search_workflow_prompt is orig_prompt
+async def test_mcp_server_tools_have_schemas(mcp_client):
+    """Test that registered tools have proper schemas."""
+    tools = await mcp_client.list_tools()
+
+    for tool in tools:
+        # Each tool should have required fields
+        assert tool.name
+        assert tool.description
+        assert hasattr(tool, "inputSchema")
 
 
-def test_imports_mcp_settings():
-    """Test server imports MCPSettings."""
-    assert ServerMCPSettings is orig_settings
+async def test_mcp_server_prompts_have_descriptions(mcp_client):
+    """Test that registered prompts have descriptions."""
+    prompts = await mcp_client.list_prompts()
+
+    for prompt in prompts:
+        assert prompt.name
+        assert prompt.description
 
 
-def test_imports_fastmcp():
-    """Test server imports FastMCP."""
-    assert FastMCP is orig_fastmcp
+async def test_mcp_server_resource_templates_have_schemas(mcp_client):
+    """Test that resource templates have proper schemas."""
+    templates = await mcp_client.list_resource_templates()
+
+    for template in templates:
+        assert template.uriTemplate
+        assert template.name
+        assert template.description
+
+
+# Server Metadata Tests
+
+
+async def test_mcp_server_info(mcp_client):
+    """Test that MCP server provides server info."""
+    # This tests the initialize handshake
+    tools = await mcp_client.list_tools()
+
+    # If we can list tools, initialization succeeded
+    assert tools is not None
+    assert isinstance(tools, list)
+
+
+async def test_mcp_server_capabilities(mcp_client):
+    """Test that MCP server declares its capabilities."""
+    # Server should support all MCP capabilities
+    resources = await mcp_client.list_resources()
+    assert resources is not None
+
+    tools = await mcp_client.list_tools()
+    assert tools is not None
+
+    prompts = await mcp_client.list_prompts()
+    assert prompts is not None
+
+
+# Endpoint Count Validation
+
+
+async def test_mcp_server_expected_resource_count(mcp_client):
+    """Test that MCP server has expected number of resources."""
+    resources = await mcp_client.list_resources()
+
+    # Should have at least 1 static resource (repos://)
+    assert len(resources) >= 1
+
+
+async def test_mcp_server_expected_template_count(mcp_client):
+    """Test that MCP server has expected number of resource templates."""
+    templates = await mcp_client.list_resource_templates()
+
+    # Should have at least 1 template (repos://{name})
+    assert len(templates) >= 1
+
+
+async def test_mcp_server_expected_tool_count(mcp_client):
+    """Test that MCP server has expected number of tools."""
+    tools = await mcp_client.list_tools()
+
+    # Should have exactly 2 tools (index, search)
+    assert len(tools) == 2
+
+
+async def test_mcp_server_expected_prompt_count(mcp_client):
+    """Test that MCP server has expected number of prompts."""
+    prompts = await mcp_client.list_prompts()
+
+    # Should have exactly 1 prompt (search_workflow)
+    assert len(prompts) == 1
+
+
+# Tool Schema Validation
+
+
+async def test_index_tool_schema(mcp_client):
+    """Test that index tool has correct schema."""
+    tools = await mcp_client.list_tools()
+
+    index_tool = next((t for t in tools if t.name == "index"), None)
+    assert index_tool is not None
+
+    schema = index_tool.inputSchema
+    assert "properties" in schema
+    assert "name" in schema["properties"]
+    assert "full" in schema["properties"]
+    assert schema["required"] == ["name"]
+
+
+async def test_search_tool_schema(mcp_client):
+    """Test that search tool has correct schema."""
+    tools = await mcp_client.list_tools()
+
+    search_tool = next((t for t in tools if t.name == "search"), None)
+    assert search_tool is not None
+
+    schema = search_tool.inputSchema
+    assert "properties" in schema
+    assert "name" in schema["properties"]
+    assert "query" in schema["properties"]
+    # Optional filter parameters
+    assert "file_path" in schema["properties"]
+    assert "language" in schema["properties"]
+    assert "node_type" in schema["properties"]
+    assert "node_name" in schema["properties"]
+    assert "has_documentation" in schema["properties"]
+    assert set(schema["required"]) == {"name", "query"}
+
+
+# Resource Schema Validation
+
+
+async def test_repos_list_resource_metadata(mcp_client):
+    """Test that repos:// resource has correct metadata."""
+    resources = await mcp_client.list_resources()
+
+    repos_resource = next((r for r in resources if str(r.uri) == "repos://"), None)
+    assert repos_resource is not None
+    assert repos_resource.name
+    assert repos_resource.description
+    # FastMCP may use text/plain as default
+    assert repos_resource.mimeType in ("application/json", "text/plain")
+
+
+async def test_repo_status_template_metadata(mcp_client):
+    """Test that repos://{name} template has correct metadata."""
+    templates = await mcp_client.list_resource_templates()
+
+    status_template = next((rt for rt in templates if "{name}" in rt.uriTemplate), None)
+    assert status_template is not None
+    assert status_template.name
+    assert status_template.description
+    # FastMCP may use text/plain as default
+    assert status_template.mimeType in ("application/json", "text/plain")
+
+
+# Prompt Schema Validation
+
+
+async def test_search_workflow_prompt_metadata(mcp_client):
+    """Test that search_workflow prompt has correct metadata."""
+    prompts = await mcp_client.list_prompts()
+
+    workflow_prompt = next((p for p in prompts if p.name == "search_workflow"), None)
+    assert workflow_prompt is not None
+    assert workflow_prompt.name == "search_workflow"
+    assert workflow_prompt.description
+    assert len(workflow_prompt.description) > 0

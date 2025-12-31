@@ -11,6 +11,7 @@ Indexter indexes your local git repositories, parses them semantically using tre
 ## Table of Contents
 
 - [Features](#features)
+- [Supported Languages](#supported-languages)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
   - [Using uv (recommended)](#using-uv-recommended)
@@ -27,6 +28,7 @@ Indexter indexes your local git repositories, parses them semantically using tre
   - [Claude Desktop](#claude-desktop)
   - [VS Code](#vs-code)
   - [Cursor](#cursor)
+- [Programmatic Usage](#programmatic-usage)
 - [Contributing](#contributing)
 
 ## Features
@@ -39,10 +41,28 @@ Indexter indexes your local git repositories, parses them semantically using tre
 - 📁 **Respects .gitignore** and configurable ignore patterns
 - 🔄 **Incremental updates** sync changed files via content hash comparison
 - 🔍 **Vector search** powered by Qdrant with fastembed
-- ⌨️ **CLI** for config management, indexing repositories, and searching code from your terminal
+- ⌨️ **CLI** for indexing repositories, searching code and inspecting configuration from your terminal
 - 🤖 **MCP server** for seamless AI agent integration via FastMCP
 - 📦 **Multi-repo support** with separate collections per repository
 - ⚙️ **XDG-compliant** configuration and data storage
+
+## Supported Languages
+
+Indexter uses tree-sitter for semantic parsing. Each parser extracts meaningful code units **along with their documentation** (docstrings, JSDoc, TSDoc, Rust doc comments, etc.):
+
+| Language | Extensions | Semantic Units Extracted |
+|----------|------------|-------------------------|
+| Python | `.py` | Functions (sync/async), classes, decorated definitions, module-level constants + docstrings |
+| JavaScript | `.js`, `.jsx`, `.mjs` | Function declarations, generators, arrow functions, classes, methods + JSDoc comments |
+| TypeScript | `.ts`, `.tsx` | Functions, generators, arrow functions, classes, interfaces, type aliases + TSDoc comments |
+| Rust | `.rs` | Functions (sync/async/unsafe), structs, enums, traits, impl blocks + doc comments (`///`, `//!`) |
+| HTML | `.html`, `.htm` | Semantic elements: tables, lists, headers (`<h1>`–`<h6>`) |
+| CSS | `.css` | Rule sets, media queries, keyframes, imports, at-rules |
+| JSON | `.json` | Objects, arrays |
+| YAML | `.yaml`, `.yml` | Block mappings, block sequences |
+| TOML | `.toml` | Tables, array tables, top-level pairs |
+| Markdown | `.md` | ATX headings with section content |
+| *Fallback* | `*` | Fixed-size overlapping chunks (for unsupported file types) |
 
 ## Prerequisites
 
@@ -77,7 +97,7 @@ pipx install "indexter[full]"
 ### From source
 
 ```bash
-git clone https://github.com/YOUR_ORG/indexter.git
+git clone https://github.com/jdbadger/indexter.git
 cd indexter
 uv sync --all-extras
 ```
@@ -100,71 +120,106 @@ indexter status
 
 ## Configuration
 
+### Global Configuration
+
 Indexter uses XDG-compliant paths for configuration and data storage:
 
 | Type | Path |
 |------|------|
 | Config | `~/.config/indexter/config.toml` |
 | Data | `~/.local/share/indexter/` |
-| Cache | `~/.cache/indexter/` |
 
-### Global Configuration
-
-The global config controls vector store, embedding model, and MCP server settings:
+The global config controls embedding model, file processing settings, vector store, and MCP server:
 
 ```bash
 # Show current configuration
 indexter config show
 
-# Create/reset global config
-indexter config init
+# Get config file path
+indexter config path
 
-# Edit config in $EDITOR
-indexter config edit
+# Edit config manually
+$EDITOR $(indexter config path)
 ```
 
 ```toml
 # ~/.config/indexter/config.toml
 
-# Default ignore patterns (applied to all repositories)
-# These use gitignore-style patterns and are in addition to .gitignore
-# Uncomment and modify to customize defaults for all repositories
-# default_ignore_patterns = [
-#     ".git/",
-#     "__pycache__/",
-#     "*.pyc",
-#     "node_modules/",
-#     ".venv/",
-#     "*.lock",
-# ]
+# Embedding model to use for generating vector embeddings
+embedding_model = "BAAI/bge-small-en-v1.5"
+
+# File patterns to exclude from indexing (gitignore-style syntax)
+# These are in addition to patterns from .gitignore files
+ignore_patterns = [
+    ".git/",
+    "__pycache__/",
+    "*.pyc",
+    ".DS_Store",
+    "node_modules/",
+    ".venv/",
+    "*.lock",
+    ...
+]
+
+# Maximum file size (in bytes) to process
+max_file_size = 1048576  # 1 MB
+
+# Maximum number of files to process in a repository
+max_files = 1000
+
+# Number of top similar documents to retrieve for queries
+top_k = 10
+
+# Number of documents to upsert in a single batch operation
+upsert_batch_size = 100
 
 [store]
-# Connection mode: "local" (serverless), "memory" (testing), or "remote"
+# Vector Store connection mode: 'local', 'remote', or 'memory'
 mode = "local"
-# path = "~/.local/share/indexter/store"  # Custom storage path
 
-# Remote mode settings (only used when mode = "remote")
-# host = "localhost"
-# port = 6333
-# api_key = ""
-
-[embedding]
-model_name = "BAAI/bge-small-en-v1.5"
+# Remote mode settings (only used when mode = "remote"):
+# host = "localhost"          # Hostname of the remote Vector Store server
+# port = 6333                 # HTTP API port
+# grpc_port = 6334            # gRPC port
+# prefer_grpc = false         # Whether to prefer gRPC over HTTP
+# api_key = ""                # API key for authentication
 
 [mcp]
-host = "localhost"
-port = 8765
-default_top_k = 10
+# MCP transport mode: 'stdio' or 'http'
+transport = "stdio"
+
+# HTTP mode settings (only used when transport = "http"):
+# host = "localhost"          # Hostname for the MCP HTTP server
+# port = 8765                 # Port for the MCP HTTP server
 ```
+
+**Store Modes:**
+- `local`: File-based Qdrant in `$XDG_DATA_HOME/indexter` (default, no server required)
+- `memory`: In-RAM, ephemeral — useful for testing
+- `remote`: External Qdrant server — configure `host`, `port`, `grpc_port`, `prefer_grpc`, and `api_key`
+
+**MCP Transports:**
+- `stdio`: Standard input/output streams (default for MCP server integrations)
+- `http`: HTTP server mode — configure `host` and `port`
 
 Settings can also be overridden via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `INDEXTER_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Embedding model name |
+| `INDEXTER_MAX_FILE_SIZE` | `1048576` | Maximum file size in bytes |
+| `INDEXTER_MAX_FILES` | `1000` | Maximum files per repository |
+| `INDEXTER_TOP_K` | `10` | Number of search results |
+| `INDEXTER_UPSERT_BATCH_SIZE` | `100` | Batch size for vector operations |
 | `INDEXTER_STORE_MODE` | `local` | Storage mode: `local`, `memory`, or `remote` |
 | `INDEXTER_STORE_HOST` | `localhost` | Remote Qdrant host |
-| `INDEXTER_STORE_PORT` | `6333` | Remote Qdrant port |
-| `INDEXTER_MCP_PORT` | `8765` | MCP server port |
+| `INDEXTER_STORE_PORT` | `6333` | Remote Qdrant HTTP API port |
+| `INDEXTER_STORE_GRPC_PORT` | `6334` | Remote Qdrant gRPC port |
+| `INDEXTER_STORE_PREFER_GRPC` | `false` | Prefer gRPC over HTTP |
+| `INDEXTER_STORE_API_KEY` | | Remote Qdrant API key |
+| `INDEXTER_MCP_TRANSPORT` | `stdio` | MCP transport: `stdio` or `http` |
+| `INDEXTER_MCP_HOST` | `localhost` | MCP HTTP server host |
+| `INDEXTER_MCP_PORT` | `8765` | MCP HTTP server port |
 
 ### Per-Repository Configuration
 
@@ -173,25 +228,26 @@ Create an `indexter.toml` in your repository root, or add a `[tool.indexter]` se
 ```toml
 # indexter.toml (or [tool.indexter] in pyproject.toml)
 
-# Override the auto-generated collection name
-# collection = "my-custom-collection"
+# Embedding model to use for this repository
+# embedding_model = "BAAI/bge-small-en-v1.5"
 
-# Additional patterns to ignore (in addition to .gitignore)
+# Additional patterns to ignore (combined with .gitignore and global patterns)
 ignore_patterns = [
     "*.generated.*",
     "vendor/",
 ]
 
-# Maximum file size to process (in bytes). Default: 10MB
-max_file_size = 10485760
+# Maximum file size (in bytes) to process. Default: 1048576 (1 MB)
+# max_file_size = 1048576
 
-# Maximum number of files to sync in a single operation. Default: 500
-# Useful for large repositories to prevent overwhelming the system
-max_sync_files = 500
+# Maximum number of files to process in this repository. Default: 1000
+# max_files = 1000
 
-# Number of nodes to batch when upserting to vector store. Default: 100
-# Tune this for optimal performance based on your system's memory and network
-upsert_batch_size = 100
+# Number of top similar documents to retrieve for queries. Default: 10
+# top_k = 10
+
+# Number of documents to batch when upserting to vector store. Default: 100
+# upsert_batch_size = 100
 ```
 
 ## CLI Usage
@@ -236,10 +292,10 @@ Indexter provides an MCP server for AI agent integration. The server exposes:
 
 | Type | Name | Description |
 |------|------|-------------|
-| Tool | `sync` | Sync a repository's vector index with local file state |
+| Tool | `index` | Index (or sync) a repository's code |
 | Tool | `search` | Semantic search across indexed code with filtering options |
-| Resource | `repos://list` | List all configured repositories |
-| Resource | `repo://{name}/status` | Get indexing status of a repository |
+| Resource | `indexter://repos` | List all configured repositories |
+| Resource | `indexter://repos/{name}` | Get indexing status of a repository |
 | Prompt | `search_workflow` | Guide for effectively searching code repositories |
 
 ### Claude Desktop
@@ -323,6 +379,37 @@ If installed with uv:
 }
 ```
 
+## Programmatic Usage
+
+For custom integrations, use the `Repo` class directly:
+
+```python
+from indexter import Repo
+
+# Initialize a new repository
+repo = Repo.init("/path/to/your/repo", name="my-repo")
+
+# Index the repository
+await repo.index()
+
+# Search indexed code
+results = await repo.search("authentication handler", top_k=5)
+
+# Check indexing status
+status = await repo.status()
+
+# Retrieve an existing repository
+repo = Repo.get("my-repo")
+
+# List all configured repositories
+all_repos = Repo.all()
+
+# Remove a repository
+Repo.forget("my-repo")
+```
+
+Key properties: `repo.name`, `repo.path`, `repo.collection_name`, `repo.settings`.
+
 ## Contributing
 
 Contributions are welcome! Please fork the repository, create a feature branch, and submit a pull request.
@@ -332,11 +419,11 @@ Contributions are welcome! Please fork the repository, create a feature branch, 
 git clone https://github.com/YOUR_USERNAME/indexter.git
 cd indexter
 
-# Install dependencies
-uv sync
+# Install dependencies with all extras and test dependencies
+uv sync --all-extras --group test
 
 # Run tests
-uv run --group dev pytest
+uv run --group test pytest
 ```
 
 ## License

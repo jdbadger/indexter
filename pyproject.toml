@@ -65,6 +65,8 @@ test = [
     "pytest-cov>=7.0.0",
     "pytest-testmon>=2.2.0",
     "pytest-xdist>=3.8.0",
+    "inline-snapshot>=0.15.0",
+    "dirty-equals>=0.8.0",
 ]
 
 [project.urls]
@@ -88,6 +90,7 @@ wheel-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
 source-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
 
 [tool.pytest.ini_options]
+addopts = ["--pyargs"]
 asyncio_mode = "auto"
 
 [tool.ruff]

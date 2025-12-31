@@ -1,24 +1,28 @@
-"""Unit tests for indexter.models."""
+"""Tests for indexter.models module."""
 
-import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
-from pydantic import ValidationError
 
-from indexter.config.repo import RepoConfig
-from indexter.exceptions import InvalidGitRepositoryError, RepoNotFoundError
-from indexter.models import Document, IndexResult, Node, NodeMetadata, Repo
+from indexter.config import RepoSettings
+from indexter.exceptions import RepoExistsError, RepoNotFoundError
+from indexter.models import (
+    Document,
+    IndexResult,
+    Node,
+    NodeMetadata,
+    Repo,
+)
 
 # ============================================================================
 # IndexResult Tests
 # ============================================================================
 
 
-def test_index_result_default_initialization():
-    """Test IndexResult initializes with default empty values."""
+def test_index_result_defaults():
+    """Test IndexResult with default values."""
     result = IndexResult()
 
     assert result.files_synced == []
@@ -30,28 +34,33 @@ def test_index_result_default_initialization():
     assert result.nodes_updated == 0
     assert result.errors == []
     assert isinstance(result.indexed_at, datetime)
+    assert result.indexed_at.tzinfo == UTC
 
 
-def test_index_result_with_values(sample_index_result: IndexResult):
-    """Test IndexResult with provided values."""
-    assert sample_index_result.files_synced == ["file1.py", "file2.py"]
-    assert sample_index_result.files_deleted == ["old_file.py"]
-    assert sample_index_result.files_checked == 10
-    assert sample_index_result.skipped_files == 2
-    assert sample_index_result.nodes_added == 5
-    assert sample_index_result.nodes_deleted == 1
-    assert sample_index_result.nodes_updated == 3
-    assert sample_index_result.errors == ["Error parsing file3.py"]
+def test_index_result_with_data():
+    """Test IndexResult with custom data."""
+    now = datetime.now(UTC)
+    result = IndexResult(
+        files_synced=["file1.py", "file2.py"],
+        files_deleted=["old.py"],
+        files_checked=10,
+        skipped_files=2,
+        nodes_added=5,
+        nodes_deleted=3,
+        nodes_updated=7,
+        indexed_at=now,
+        errors=["Error 1", "Error 2"],
+    )
 
-
-def test_index_result_serialization(sample_index_result: IndexResult):
-    """Test IndexResult can be serialized."""
-    data = sample_index_result.model_dump()
-
-    assert data["files_synced"] == ["file1.py", "file2.py"]
-    assert data["files_deleted"] == ["old_file.py"]
-    assert data["files_checked"] == 10
-    assert data["nodes_added"] == 5
+    assert result.files_synced == ["file1.py", "file2.py"]
+    assert result.files_deleted == ["old.py"]
+    assert result.files_checked == 10
+    assert result.skipped_files == 2
+    assert result.nodes_added == 5
+    assert result.nodes_deleted == 3
+    assert result.nodes_updated == 7
+    assert result.indexed_at == now
+    assert result.errors == ["Error 1", "Error 2"]
 
 
 # ============================================================================
@@ -59,81 +68,60 @@ def test_index_result_serialization(sample_index_result: IndexResult):
 # ============================================================================
 
 
-def test_node_metadata_initialization(sample_node_metadata: NodeMetadata):
-    """Test NodeMetadata initialization."""
-    assert sample_node_metadata.hash == "abc123def456"
-    assert sample_node_metadata.document_path == "src/test.py"
-    assert sample_node_metadata.language == "python"
-    assert sample_node_metadata.node_type == "function"
-    assert sample_node_metadata.node_name == "hello"
-    assert sample_node_metadata.start_byte == 0
-    assert sample_node_metadata.end_byte == 42
-    assert sample_node_metadata.start_line == 1
-    assert sample_node_metadata.end_line == 2
-    assert sample_node_metadata.documentation == "Test function"
-    assert sample_node_metadata.parent_scope is None
-    assert sample_node_metadata.signature == "def hello():"
-    assert sample_node_metadata.extra == {}
-
-
-def test_node_metadata_optional_fields():
-    """Test NodeMetadata with optional fields set to None."""
+def test_node_metadata_required_fields():
+    """Test NodeMetadata with required fields."""
     metadata = NodeMetadata(
-        hash="test_hash",
-        repo_path="/repo",
-        document_path="test.py",
+        hash="abc123",
+        repo_path="/path/to/repo",
+        document_path="src/module.py",
         language="python",
         node_type="function",
-        node_name="test",
-        start_byte=0,
-        end_byte=10,
-        start_line=1,
-        end_line=2,
+        node_name="my_function",
+        start_byte=100,
+        end_byte=200,
+        start_line=10,
+        end_line=20,
     )
 
+    assert metadata.hash == "abc123"
+    assert metadata.repo_path == "/path/to/repo"
+    assert metadata.document_path == "src/module.py"
+    assert metadata.language == "python"
+    assert metadata.node_type == "function"
+    assert metadata.node_name == "my_function"
+    assert metadata.start_byte == 100
+    assert metadata.end_byte == 200
+    assert metadata.start_line == 10
+    assert metadata.end_line == 20
     assert metadata.documentation is None
     assert metadata.parent_scope is None
     assert metadata.signature is None
     assert metadata.extra == {}
 
 
-def test_node_metadata_with_parent_scope():
-    """Test NodeMetadata with parent scope."""
+def test_node_metadata_with_optional_fields():
+    """Test NodeMetadata with all optional fields."""
     metadata = NodeMetadata(
-        hash="test_hash",
-        repo_path="/repo",
-        document_path="test.py",
+        hash="def456",
+        repo_path="/path/to/repo",
+        document_path="src/class.py",
         language="python",
         node_type="method",
-        node_name="test_method",
-        start_byte=0,
-        end_byte=10,
-        start_line=1,
-        end_line=2,
-        parent_scope="TestClass",
+        node_name="process_data",
+        start_byte=300,
+        end_byte=500,
+        start_line=30,
+        end_line=50,
+        documentation="Process the data efficiently.",
+        parent_scope="DataProcessor",
+        signature="def process_data(self, data: list) -> dict",
+        extra={"decorator": "@staticmethod", "async": "true"},
     )
 
-    assert metadata.parent_scope == "TestClass"
-
-
-def test_node_metadata_with_extra():
-    """Test NodeMetadata with extra data."""
-    metadata = NodeMetadata(
-        hash="test_hash",
-        repo_path="/repo",
-        document_path="test.py",
-        language="python",
-        node_type="function",
-        node_name="test",
-        start_byte=0,
-        end_byte=10,
-        start_line=1,
-        end_line=2,
-        extra={"custom_field": "value", "another": "data"},
-    )
-
-    assert metadata.extra["custom_field"] == "value"
-    assert metadata.extra["another"] == "data"
+    assert metadata.documentation == "Process the data efficiently."
+    assert metadata.parent_scope == "DataProcessor"
+    assert metadata.signature == "def process_data(self, data: list) -> dict"
+    assert metadata.extra == {"decorator": "@staticmethod", "async": "true"}
 
 
 # ============================================================================
@@ -141,41 +129,45 @@ def test_node_metadata_with_extra():
 # ============================================================================
 
 
-def test_node_initialization(sample_node: Node):
-    """Test Node initialization."""
-    assert sample_node.id == uuid.UUID("12345678-1234-5678-1234-567812345678")
-    assert sample_node.content == "def hello():\n    print('Hello, world!')"
-    assert isinstance(sample_node.metadata, NodeMetadata)
-
-
-def test_node_auto_generates_uuid():
-    """Test Node generates UUID automatically."""
+def test_node_auto_generates_id():
+    """Test that Node auto-generates UUID."""
     metadata = NodeMetadata(
-        hash="test_hash",
+        hash="xyz789",
         repo_path="/repo",
-        document_path="test.py",
+        document_path="file.py",
         language="python",
-        node_type="function",
-        node_name="test",
+        node_type="class",
+        node_name="MyClass",
         start_byte=0,
-        end_byte=10,
+        end_byte=100,
         start_line=1,
-        end_line=2,
+        end_line=10,
     )
-    node = Node(content="test content", metadata=metadata)
+    node = Node(content="class MyClass:\n    pass", metadata=metadata)
 
-    assert isinstance(node.id, uuid.UUID)
-    assert node.content == "test content"
+    assert isinstance(node.id, UUID)
+    assert node.content == "class MyClass:\n    pass"
+    assert node.metadata == metadata
 
 
-def test_node_serialization(sample_node: Node):
-    """Test Node can be serialized."""
-    data = sample_node.model_dump()
+def test_node_with_custom_id():
+    """Test Node with explicitly provided UUID."""
+    custom_id = UUID("12345678-1234-5678-1234-567812345678")
+    metadata = NodeMetadata(
+        hash="xyz789",
+        repo_path="/repo",
+        document_path="file.py",
+        language="python",
+        node_type="class",
+        node_name="MyClass",
+        start_byte=0,
+        end_byte=100,
+        start_line=1,
+        end_line=10,
+    )
+    node = Node(id=custom_id, content="class MyClass:\n    pass", metadata=metadata)
 
-    assert str(data["id"]) == "12345678-1234-5678-1234-567812345678"
-    assert data["content"] == "def hello():\n    print('Hello, world!')"
-    assert "metadata" in data
-    assert data["metadata"]["node_name"] == "hello"
+    assert node.id == custom_id
 
 
 # ============================================================================
@@ -183,29 +175,21 @@ def test_node_serialization(sample_node: Node):
 # ============================================================================
 
 
-def test_document_initialization(sample_document: Document):
-    """Test Document initialization."""
-    assert sample_document.path == "src/test.py"
-    assert sample_document.size_bytes == 1024
-    assert sample_document.mtime == 1234567890.0
-    assert sample_document.content == "def hello():\n    print('Hello, world!')"
-    assert sample_document.hash == "abc123def456"
+def test_document_creation():
+    """Test Document model creation."""
+    doc = Document(
+        path="src/main.py",
+        size_bytes=1024,
+        mtime=1234567890.0,
+        content="print('hello')",
+        hash="abc123def456",
+    )
 
-
-def test_document_serialization(sample_document: Document):
-    """Test Document can be serialized."""
-    data = sample_document.model_dump()
-
-    assert data["path"] == "src/test.py"
-    assert data["size_bytes"] == 1024
-    assert data["mtime"] == 1234567890.0
-    assert data["hash"] == "abc123def456"
-
-
-def test_document_validation():
-    """Test Document validates required fields."""
-    with pytest.raises(ValidationError):
-        Document()
+    assert doc.path == "src/main.py"
+    assert doc.size_bytes == 1024
+    assert doc.mtime == 1234567890.0
+    assert doc.content == "print('hello')"
+    assert doc.hash == "abc123def456"
 
 
 # ============================================================================
@@ -213,652 +197,629 @@ def test_document_validation():
 # ============================================================================
 
 
-def test_repo_computed_field_name(sample_repo_config: RepoConfig):
-    """Test Repo.name computed field."""
-    repo = Repo(repo_config=sample_repo_config)
-    assert repo.name == "test_repo"
+def test_repo_computed_fields(repo_settings):
+    """Test Repo computed fields."""
+    repo = Repo(settings=repo_settings)
 
-
-def test_repo_computed_field_path(sample_repo_config: RepoConfig, sample_repo_path: Path):
-    """Test Repo.path computed field."""
-    repo = Repo(repo_config=sample_repo_config)
-    assert repo.path == str(sample_repo_path)
-
-
-def test_repo_computed_field_collection_name(sample_repo_config: RepoConfig):
-    """Test Repo.collection_name computed field."""
-    repo = Repo(repo_config=sample_repo_config)
-    assert repo.collection_name == "indexter_test_repo"
+    assert repo.collection_name == repo_settings.collection_name
+    assert repo.name == repo_settings.name
+    assert repo.path == str(repo_settings.path)
 
 
 # ============================================================================
-# Repo Tests - add() method
+# Repo Tests - init()
 # ============================================================================
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-@patch("indexter.models.save_repos_config")
-@patch("indexter.models.validate_git_repository")
-async def test_repo_init_new_repository(
-    mock_validate: MagicMock,
-    mock_save: AsyncMock,
-    mock_load: AsyncMock,
-    sample_repo_path: Path,
-):
-    """Test adding a new repository."""
-    mock_load.return_value = []
-    mock_save.return_value = None
+async def test_repo_init_new_repo(tmp_path):
+    """Test initializing a new repository."""
+    repo_path = tmp_path / "new_repo"
+    repo_path.mkdir()
+    (repo_path / ".git").mkdir()
 
-    repo = await Repo.init(sample_repo_path)
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[])):
+        with patch.object(RepoSettings, "save", new=AsyncMock()) as mock_save:
+            repo = await Repo.init(repo_path)
 
-    assert repo.name == "test_repo"  # Derived from directory name
-    assert repo.path == str(sample_repo_path)
-    mock_validate.assert_called_once_with(sample_repo_path)
-    mock_save.assert_called_once()
+            assert repo.name == "new_repo"
+            assert repo.path == str(repo_path.resolve())
 
-
-@pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-@patch("indexter.models.save_repos_config")
-@patch("indexter.models.validate_git_repository")
-async def test_repo_init_existing_repository(
-    mock_validate: MagicMock,
-    mock_save: AsyncMock,
-    mock_load: AsyncMock,
-    sample_repo_path: Path,
-    sample_repo_config: RepoConfig,
-):
-    """Test adding a repository that already exists."""
-    mock_load.return_value = [sample_repo_config]
-
-    repo = await Repo.init(sample_repo_path)
-
-    assert repo.name == "test_repo"
-    assert repo.path == str(sample_repo_path)
-    mock_save.assert_not_called()
+            # Verify save was called with the new repo
+            mock_save.assert_called_once()
+            saved_repos = mock_save.call_args[0][0]
+            assert len(saved_repos) == 1
+            assert saved_repos[0].name == "new_repo"
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-@patch("indexter.models.validate_git_repository")
-async def test_repo_init_invalid_git_repository(
-    mock_validate: MagicMock,
-    mock_load: AsyncMock,
-    sample_repo_path: Path,
-):
-    """Test adding a path that is not a git repository."""
-    mock_load.return_value = []
-    mock_validate.side_effect = InvalidGitRepositoryError()
+async def test_repo_init_already_configured(tmp_path):
+    """Test initializing a repository that's already configured."""
+    repo_path = tmp_path / "existing_repo"
+    repo_path.mkdir()
+    (repo_path / ".git").mkdir()
 
-    with pytest.raises(ValueError, match="is not a git repository"):
-        await Repo.init(sample_repo_path)
+    existing_settings = RepoSettings(path=repo_path.resolve())
+
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[existing_settings])):
+        with patch.object(RepoSettings, "save", new=AsyncMock()) as mock_save:
+            repo = await Repo.init(repo_path)
+
+            assert repo.name == "existing_repo"
+            # Save should not be called since repo already exists
+            mock_save.assert_not_called()
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-@patch("indexter.models.save_repos_config")
-@patch("indexter.models.validate_git_repository")
-async def test_repo_init_auto_generates_name(
-    mock_validate: MagicMock,
-    mock_save: AsyncMock,
-    mock_load: AsyncMock,
-    sample_repo_path: Path,
-):
-    """Test adding a repository without explicit name."""
-    mock_load.return_value = []
+async def test_repo_init_name_conflict(tmp_path):
+    """Test initializing a repo when another repo with same name exists."""
+    repo_path1 = tmp_path / "my_repo"
+    repo_path2 = tmp_path / "another_location" / "my_repo"
+    repo_path1.mkdir()
+    (repo_path1 / ".git").mkdir()  # Make it a valid git repo
+    repo_path2.mkdir(parents=True)
+    (repo_path2 / ".git").mkdir()  # Make it a valid git repo
 
-    repo = await Repo.init(sample_repo_path)
+    existing_settings = RepoSettings(path=repo_path1.resolve())
 
-    # Name should be auto-generated from path
-    assert repo.name == sample_repo_path.name
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[existing_settings])):
+        with pytest.raises(RepoExistsError) as exc_info:
+            await Repo.init(repo_path2)
+
+        assert "already exists" in str(exc_info.value)
+        assert "my_repo" in str(exc_info.value)
 
 
 # ============================================================================
-# Repo Tests - get() method
+# Repo Tests - get()
 # ============================================================================
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-async def test_repo_get_existing(
-    mock_load: AsyncMock,
-    sample_repo_path: Path,
-    sample_repo_config: RepoConfig,
-):
-    """Test getting an existing repository."""
-    mock_load.return_value = [sample_repo_config]
+async def test_repo_get_existing(temp_git_repo):
+    """Test getting an existing repository by name."""
+    settings = RepoSettings(path=temp_git_repo)
 
-    repo = await Repo.get("test_repo")
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[settings])):
+        repo = await Repo.get(temp_git_repo.name)
 
-    assert repo is not None
-    assert repo.name == "test_repo"
-    assert repo.path == str(sample_repo_path)
+        assert repo.name == temp_git_repo.name
+        assert isinstance(repo, Repo)
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-async def test_repo_get_nonexistent(
-    mock_load: AsyncMock,
-    tmp_path: Path,
-):
-    """Test getting a repository that doesn't exist."""
-    mock_load.return_value = []
+async def test_repo_get_not_found():
+    """Test getting a non-existent repository."""
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[])):
+        with pytest.raises(RepoNotFoundError) as exc_info:
+            await Repo.get("nonexistent")
 
-    with pytest.raises(RepoNotFoundError):
-        await Repo.get("nonexistent")
+        assert "nonexistent" in str(exc_info.value)
 
 
 # ============================================================================
-# Repo Tests - list() method
+# Repo Tests - list()
 # ============================================================================
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-async def test_repo_list_empty(mock_load: AsyncMock):
-    """Test listing repositories when none are configured."""
-    mock_load.return_value = []
+async def test_repo_list_empty():
+    """Test listing repositories when none exist."""
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[])):
+        repos = await Repo.list()
 
-    repos = await Repo.list()
-
-    assert repos == []
+        assert repos == []
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-async def test_repo_list_multiple(
-    mock_load: AsyncMock,
-    sample_repo_config: RepoConfig,
-    tmp_path: Path,
-):
+async def test_repo_list_multiple(tmp_path):
     """Test listing multiple repositories."""
-    config2 = RepoConfig(path=tmp_path / "repo2")
-    mock_load.return_value = [sample_repo_config, config2]
+    # Create three temp git repos
+    repos_paths = []
+    for i in range(1, 4):
+        repo_path = tmp_path / f"repo{i}"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        repos_paths.append(repo_path)
 
-    repos = await Repo.list()
+    settings1 = RepoSettings(path=repos_paths[0])
+    settings2 = RepoSettings(path=repos_paths[1])
+    settings3 = RepoSettings(path=repos_paths[2])
 
-    assert len(repos) == 2
-    assert repos[0].name == "test_repo"
-    assert repos[1].name == "repo2"
+    with patch.object(
+        RepoSettings, "load", new=AsyncMock(return_value=[settings1, settings2, settings3])
+    ):
+        repos = await Repo.list()
+
+        assert len(repos) == 3
+        assert all(isinstance(r, Repo) for r in repos)
+        assert [r.name for r in repos] == ["repo1", "repo2", "repo3"]
 
 
 # ============================================================================
-# Repo Tests - remove() method
+# Repo Tests - remove()
 # ============================================================================
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-@patch("indexter.models.save_repos_config")
-@patch("indexter.models.store")
-async def test_repo_remove_existing(
-    mock_store: MagicMock,
-    mock_save: AsyncMock,
-    mock_load: AsyncMock,
-    sample_repo_path: Path,
-    sample_repo_config: RepoConfig,
-):
+async def test_repo_remove_existing(tmp_path):
     """Test removing an existing repository."""
-    mock_load.return_value = [sample_repo_config]
-    mock_store.delete_collection = AsyncMock()
+    test_repo = tmp_path / "test_repo"
+    test_repo.mkdir()
+    (test_repo / ".git").mkdir()
+    settings = RepoSettings(path=test_repo)
 
-    result = await Repo.remove("test_repo")
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[settings])):
+        with patch.object(RepoSettings, "save", new=AsyncMock()) as mock_save:
+            with patch("indexter.models.store") as mock_store:
+                mock_store.delete_collection = AsyncMock()
 
-    assert result is True
-    mock_store.delete_collection.assert_called_once_with("indexter_test_repo")
-    mock_save.assert_called_once()
+                result = await Repo.remove("test_repo")
 
-    # Check that the repo was removed from the list
-    saved_repos = mock_save.call_args[0][0]
-    assert len(saved_repos) == 0
-
-
-@pytest.mark.asyncio
-@patch("indexter.models.load_repos_config")
-async def test_repo_remove_nonexistent(
-    mock_load: AsyncMock,
-    tmp_path: Path,
-):
-    """Test removing a repository that doesn't exist."""
-    mock_load.return_value = []
-
-    with pytest.raises(RepoNotFoundError):
-        await Repo.remove("nonexistent")
-
-
-# ============================================================================
-# Repo Tests - get_document_hashes() method
-# ============================================================================
+                assert result is True
+                mock_store.delete_collection.assert_called_once_with(settings.collection_name)
+                mock_save.assert_called_once_with([])
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.Walker.create")
-async def test_repo_get_document_hashes(
-    mock_walker_create: AsyncMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-):
-    """Test getting document hashes from repository."""
-    mock_walker_create.return_value = mock_walker
-
-    repo = Repo(repo_config=sample_repo_config)
-    hashes = await repo.get_document_hashes()
-
-    assert "test.py" in hashes
-    assert hashes["test.py"] == "test_hash"
+async def test_repo_remove_not_found():
+    """Test removing a non-existent repository."""
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[])):
+        with pytest.raises(RepoNotFoundError):
+            await Repo.remove("nonexistent")
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.Walker.create")
-async def test_repo_get_document_hashes_empty(
-    mock_walker_create: AsyncMock,
-    sample_repo_config: RepoConfig,
-):
-    """Test getting document hashes when repository is empty."""
+async def test_repo_remove_race_condition(tmp_path):
+    """Test removing a repo that was deleted by another process (race condition)."""
+    test_repo = tmp_path / "test_repo"
+    test_repo.mkdir()
+    (test_repo / ".git").mkdir()
+    settings = RepoSettings(path=test_repo)
 
-    async def empty_walk():
-        return
-        yield  # Make it an async generator
+    # Simulate race condition: repo exists in first load (for get()),
+    # but is gone in second load (for remove())
+    load_call_count = 0
 
-    mock_walker = MagicMock()
-    mock_walker.walk = empty_walk
-    mock_walker_create.return_value = mock_walker
+    async def mock_load():
+        nonlocal load_call_count
+        load_call_count += 1
+        if load_call_count == 1:
+            # First call from get() - repo exists
+            return [settings]
+        else:
+            # Second call from remove() - repo already gone (deleted by another process)
+            return []
 
-    repo = Repo(repo_config=sample_repo_config)
-    hashes = await repo.get_document_hashes()
+    with patch.object(RepoSettings, "load", new=mock_load):
+        with patch.object(RepoSettings, "save", new=AsyncMock()) as mock_save:
+            with patch("indexter.models.store") as mock_store:
+                mock_store.delete_collection = AsyncMock()
 
-    assert hashes == {}
+                result = await Repo.remove("test_repo")
+
+                # Should return False since the repo wasn't in the list during save
+                assert result is False
+                # Save should still be called with empty list
+                mock_save.assert_called_once_with([])
+
+
+@pytest.mark.asyncio
+async def test_repo_remove_keeps_other_repos(tmp_path):
+    """Test that removing one repo doesn't affect others."""
+    # Create three temp git repos
+    repos_paths = []
+    for i in range(1, 4):
+        repo_path = tmp_path / f"repo{i}"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        repos_paths.append(repo_path)
+
+    settings1 = RepoSettings(path=repos_paths[0])
+    settings2 = RepoSettings(path=repos_paths[1])
+    settings3 = RepoSettings(path=repos_paths[2])
+
+    with patch.object(
+        RepoSettings, "load", new=AsyncMock(return_value=[settings1, settings2, settings3])
+    ):
+        with patch.object(RepoSettings, "save", new=AsyncMock()) as mock_save:
+            with patch("indexter.models.store") as mock_store:
+                mock_store.delete_collection = AsyncMock()
+
+                await Repo.remove("repo2")
+
+                # Verify remaining repos were saved
+                saved_repos = mock_save.call_args[0][0]
+                assert len(saved_repos) == 2
+                assert [r.name for r in saved_repos] == ["repo1", "repo3"]
 
 
 # ============================================================================
-# Repo Tests - search() method
+# Repo Tests - get_document_hashes()
 # ============================================================================
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-async def test_repo_search_basic(
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-):
+async def test_repo_get_document_hashes(temp_git_repo):
+    """Test getting document hashes from walker."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
+
+    mock_docs = [
+        {"path": "file1.py", "size_bytes": 100, "mtime": 123.0, "content": "a", "hash": "hash1"},
+        {"path": "file2.py", "size_bytes": 200, "mtime": 456.0, "content": "b", "hash": "hash2"},
+        {"path": "file3.py", "size_bytes": 300, "mtime": 789.0, "content": "c", "hash": "hash3"},
+    ]
+
+    async def mock_walk():
+        for doc in mock_docs:
+            yield doc
+
+    with patch("indexter.models.Walker") as mock_walker_class:
+        mock_walker = MagicMock()
+        mock_walker.walk = mock_walk
+        mock_walker_class.return_value = mock_walker
+
+        hashes = await repo.get_document_hashes()
+
+        assert hashes == {
+            "file1.py": "hash1",
+            "file2.py": "hash2",
+            "file3.py": "hash3",
+        }
+
+
+# ============================================================================
+# Repo Tests - search()
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_repo_search_basic(temp_git_repo):
     """Test basic search functionality."""
-    mock_store.search = AsyncMock(return_value=[{"content": "test", "score": 0.9}])
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    repo = Repo(repo_config=sample_repo_config)
-    results = await repo.search("test query")
+    expected_results = [{"content": "result1"}, {"content": "result2"}]
 
-    assert len(results) == 1
-    assert results[0]["content"] == "test"
-    mock_store.search.assert_called_once_with(
-        collection_name="indexter_test_repo",
-        query="test query",
-        limit=10,
-        file_path=None,
-        language=None,
-        node_type=None,
-        node_name=None,
-        has_documentation=None,
-    )
+    with patch("indexter.models.store") as mock_store:
+        mock_store.search = AsyncMock(return_value=expected_results)
 
+        results = await repo.search("test query", limit=5)
 
-@pytest.mark.asyncio
-@patch("indexter.models.store")
-async def test_repo_search_with_filters(
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-):
-    """Test search with various filters."""
-    mock_store.search = AsyncMock(return_value=[])
-
-    repo = Repo(repo_config=sample_repo_config)
-    await repo.search(
-        query="test",
-        limit=5,
-        file_path="src/test.py",
-        language="python",
-        node_type="function",
-        node_name="test_func",
-        has_documentation=True,
-    )
-
-    mock_store.search.assert_called_once_with(
-        collection_name="indexter_test_repo",
-        query="test",
-        limit=5,
-        file_path="src/test.py",
-        language="python",
-        node_type="function",
-        node_name="test_func",
-        has_documentation=True,
-    )
-
-
-# ============================================================================
-# Repo Tests - status() method
-# ============================================================================
+        mock_store.search.assert_called_once_with(
+            collection_name=repo.collection_name,
+            query="test query",
+            limit=5,
+            file_path=None,
+            language=None,
+            node_type=None,
+            node_name=None,
+            has_documentation=None,
+        )
+        assert results == expected_results
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-async def test_repo_status(
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-):
-    """Test getting repository status."""
-    mock_walker_create.return_value = mock_walker
-    mock_store.get_document_hashes = AsyncMock(
-        return_value={
-            "test.py": "test_hash",
-            "old.py": "old_hash",
-        }
-    )
-    mock_store.count_nodes = AsyncMock(return_value=42)
+async def test_repo_search_with_filters(temp_git_repo):
+    """Test search with all filter parameters."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    repo = Repo(repo_config=sample_repo_config)
-    status = await repo.status()
+    with patch("indexter.models.store") as mock_store:
+        mock_store.search = AsyncMock(return_value=[])
 
-    assert status["repository"] == "test_repo"
-    assert status["path"] == str(sample_repo_config.path)
-    assert status["documents_indexed"] == 2
-    assert status["nodes_indexed"] == 42
+        await repo.search(
+            query="find function",
+            limit=20,
+            file_path="src/module.py",
+            language="python",
+            node_type="function",
+            node_name="my_func",
+            has_documentation=True,
+        )
+
+        mock_store.search.assert_called_once_with(
+            collection_name=repo.collection_name,
+            query="find function",
+            limit=20,
+            file_path="src/module.py",
+            language="python",
+            node_type="function",
+            node_name="my_func",
+            has_documentation=True,
+        )
 
 
 # ============================================================================
-# Repo Tests - sync() method
+# Repo Tests - status()
 # ============================================================================
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-async def test_repo_index_new_file(
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-    mock_parser: MagicMock,
-):
-    """Test syncing with a new file."""
-    mock_walker_create.return_value = mock_walker
-    mock_get_parser.return_value = mock_parser
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={})
-    mock_store.upsert_nodes = AsyncMock()
+async def test_repo_status(temp_git_repo):
+    """Test repository status reporting."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
+    # Mock local document hashes
+    local_hashes = {
+        "file1.py": "hash1",
+        "file2.py": "hash2_new",  # Modified
+        "file3.py": "hash3",
+    }
 
-    assert len(result.files_synced) == 1
-    assert "test.py" in result.files_synced
-    assert result.nodes_added == 1
-    assert result.files_checked == 1
-    mock_store.ensure_collection.assert_called_once_with("indexter_test_repo")
-    mock_store.upsert_nodes.assert_called_once()
+    # Mock stored document hashes
+    stored_hashes = {
+        "file1.py": "hash1",
+        "file2.py": "hash2_old",  # Stale
+        "file4.py": "hash4",  # Deleted locally
+    }
+
+    # Need to mock the Walker to return local documents
+    async def mock_walk():
+        for path, hash in local_hashes.items():
+            yield {
+                "path": path,
+                "size_bytes": 100,
+                "mtime": 123.0,
+                "content": "content",
+                "hash": hash,
+            }
+
+    with patch("indexter.models.Walker") as mock_walker_class:
+        mock_walker = MagicMock()
+        mock_walker.walk = mock_walk
+        mock_walker_class.return_value = mock_walker
+
+        with patch("indexter.models.store") as mock_store:
+            mock_store.get_document_hashes = AsyncMock(return_value=stored_hashes)
+            mock_store.count_nodes = AsyncMock(return_value=42)
+
+            status = await repo.status()
+
+            assert status["repository"] == temp_git_repo.name
+            assert status["path"] == str(settings.path)
+            assert status["nodes_indexed"] == 42
+            assert status["documents_indexed"] == 3
+            # hash2_old and hash4 are not in local_hashes
+            assert status["documents_indexed_stale"] == 2
 
 
-@pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-async def test_repo_index_modified_file(
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-    mock_parser: MagicMock,
-):
-    """Test syncing with a modified file."""
-    mock_walker_create.return_value = mock_walker
-    mock_get_parser.return_value = mock_parser
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(
-        return_value={
-            "test.py": "old_hash"  # Different hash indicates modification
-        }
-    )
-    mock_store.delete_by_document_paths = AsyncMock()
-    mock_store.upsert_nodes = AsyncMock()
-
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
-
-    assert len(result.files_synced) == 1
-    assert result.nodes_updated == 1
-    assert result.nodes_added == 0
-    mock_store.delete_by_document_paths.assert_called_once()
+# ============================================================================
+# Repo Tests - index()
+# ============================================================================
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-async def test_repo_index_unchanged_file(
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-):
-    """Test syncing with an unchanged file."""
-    mock_walker_create.return_value = mock_walker
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(
-        return_value={
-            "test.py": "test_hash"  # Same hash means unchanged
-        }
-    )
-    mock_store.upsert_nodes = AsyncMock()
+async def test_repo_index_full_sync(temp_git_repo):
+    """Test full index sync (recreates collection)."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
+    with patch("indexter.models.store") as mock_store:
+        mock_store.delete_collection = AsyncMock()
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={})
+        mock_store.upsert_nodes = AsyncMock()
 
-    assert len(result.files_synced) == 0
-    assert result.files_checked == 1
-    assert result.nodes_added == 0
-    assert result.nodes_updated == 0
-    mock_get_parser.assert_not_called()
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+
+            async def mock_walk():
+                return
+                yield  # Make it an async generator
+
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
+
+            result = await repo.index(full=True)
+
+            mock_store.delete_collection.assert_called_once_with(repo.collection_name)
+            mock_store.ensure_collection.assert_called_once_with(repo.collection_name)
+            assert isinstance(result, IndexResult)
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-async def test_repo_index_deleted_file(
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-):
-    """Test syncing when a file has been deleted."""
+async def test_repo_index_new_file(temp_git_repo):
+    """Test indexing a new file."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    async def empty_walk():
-        return
-        yield  # Make it an async generator
+    mock_doc = {
+        "path": "new_file.py",
+        "size_bytes": 100,
+        "mtime": 123.0,
+        "content": "def hello():\n    pass",
+        "hash": "newhash",
+    }
 
-    mock_walker = MagicMock()
-    mock_walker.walk = empty_walk
-    mock_walker_create.return_value = mock_walker
+    async def mock_walk():
+        yield mock_doc
 
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={"deleted.py": "old_hash"})
-    mock_store.delete_by_document_paths = AsyncMock()
-
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
-
-    assert len(result.files_deleted) == 1
-    assert "deleted.py" in result.files_deleted
-    mock_store.delete_by_document_paths.assert_called_once_with(
-        "indexter_test_repo", ["deleted.py"]
-    )
-
-
-@pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-async def test_repo_index_parse_error(
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-):
-    """Test syncing when parsing fails."""
-    mock_walker_create.return_value = mock_walker
     mock_parser = MagicMock()
-    mock_parser.parse.side_effect = Exception("Parse error")
-    mock_get_parser.return_value = mock_parser
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={})
+    mock_parser.parse.return_value = [
+        (
+            "def hello():\n    pass",
+            {
+                "language": "python",
+                "node_type": "function",
+                "node_name": "hello",
+                "start_byte": 0,
+                "end_byte": 20,
+                "start_line": 1,
+                "end_line": 2,
+            },
+        )
+    ]
 
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={})
+        mock_store.upsert_nodes = AsyncMock()
 
-    assert len(result.errors) == 1
-    assert "Parse error" in result.errors[0]
-    assert len(result.files_synced) == 0
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
+
+            with patch("indexter.models.get_parser", return_value=mock_parser):
+                result = await repo.index()
+
+                assert result.files_checked == 1
+                assert result.files_synced == ["new_file.py"]
+                assert result.nodes_added == 1
+                assert result.nodes_updated == 0
+                assert result.files_deleted == []
+                mock_store.upsert_nodes.assert_called_once()
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-async def test_repo_index_no_parser(
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-):
-    """Test syncing when no parser is available for file type."""
-    mock_walker_create.return_value = mock_walker
-    mock_get_parser.return_value = None  # No parser available
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={})
+async def test_repo_index_modified_file(temp_git_repo):
+    """Test indexing a modified file."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
+    mock_doc = {
+        "path": "modified.py",
+        "size_bytes": 150,
+        "mtime": 456.0,
+        "content": "def updated():\n    return 42",
+        "hash": "newhash",
+    }
 
-    assert len(result.files_synced) == 0
-    assert result.files_checked == 1
+    async def mock_walk():
+        yield mock_doc
+
+    mock_parser = MagicMock()
+    mock_parser.parse.return_value = [
+        (
+            "def updated():\n    return 42",
+            {
+                "language": "python",
+                "node_type": "function",
+                "node_name": "updated",
+                "start_byte": 0,
+                "end_byte": 25,
+                "start_line": 1,
+                "end_line": 2,
+            },
+        )
+    ]
+
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={"modified.py": "oldhash"})
+        mock_store.delete_by_document_paths = AsyncMock()
+        mock_store.upsert_nodes = AsyncMock()
+
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
+
+            with patch("indexter.models.get_parser", return_value=mock_parser):
+                result = await repo.index()
+
+                assert result.files_checked == 1
+                assert result.files_synced == ["modified.py"]
+                assert result.nodes_added == 0
+                assert result.nodes_updated == 1
+                # Modified files should be deleted first
+                mock_store.delete_by_document_paths.assert_called_once_with(
+                    repo.collection_name, ["modified.py"]
+                )
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-async def test_repo_index_full_recreates_collection(
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-):
-    """Test full sync recreates the collection."""
+async def test_repo_index_deleted_file(temp_git_repo):
+    """Test handling deleted files during indexing."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    async def empty_walk():
+    async def mock_walk():
         return
-        yield  # Make it an async generator
+        yield  # Empty generator - no files walked
 
-    mock_walker = MagicMock()
-    mock_walker.walk = empty_walk
-    mock_walker_create.return_value = mock_walker
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={"deleted.py": "oldhash"})
+        mock_store.delete_by_document_paths = AsyncMock()
 
-    mock_store.delete_collection = AsyncMock()
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={})
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
 
-    repo = Repo(repo_config=sample_repo_config)
-    await repo.index(full=True)
+            result = await repo.index()
 
-    mock_store.delete_collection.assert_called_once_with("indexter_test_repo")
-    mock_store.ensure_collection.assert_called_once()
-
-
-@pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-@patch("indexter.models.RepoFileConfig.from_repo")
-async def test_repo_index_respects_max_files_limit(
-    mock_from_repo: AsyncMock,
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_parser: MagicMock,
-):
-    """Test that index respects max_sync_files config limit."""
-    # Mock config with max_sync_files = 2
-    mock_config = MagicMock()
-    mock_config.max_sync_files = 2
-    mock_config.upsert_batch_size = 100
-    mock_from_repo.return_value = mock_config
-
-    # Create walker that returns 3 files
-    async def walk_multiple():
-        for i in range(3):
-            yield {
-                "path": f"file{i}.py",
-                "size_bytes": 100,
-                "mtime": 1234567890.0,
-                "content": "print('test')",
-                "hash": f"hash{i}",
-            }
-
-    mock_walker = MagicMock()
-    mock_walker.walk = walk_multiple
-    mock_walker_create.return_value = mock_walker
-    mock_get_parser.return_value = mock_parser
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={})
-    mock_store.upsert_nodes = AsyncMock()
-
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
-
-    # Should only sync 2 files due to MAX_SYNC_FILES limit
-    assert len(result.files_synced) == 2
-    assert result.skipped_files == 1
-    assert result.files_checked == 3
+            assert result.files_deleted == ["deleted.py"]
+            assert result.nodes_deleted == 1
+            mock_store.delete_by_document_paths.assert_called_once_with(
+                repo.collection_name, ["deleted.py"]
+            )
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-@patch("indexter.models.RepoFileConfig.from_repo")
-async def test_repo_index_batches_upserts(
-    mock_from_repo: AsyncMock,
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-):
-    """Test that index batches node upserts according to upsert_batch_size config."""
-    # Mock config with upsert_batch_size = 2
-    mock_config = MagicMock()
-    mock_config.max_sync_files = 500
-    mock_config.upsert_batch_size = 2
-    mock_from_repo.return_value = mock_config
+async def test_repo_index_unchanged_file(temp_git_repo):
+    """Test that unchanged files are skipped."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    # Create walker that returns 3 files
-    async def walk_multiple():
-        for i in range(3):
-            yield {
-                "path": f"file{i}.py",
-                "size_bytes": 100,
-                "mtime": 1234567890.0,
-                "content": "print('test')",
-                "hash": f"hash{i}",
-            }
+    mock_doc = {
+        "path": "unchanged.py",
+        "size_bytes": 100,
+        "mtime": 123.0,
+        "content": "def same():\n    pass",
+        "hash": "samehash",
+    }
 
-    mock_walker = MagicMock()
-    mock_walker.walk = walk_multiple
-    mock_walker_create.return_value = mock_walker
+    async def mock_walk():
+        yield mock_doc
+
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={"unchanged.py": "samehash"})
+        mock_store.upsert_nodes = AsyncMock()
+
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
+
+            result = await repo.index()
+
+            assert result.files_checked == 1
+            assert result.files_synced == []
+            assert result.nodes_added == 0
+            assert result.nodes_updated == 0
+            # Should not upsert unchanged files
+            mock_store.upsert_nodes.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_repo_index_respects_max_files(temp_git_repo):
+    """Test that indexing respects max_files limit."""
+    # Create indexter.toml with max_files setting
+    (temp_git_repo / "indexter.toml").write_text("max_files = 2\n")
+
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
+
+    mock_docs = [
+        {
+            "path": f"file{i}.py",
+            "size_bytes": 100,
+            "mtime": 123.0,
+            "content": f"# {i}",
+            "hash": f"hash{i}",
+        }
+        for i in range(5)
+    ]
+
+    async def mock_walk():
+        for doc in mock_docs:
+            yield doc
 
     mock_parser = MagicMock()
     mock_parser.parse.return_value = [
@@ -866,51 +827,163 @@ async def test_repo_index_batches_upserts(
             "content",
             {
                 "language": "python",
-                "node_type": "function",
-                "node_name": "test",
+                "node_type": "comment",
+                "node_name": "",
                 "start_byte": 0,
                 "end_byte": 10,
                 "start_line": 1,
-                "end_line": 2,
+                "end_line": 1,
             },
         )
     ]
-    mock_get_parser.return_value = mock_parser
 
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={})
-    mock_store.upsert_nodes = AsyncMock()
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={})
+        mock_store.upsert_nodes = AsyncMock()
 
-    repo = Repo(repo_config=sample_repo_config)
-    await repo.index()
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
 
-    # Should call upsert_nodes twice: once for batch of 2, once for remaining 1
-    assert mock_store.upsert_nodes.call_count == 2
+            with patch("indexter.models.get_parser", return_value=mock_parser):
+                result = await repo.index()
+
+                assert result.files_checked == 5
+                assert result.skipped_files == 3
+                assert len(result.files_synced) == 2
 
 
 @pytest.mark.asyncio
-@patch("indexter.models.store")
-@patch("indexter.models.Walker.create")
-@patch("indexter.models.get_parser")
-async def test_repo_index_result_timestamps(
-    mock_get_parser: MagicMock,
-    mock_walker_create: AsyncMock,
-    mock_store: MagicMock,
-    sample_repo_config: RepoConfig,
-    mock_walker: MagicMock,
-    mock_parser: MagicMock,
-):
-    """Test that index result includes timestamp."""
-    mock_walker_create.return_value = mock_walker
-    mock_get_parser.return_value = mock_parser
-    mock_store.ensure_collection = AsyncMock()
-    mock_store.get_document_hashes = AsyncMock(return_value={})
-    mock_store.upsert_nodes = AsyncMock()
+async def test_repo_index_parser_error(temp_git_repo):
+    """Test handling parser errors during indexing."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
 
-    repo = Repo(repo_config=sample_repo_config)
-    result = await repo.index()
+    mock_doc = {
+        "path": "broken.py",
+        "size_bytes": 100,
+        "mtime": 123.0,
+        "content": "invalid syntax (",
+        "hash": "brokenhash",
+    }
 
-    assert isinstance(result.indexed_at, datetime)
-    # Should be very recent (within 1 second)
-    now = datetime.now(UTC)
-    assert (now - result.indexed_at).total_seconds() < 1
+    async def mock_walk():
+        yield mock_doc
+
+    mock_parser = MagicMock()
+    mock_parser.parse.side_effect = Exception("Parse error!")
+
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={})
+        mock_store.upsert_nodes = AsyncMock()
+
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
+
+            with patch("indexter.models.get_parser", return_value=mock_parser):
+                result = await repo.index()
+
+                assert result.files_checked == 1
+                assert result.files_synced == []
+                assert len(result.errors) == 1
+                assert "broken.py" in result.errors[0]
+                assert "Parse error!" in result.errors[0]
+
+
+@pytest.mark.asyncio
+async def test_repo_index_no_parser_available(temp_git_repo):
+    """Test handling files with no parser available."""
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
+
+    mock_doc = {
+        "path": "unknown.xyz",
+        "size_bytes": 100,
+        "mtime": 123.0,
+        "content": "some content",
+        "hash": "unknownhash",
+    }
+
+    async def mock_walk():
+        yield mock_doc
+
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={})
+        mock_store.upsert_nodes = AsyncMock()
+
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
+
+            with patch("indexter.models.get_parser", return_value=None):
+                result = await repo.index()
+
+                assert result.files_checked == 1
+                assert result.files_synced == []
+                # No parser, so file is silently skipped
+                mock_store.upsert_nodes.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_repo_index_batching(temp_git_repo):
+    """Test that nodes are batched when upserting."""
+    # Create indexter.toml with upsert_batch_size setting
+    (temp_git_repo / "indexter.toml").write_text("upsert_batch_size = 2\n")
+
+    settings = RepoSettings(path=temp_git_repo)
+    repo = Repo(settings=settings)
+
+    mock_docs = [
+        {
+            "path": f"file{i}.py",
+            "size_bytes": 100,
+            "mtime": 123.0,
+            "content": f"def f{i}(): pass",
+            "hash": f"hash{i}",
+        }
+        for i in range(3)
+    ]
+
+    async def mock_walk():
+        for doc in mock_docs:
+            yield doc
+
+    mock_parser = MagicMock()
+    mock_parser.parse.return_value = [
+        (
+            "def fn(): pass",
+            {
+                "language": "python",
+                "node_type": "function",
+                "node_name": "fn",
+                "start_byte": 0,
+                "end_byte": 15,
+                "start_line": 1,
+                "end_line": 1,
+            },
+        )
+    ]
+
+    with patch("indexter.models.store") as mock_store:
+        mock_store.ensure_collection = AsyncMock()
+        mock_store.get_document_hashes = AsyncMock(return_value={})
+        mock_store.upsert_nodes = AsyncMock()
+
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_walker = MagicMock()
+            mock_walker.walk = mock_walk
+            mock_walker_class.return_value = mock_walker
+
+            with patch("indexter.models.get_parser", return_value=mock_parser):
+                result = await repo.index()
+
+                # Should be called twice: once for batch of 2, once for remaining 1
+                assert mock_store.upsert_nodes.call_count == 2
+                assert result.files_synced == ["file0.py", "file1.py", "file2.py"]
