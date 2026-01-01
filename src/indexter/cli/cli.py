@@ -194,9 +194,21 @@ def index(
         ✓ myrepo: +150 ~0 -0 (50 files synced) (0 files deleted)
         Indexing complete!
     """
+
+    async def _index() -> tuple[Repo, IndexResult]:
+        """Run all index operations in a single event loop."""
+        repo = await Repo.get(name)
+        result = await repo.index(full)
+        return repo, result
+
     try:
-        # anyio.run is typed as returning T | None, but Repo.get raises on error
-        repo = cast(Repo, anyio.run(Repo.get, name))
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            progress.add_task("Syncing...", total=None)
+            repo, result = cast(tuple[Repo, IndexResult], anyio.run(_index))
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         console.print("Run 'indexter init <repo_path>' to initialize the repository first.")
@@ -205,50 +217,39 @@ def index(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        progress.add_task(f"Syncing {repo.name}...", total=None)
+    if result.files_synced == 0:
+        console.print(f"  [dim]●[/dim] {repo.name}: up to date")
+        console.print(
+            f" [green]✓[/green] No changes detected. {result.files_checked} "
+            f"files checked. Repository is up to date."
+        )
+    else:
+        console.print(
+            f"  [green]✓[/green] {repo.name}: "
+            f"+{result.nodes_added} ~{result.nodes_updated} -{result.nodes_deleted} "
+            f"({len(result.files_synced)} files synced) "
+            f"({len(result.files_deleted)} files deleted)"
+        )
 
-        # anyio.run is typed as returning T | None, but repo.index always returns IndexResult
-        result = cast(IndexResult, anyio.run(repo.index, full))
-
-        if result.files_synced == 0:
-            console.print(f"  [dim]●[/dim] {repo.name}: up to date")
-            console.print(
-                f" [green]✓[/green] No changes detected. {result.files_checked} "
-                f"files checked. Repository is up to date."
-            )
-        else:
-            console.print(
-                f"  [green]✓[/green] {repo.name}: "
-                f"+{result.nodes_added} ~{result.nodes_updated} -{result.nodes_deleted} "
-                f"({len(result.files_synced)} files synced) "
-                f"({len(result.files_deleted)} files deleted)"
-            )
-
-        if result.errors:
-            console.print(f"  [yellow]Errors: {len(result.errors)}[/yellow]")
-            for error in result.errors[:5]:
-                console.print(f"    - {error}")
-            if len(result.errors) > 5:
-                console.print(f"    ... and {len(result.errors) - 5} more")
-            console.print(
-                "  [yellow]Some files could not be indexed. Please check the errors above.[/yellow]"
-            )
-            return
-
-        if result.skipped_files:
-            console.print(f"  [yellow]Skipped: {result.skipped_files} files[/yellow]")
-            console.print(
-                "  [yellow]Some files skipped during indexing due to maximum allowed "
-                "file limit being exceeded.[/yellow]"
-            )
-
-        console.print("[green]Indexing complete![/green]")
+    if result.errors:
+        console.print(f"  [yellow]Errors: {len(result.errors)}[/yellow]")
+        for error in result.errors[:5]:
+            console.print(f"    - {error}")
+        if len(result.errors) > 5:
+            console.print(f"    ... and {len(result.errors) - 5} more")
+        console.print(
+            "  [yellow]Some files could not be indexed. Please check the errors above.[/yellow]"
+        )
         return
+
+    if result.skipped_files:
+        console.print(f"  [yellow]Skipped: {result.skipped_files} files[/yellow]")
+        console.print(
+            "  [yellow]Some files skipped during indexing due to maximum allowed "
+            "file limit being exceeded.[/yellow]"
+        )
+
+    console.print("[green]Indexing complete![/green]")
 
 
 @app.command()
@@ -284,9 +285,15 @@ def search(
 
         $ indexter search "error handling" myrepo --limit 5
     """
+
+    async def _search() -> tuple[Repo, list]:
+        """Run all search operations in a single event loop."""
+        repo = await Repo.get(name)
+        results = await repo.search(query, limit)
+        return repo, results
+
     try:
-        # anyio.run is typed as returning T | None, but Repo.get raises on error
-        repo = cast(Repo, anyio.run(Repo.get, name))
+        repo, results = cast(tuple[Repo, list], anyio.run(_search))
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         raise typer.Exit(1) from e
@@ -294,33 +301,23 @@ def search(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        progress.add_task(f"Searching {repo.name}...", total=None)
+    if not results:
+        console.print(f"[yellow]No results found for query:[/yellow] {query}")
+        return
 
-        # anyio.run is typed as returning T | None, but repo.search always returns a list
-        results = cast(list, anyio.run(repo.search, query, limit))
+    table = Table(title=f"Search Results for '{query}' in '{repo.name}'")
+    table.add_column("Score", justify="right", style="cyan", no_wrap=True)
+    table.add_column("Content", style="magenta")
+    table.add_column("Document Path", style="green")
 
-        if not results:
-            console.print(f"[yellow]No results found for query:[/yellow] {query}")
-            return
+    for result in results:
+        table.add_row(
+            f"{result['score']:.4f}",
+            result["content"].strip().replace("\n", " ")[:50] + "...",
+            str(result["file_path"]),
+        )
 
-        table = Table(title=f"Search Results for '{query}' in '{repo.name}'")
-        table.add_column("Score", justify="right", style="cyan", no_wrap=True)
-        table.add_column("Content", style="magenta")
-        table.add_column("Document Path", style="green")
-
-        for result in results:
-            table.add_row(
-                f"{result['score']:.4f}",
-                result["content"].strip().replace("\n", " ")[:50] + "...",
-                str(result["file_path"]),
-            )
-
-        console.print(table)
+    console.print(table)
 
 
 @app.command()
@@ -345,11 +342,22 @@ def status() -> None:
         │ webapp  │ /home/user/... │ 3420  │ 128   │ 0           │
         └─────────┴────────────────┴───────┴───────┴─────────────┘
     """
-    # Repository status
-    # anyio.run is typed as returning T | None, but Repo.list always returns a list
-    repos = cast(list[Repo], anyio.run(Repo.list))
 
-    if not repos:
+    async def _get_all_statuses() -> list[tuple[Repo, dict | None, str | None]]:
+        """Get status for all repos in a single event loop."""
+        repos = await Repo.list()
+        results: list[tuple[Repo, dict | None, str | None]] = []
+        for repo in repos:
+            try:
+                repo_status = await repo.status()
+                results.append((repo, repo_status, None))
+            except Exception as e:
+                results.append((repo, None, str(e)))
+        return results
+
+    statuses = cast(list[tuple[Repo, dict | None, str | None]], anyio.run(_get_all_statuses))
+
+    if not statuses:
         console.print("[bold]Repositories[/bold]")
         console.print(
             "  No repositories indexed. Run 'indexter index <repo_path>' to index a repository."
@@ -364,24 +372,22 @@ def status() -> None:
     table.add_column("Files", justify="right")
     table.add_column("Stale Files", justify="right")
 
-    for repo in repos:
-        try:
-            # anyio.run is typed as returning T | None, but repo.status always returns a dict
-            status = cast(dict, anyio.run(repo.status))
+    for repo, repo_status, error in statuses:
+        if error:
             table.add_row(
                 repo.name,
                 str(repo.path),
-                str(status.get("nodes_indexed", "-")),
-                str(status.get("documents_indexed", "-")),
-                str(status.get("documents_indexed_stale", "-")),
+                "-",
+                f"[red]Error: {error}[/red]",
+                "-",
             )
-        except Exception as e:
+        elif repo_status:
             table.add_row(
                 repo.name,
                 str(repo.path),
-                "-",
-                f"[red]Error: {e}[/red]",
-                "-",
+                str(repo_status.get("nodes_indexed", "-")),
+                str(repo_status.get("documents_indexed", "-")),
+                str(repo_status.get("documents_indexed_stale", "-")),
             )
 
     console.print(table)

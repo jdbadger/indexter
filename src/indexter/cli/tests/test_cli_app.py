@@ -146,7 +146,7 @@ def test_index_successful_with_changes(cli_runner):
     mock_result.skipped_files = 0
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_result]
+        mock_run.return_value = (mock_repo, mock_result)
 
         result = cli_runner.invoke(app, ["index", "test-repo"])
 
@@ -168,7 +168,7 @@ def test_index_successful_no_changes(cli_runner):
     mock_result.errors = []
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_result]
+        mock_run.return_value = (mock_repo, mock_result)
 
         result = cli_runner.invoke(app, ["index", "test-repo"])
 
@@ -190,14 +190,13 @@ def test_index_with_full_flag(cli_runner):
     mock_result.errors = []
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_result]
+        mock_run.return_value = (mock_repo, mock_result)
 
         result = cli_runner.invoke(app, ["index", "test-repo", "--full"])
 
         assert result.exit_code == 0
-        # Verify the full parameter would be passed to repo.index
-        # Second call to anyio.run should be with repo.index and True
-        assert mock_run.call_count == 2
+        # Now only a single call to anyio.run
+        assert mock_run.call_count == 1
 
 
 def test_index_with_errors(cli_runner):
@@ -215,7 +214,7 @@ def test_index_with_errors(cli_runner):
     mock_result.skipped_files = 0
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_result]
+        mock_run.return_value = (mock_repo, mock_result)
 
         result = cli_runner.invoke(app, ["index", "test-repo"])
 
@@ -241,7 +240,7 @@ def test_index_with_many_errors(cli_runner):
     mock_result.skipped_files = 0
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_result]
+        mock_run.return_value = (mock_repo, mock_result)
 
         result = cli_runner.invoke(app, ["index", "test-repo"])
 
@@ -265,7 +264,7 @@ def test_index_with_skipped_files(cli_runner):
     mock_result.skipped_files = 5
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_result]
+        mock_run.return_value = (mock_repo, mock_result)
 
         result = cli_runner.invoke(app, ["index", "test-repo"])
 
@@ -312,7 +311,7 @@ def test_search_successful(cli_runner):
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_results]
+        mock_run.return_value = (mock_repo, mock_results)
 
         result = cli_runner.invoke(app, ["search", "hello", "test-repo"])
 
@@ -329,13 +328,13 @@ def test_search_with_limit(cli_runner):
     mock_results = []
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_results]
+        mock_run.return_value = (mock_repo, mock_results)
 
         result = cli_runner.invoke(app, ["search", "test", "test-repo", "--limit", "5"])
 
         assert result.exit_code == 0
-        # Second call should pass limit=5 to repo.search
-        assert mock_run.call_count == 2
+        # Now only a single call to anyio.run
+        assert mock_run.call_count == 1
 
 
 def test_search_no_results(cli_runner):
@@ -344,7 +343,7 @@ def test_search_no_results(cli_runner):
     mock_repo.name = "test-repo"
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, []]
+        mock_run.return_value = (mock_repo, [])
 
         result = cli_runner.invoke(app, ["search", "nonexistent", "test-repo"])
 
@@ -385,13 +384,14 @@ def test_search_truncates_long_content(cli_runner):
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_results]
+        mock_run.return_value = (mock_repo, mock_results)
 
         result = cli_runner.invoke(app, ["search", "test", "test-repo"])
 
         assert result.exit_code == 0
         # Should truncate to 50 chars + "..."
-        assert "..." in result.stdout
+        # Note: Could be either "..." or "…" (unicode ellipsis) depending on console
+        assert "..." in result.stdout or "…" in result.stdout
 
 
 def test_status_with_repositories(cli_runner):
@@ -419,10 +419,10 @@ def test_status_with_repositories(cli_runner):
     }
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [
-            [mock_repo1, mock_repo2],  # Repo.list
-            mock_status1,  # repo1.status
-            mock_status2,  # repo2.status
+        # Return list of tuples: (repo, status, error)
+        mock_run.return_value = [
+            (mock_repo1, mock_status1, None),
+            (mock_repo2, mock_status2, None),
         ]
 
         result = cli_runner.invoke(app, ["status"])
@@ -458,9 +458,9 @@ def test_status_with_error(cli_runner):
     }
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [
-            [mock_repo1],  # Repo.list
-            mock_status1,  # repo1.status - success
+        # Return list of tuples: (repo, status, error)
+        mock_run.return_value = [
+            (mock_repo1, mock_status1, None),
         ]
 
         result = cli_runner.invoke(app, ["status"])
@@ -476,10 +476,9 @@ def test_status_repo_error_handling(cli_runner):
     mock_repo1.path = Path("/path/to/broken")
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        # First call returns repo list, second raises error for status
-        mock_run.side_effect = [
-            [mock_repo1],  # Repo.list
-            Exception("Status error"),  # repo.status fails
+        # Return list of tuples with error in third element
+        mock_run.return_value = [
+            (mock_repo1, None, "Status error"),
         ]
 
         result = cli_runner.invoke(app, ["status"])
@@ -621,7 +620,7 @@ def test_search_replaces_newlines_in_content(cli_runner):
     ]
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [mock_repo, mock_results]
+        mock_run.return_value = (mock_repo, mock_results)
 
         result = cli_runner.invoke(app, ["search", "test", "test-repo"])
 
@@ -639,7 +638,8 @@ def test_status_missing_status_fields(cli_runner):
     mock_status = {"nodes_indexed": 100}
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.side_effect = [[mock_repo], mock_status]
+        # Return list of tuples: (repo, status, error)
+        mock_run.return_value = [(mock_repo, mock_status, None)]
 
         result = cli_runner.invoke(app, ["status"])
 
