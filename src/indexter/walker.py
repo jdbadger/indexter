@@ -307,18 +307,46 @@ class Walker:
             logger.warning(f"Error reading directory {directory}: {e}")
             return
 
+        # Pre-resolve the repo path for symlink target validation
+        repo_resolved = await anyio.Path(self.repo_path).resolve()
+
         for entry in entries:
             try:
                 relative = entry.relative_to(self.repo_path)
                 relative_str = str(relative)
+
+                # Check if this is a symlink - we need to handle symlinks carefully
+                # to avoid following them outside the repo
+                is_symlink = await entry.is_symlink()
+
                 if await entry.is_dir():
                     if self._matcher.should_ignore(relative_str + "/"):
                         logger.debug(f"Pruning directory: {relative_str}")
                         continue
+
+                    # If it's a symlink, verify the target is within the repo
+                    if is_symlink:
+                        try:
+                            resolved = await entry.resolve()
+                            # Check if resolved path is within the repo
+                            resolved.relative_to(repo_resolved)
+                        except ValueError:
+                            logger.debug(
+                                f"Skipping symlink to directory outside repo: {relative_str}"
+                            )
+                            continue
+                        except OSError as e:
+                            logger.debug(f"Skipping broken symlink: {relative_str}: {e}")
+                            continue
+
                     async for sub_entry in self._walk_recursive(entry):
                         yield sub_entry
                 elif await entry.is_file():
                     yield entry
+            except ValueError as e:
+                # relative_to() raises ValueError if entry is not within repo_path
+                logger.debug(f"Skipping path outside repo: {entry}: {e}")
+                continue
             except OSError as e:
                 logger.warning(f"Error accessing {entry}: {e}")
                 continue

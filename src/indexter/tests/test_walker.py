@@ -631,3 +631,188 @@ class TestWalker:
                     [r async for r in walker.walk()]
                 except OSError:
                     pass  # Expected
+
+    @pytest.mark.anyio
+    async def test_walk_recursive_skips_symlink_to_dir_outside_repo(
+        self, mock_repo, tmp_path, caplog
+    ):
+        """Test that symlinks pointing to directories outside the repo are skipped."""
+        # Create repo structure
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        mock_repo.path = str(repo_path)
+        mock_repo.settings.path = repo_path
+
+        # Create a directory outside the repo
+        external_dir = tmp_path / "external"
+        external_dir.mkdir()
+        (external_dir / "secret.py").write_text("SECRET_KEY = 'abc123'")
+        (external_dir / "data.txt").write_text("external data")
+
+        # Create a regular file in the repo
+        (repo_path / "main.py").write_text("print('main')")
+
+        # Create a symlink inside the repo pointing to the external directory
+        symlink_path = repo_path / "external_link"
+        symlink_path.symlink_to(external_dir)
+
+        with patch("indexter.walker.settings") as mock_settings:
+            mock_settings.ignore_patterns = []
+            mock_repo.settings.ignore_patterns = []
+            walker = Walker(mock_repo)
+
+        with caplog.at_level(logging.DEBUG):
+            files = [f async for f in walker._walk_recursive(anyio.Path(repo_path))]
+
+        file_names = [f.name for f in files]
+
+        # Should include the regular file
+        assert "main.py" in file_names
+        # Should NOT include files from the external directory
+        assert "secret.py" not in file_names
+        assert "data.txt" not in file_names
+        # Should have logged a debug message about skipping the symlink
+        assert any(
+            "Skipping symlink to directory outside repo" in record.message
+            for record in caplog.records
+        )
+
+    @pytest.mark.anyio
+    async def test_walk_recursive_follows_symlink_to_dir_inside_repo(self, mock_repo, tmp_path):
+        """Test that symlinks pointing to directories inside the repo are followed."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        mock_repo.path = str(repo_path)
+        mock_repo.settings.path = repo_path
+
+        # Create a subdirectory in the repo
+        (repo_path / "src").mkdir()
+        (repo_path / "src" / "module.py").write_text("# module")
+
+        # Create a symlink inside the repo pointing to another dir inside the repo
+        symlink_path = repo_path / "src_link"
+        symlink_path.symlink_to(repo_path / "src")
+
+        with patch("indexter.walker.settings") as mock_settings:
+            mock_settings.ignore_patterns = []
+            mock_repo.settings.ignore_patterns = []
+            walker = Walker(mock_repo)
+
+        files = [f async for f in walker._walk_recursive(anyio.Path(repo_path))]
+        file_paths = [str(f.relative_to(repo_path)) for f in files]
+
+        # Should include files from both the original dir and the symlink
+        assert "src/module.py" in file_paths
+        assert "src_link/module.py" in file_paths
+
+    @pytest.mark.anyio
+    async def test_walk_recursive_skips_broken_symlinks(self, mock_repo, tmp_path, caplog):
+        """Test that broken symlinks are handled gracefully."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        mock_repo.path = str(repo_path)
+        mock_repo.settings.path = repo_path
+
+        # Create a regular file
+        (repo_path / "main.py").write_text("print('main')")
+
+        # Create a broken symlink (pointing to non-existent target)
+        broken_symlink = repo_path / "broken_link"
+        broken_symlink.symlink_to(tmp_path / "nonexistent_dir")
+
+        with patch("indexter.walker.settings") as mock_settings:
+            mock_settings.ignore_patterns = []
+            mock_repo.settings.ignore_patterns = []
+            walker = Walker(mock_repo)
+
+        with caplog.at_level(logging.DEBUG):
+            files = [f async for f in walker._walk_recursive(anyio.Path(repo_path))]
+
+        file_names = [f.name for f in files]
+
+        # Should include the regular file
+        assert "main.py" in file_names
+        # Should not crash on the broken symlink
+
+    @pytest.mark.anyio
+    async def test_walk_recursive_handles_symlink_file_outside_repo(self, mock_repo, tmp_path):
+        """Test that symlinks to files (not dirs) outside repo are yielded but safe.
+
+        Symlinks to files don't cause directory recursion issues, so they're handled
+        normally. The relative_to check ensures they have valid relative paths.
+        """
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        mock_repo.path = str(repo_path)
+        mock_repo.settings.path = repo_path
+
+        # Create an external file
+        external_file = tmp_path / "external_file.py"
+        external_file.write_text("external content")
+
+        # Create a regular file in the repo
+        (repo_path / "main.py").write_text("print('main')")
+
+        # Create a symlink to the external file
+        file_symlink = repo_path / "external_file_link.py"
+        file_symlink.symlink_to(external_file)
+
+        with patch("indexter.walker.settings") as mock_settings:
+            mock_settings.ignore_patterns = []
+            mock_repo.settings.ignore_patterns = []
+            walker = Walker(mock_repo)
+
+        files = [f async for f in walker._walk_recursive(anyio.Path(repo_path))]
+        file_names = [f.name for f in files]
+
+        # Both files should be yielded - file symlinks don't cause the recursion issue
+        # The symlink path itself is within the repo, so relative_to works
+        assert "main.py" in file_names
+        assert "external_file_link.py" in file_names
+
+    @pytest.mark.anyio
+    async def test_walk_recursive_deeply_nested_symlink_escape(self, mock_repo, tmp_path, caplog):
+        """Test that even deeply nested symlinks that escape the repo are caught."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        mock_repo.path = str(repo_path)
+        mock_repo.settings.path = repo_path
+
+        # Create a directory outside the repo (even higher up)
+        external_dir = tmp_path.parent / "totally_outside"
+        external_dir.mkdir(exist_ok=True)
+        (external_dir / "external.py").write_text("# external")
+
+        # Create nested structure with symlink at the bottom
+        nested = repo_path / "a" / "b" / "c"
+        nested.mkdir(parents=True)
+        (nested / "internal.py").write_text("# internal")
+
+        # Create a symlink in the nested directory pointing outside
+        escape_link = nested / "escape"
+        escape_link.symlink_to(external_dir)
+
+        with patch("indexter.walker.settings") as mock_settings:
+            mock_settings.ignore_patterns = []
+            mock_repo.settings.ignore_patterns = []
+            walker = Walker(mock_repo)
+
+        with caplog.at_level(logging.DEBUG):
+            files = [f async for f in walker._walk_recursive(anyio.Path(repo_path))]
+
+        file_names = [f.name for f in files]
+
+        # Should include the internal file
+        assert "internal.py" in file_names
+        # Should NOT include files from the external directory
+        assert "external.py" not in file_names
+        # Should have logged about skipping the symlink
+        assert any(
+            "Skipping symlink to directory outside repo" in record.message
+            for record in caplog.records
+        )
