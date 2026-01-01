@@ -298,7 +298,7 @@ Indexter provides an MCP server for AI agent integration. The server exposes:
 | Resource | `indexter://repos/{name}` | Get indexing status of a repository |
 | Prompt | `search_workflow` | Guide for effectively searching code repositories |
 
-### Claude Desktop
+### Claude Desktop & Claude Code
 
 Add to your `claude_desktop_config.json` (located at `~/Library/Application Support/Claude/` on macOS or `%APPDATA%\Claude\` on Windows):
 
