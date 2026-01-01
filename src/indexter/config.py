@@ -109,25 +109,87 @@ logger = logging.getLogger(__name__)
 
 CONFIG_FILENAME = "indexter.toml"
 
-DEFAULT_IGNORE_PATTERNS = [
+# Version control
+VERSION_CONTROL = [
     ".git/",
     ".git",
+]
+
+# System files
+SYSTEM_FILES = [
+    ".DS_Store",  # macOS
+    "Thumbs.db",  # Windows
+]
+
+# Python
+PYTHON_PATTERNS = [
     "__pycache__/",
     "*.pyc",
-    ".DS_Store",
-    "Thumbs.db",
-    "node_modules/",
     ".venv/",
     "venv/",
     ".env/",
     "env/",
     "*.egg-info/",
-    "dist/",
-    "build/",
     ".tox/",
     ".pytest_cache/",
     ".mypy_cache/",
     ".ruff_cache/",
+]
+
+# Node.js
+NODE_PATTERNS = [
+    "node_modules/",
+    "bower_components/",
+    ".next/",
+    ".nuxt/",
+    ".output/",
+]
+
+# Rust
+RUST_PATTERNS = [
+    "target/",
+]
+
+# Build directories
+BUILD_PATTERNS = [
+    "dist/",
+    "build/",
+    "out/",
+    "bin/",
+    "obj/",
+]
+
+# Cache directories
+CACHE_PATTERNS = [
+    ".cache/",
+    ".temp/",
+    ".tmp/",
+    "tmp/",
+    "temp/",
+]
+
+# IDE/Editor
+IDE_PATTERNS = [
+    ".idea/",
+    ".vscode/",
+    ".vs/",
+]
+
+# Dependencies
+DEPENDENCY_PATTERNS = [
+    "vendor/",
+]
+
+# Test coverage
+TEST_COVERAGE_PATTERNS = [
+    ".coverage",
+    "coverage/",
+    "htmlcov/",
+    ".nyc_output/",
+]
+
+# Lock files
+LOCK_FILES = [
     "*.lock",
     "package-lock.json",
     "yarn.lock",
@@ -135,6 +197,35 @@ DEFAULT_IGNORE_PATTERNS = [
     "Cargo.lock",
     "poetry.lock",
     "uv.lock",
+]
+
+# Data files (complementing walker's binary detection)
+DATA_FILE_PATTERNS = [
+    ".csv",
+    ".sqlite",
+    ".db",
+    ".log",
+    ".tsv",
+    "*.parquet",
+    "*.arrow",
+    "*.h5",
+    "*.hdf5",
+]
+
+# Combined default ignore patterns
+DEFAULT_IGNORE_PATTERNS = [
+    *VERSION_CONTROL,
+    *SYSTEM_FILES,
+    *PYTHON_PATTERNS,
+    *NODE_PATTERNS,
+    *RUST_PATTERNS,
+    *BUILD_PATTERNS,
+    *CACHE_PATTERNS,
+    *IDE_PATTERNS,
+    *DEPENDENCY_PATTERNS,
+    *TEST_COVERAGE_PATTERNS,
+    *LOCK_FILES,
+    *DATA_FILE_PATTERNS,
 ]
 
 
