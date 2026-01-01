@@ -61,7 +61,7 @@ Indexter uses tree-sitter for semantic parsing. Each parser extracts meaningful 
 | JSON | `.json` | Objects, arrays |
 | YAML | `.yaml`, `.yml` | Block mappings, block sequences |
 | TOML | `.toml` | Tables, array tables, top-level pairs |
-| Markdown | `.md` | ATX headings with section content |
+| Markdown | `.md`, `.mkd`, `.markdown` | ATX headings with section content |
 | *Fallback* | `*` | Fixed-size overlapping chunks (for unsupported file types) |
 
 ## Prerequisites
@@ -158,7 +158,7 @@ ignore_patterns = [
     "node_modules/",
     ".venv/",
     "*.lock",
-    ...
+    # etc...
 ]
 
 # Maximum file size (in bytes) to process
@@ -216,7 +216,7 @@ Settings can also be overridden via environment variables:
 | `INDEXTER_STORE_PORT` | `6333` | Remote Qdrant HTTP API port |
 | `INDEXTER_STORE_GRPC_PORT` | `6334` | Remote Qdrant gRPC port |
 | `INDEXTER_STORE_PREFER_GRPC` | `false` | Prefer gRPC over HTTP |
-| `INDEXTER_STORE_API_KEY` | | Remote Qdrant API key |
+| `INDEXTER_STORE_API_KEY` | `None` | Remote Qdrant API key |
 | `INDEXTER_MCP_TRANSPORT` | `stdio` | MCP transport: `stdio` or `http` |
 | `INDEXTER_MCP_HOST` | `localhost` | MCP HTTP server host |
 | `INDEXTER_MCP_PORT` | `8765` | MCP HTTP server port |
@@ -261,7 +261,7 @@ Commands:
   search <query> <name> Search indexed nodes in a repository
   status                Show status of indexed repositories
   forget <name>         Remove a repository from indexter
-  config                Manage global configuration
+  config                Inspect global configuration
 
 Options:
   --verbose, -v         Enable verbose output
@@ -424,6 +424,50 @@ uv sync --all-extras --group test
 
 # Run tests
 uv run --group test pytest
+
+# Run tests against all supported python versions
+uv run just test
+```
+
+### Pre-commit Hooks
+
+This repository uses [pre-commit](https://pre-commit.com/) to automatically run code quality checks before commits. The following hooks are configured:
+
+- **File validation**: Check JSON, TOML, and YAML syntax, prevent large files
+- **Dependency locking**: Keep `uv.lock` synchronized with `pyproject.toml`
+- **Code formatting**: Format code with [Ruff](https://docs.astral.sh/ruff/)
+- **Linting**: Lint and auto-fix issues with Ruff
+- **Testing**: Run tests with [pytest](https://pytest.org/) and [testmon](https://testmon.org/) for fast incremental testing
+- **Type checking**: Verify type hints with [ty](https://github.com/jdbadger/ty)
+
+#### Setup
+
+First, install pre-commit if you haven't already:
+
+```bash
+uv tool install pre-commit
+```
+
+Then initialize pre-commit for your clone:
+
+```bash
+pre-commit install
+pre-commit install-hooks
+```
+
+#### Usage
+
+Pre-commit hooks will now run automatically on `git commit`. To run all hooks manually:
+
+```bash
+# Run all hooks on all files
+pre-commit run --all-files
+
+# Run all hooks on staged files only
+pre-commit run
+
+# Run a specific hook
+pre-commit run ruff-format --all-files
 ```
 
 ## License
