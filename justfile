@@ -4,9 +4,9 @@ list:
 
 # Run all the tests against multiple Python versions. Usage: just test
 test:
-    uv run --python 3.11 --group dev pytest
-    uv run --python 3.12 --group dev pytest
-    uv run --python 3.13 --group dev pytest
+    uv run --python 3.11 --group test pytest
+    uv run --python 3.12 --group test pytest
+    uv run --python 3.13 --group test pytest
 
 # Bump version, commit, and tag. Usage: just release <major|minor|patch>
 release bump:
