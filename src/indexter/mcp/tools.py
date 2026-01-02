@@ -4,35 +4,34 @@ MCP tool implementations for Indexter.
 Tools perform actions and can mutate state.
 """
 
+from anyio import create_task_group
+
 from indexter.exceptions import RepoNotFoundError
-from indexter.models import IndexResult, Repo
+from indexter.models import Repo
 
 
-async def index_repo(name: str, full: bool = False) -> dict:
-    """Index a repository's vector store with local file state.
-
-    Performs incremental indexing by default, comparing file content hashes
-    to detect new, modified, and deleted files. Use full=True to force
-    a complete re-index.
-
-    Args:
-        name: The repository name.
-        full: If True, delete and recreate the entire index.
+async def list_repos() -> list[dict]:
+    """
+    List all Indexter-configured repositories.
 
     Returns:
-        Dict with sync results (files synced, nodes added/updated/deleted).
-        On error, returns a dict with error details.
+        A list of dictionaries, each containing status information for
+        a configured repository. Each dict includes keys: 'name', 'path',
+        number of nodes indexed, number of documents indexed, and number of stale
+        documents in the index.
     """
-    try:
-        repo = await Repo.get(name)
-        result: IndexResult = await repo.index(full=full)
-        return result.model_dump(mode="json")
-    except RepoNotFoundError:
-        return {
-            "error": "repo_not_found",
-            "message": f"Repository not found: {name}",
-            "name": name,
-        }
+    repos = await Repo.list()
+    statuses = []
+
+    async def _add_status(repo):
+        status = await repo.status()
+        statuses.append(status)
+
+    async with create_task_group() as tg:
+        for repo in repos:
+            tg.start_soon(_add_status, repo)
+
+    return statuses
 
 
 async def search_repo(
@@ -44,11 +43,11 @@ async def search_repo(
     node_name: str | None = None,
     has_documentation: bool | None = None,
 ) -> dict:
-    """Perform semantic search across a repository's indexed code.
+    """
+    Perform semantic search across an Indexter-configured repository's indexed code.
 
     Search uses vector embeddings to find semantically similar code
-    chunks. For best results, sync the repository before searching
-    to ensure the index reflects the current file state.
+    chunks.
 
     Args:
         name: The repository name.
@@ -65,15 +64,21 @@ async def search_repo(
     """
     try:
         repo = await Repo.get(name)
+
+        # Ensure the index is up to date before searching
+        await repo.index()
+
+        # Use repo settings top_k if available, otherwise default to 20
         limit = repo.settings.top_k if repo.settings else 20
+
         results = await repo.search(
             query=query,
-            limit=limit,
             file_path=file_path,
             language=language,
             node_type=node_type,
             node_name=node_name,
             has_documentation=has_documentation,
+            limit=limit,
         )
         return {"results": results, "count": len(results)}
     except RepoNotFoundError:

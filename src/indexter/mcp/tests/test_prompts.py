@@ -2,8 +2,6 @@
 
 from indexter.mcp.prompts import SEARCH_WORKFLOW_PROMPT
 
-# Direct constant tests (not requiring MCP client)
-
 
 def test_search_workflow_prompt_exists():
     """Test that SEARCH_WORKFLOW_PROMPT is defined and non-empty."""
@@ -21,14 +19,7 @@ def test_search_workflow_prompt_has_title():
 def test_search_workflow_prompt_contains_repository_listing_step():
     """Test that the prompt includes instructions for listing repositories."""
     assert "List available repositories" in SEARCH_WORKFLOW_PROMPT
-    assert "repos://" in SEARCH_WORKFLOW_PROMPT
-
-
-def test_search_workflow_prompt_contains_sync_step():
-    """Test that the prompt includes instructions for syncing before searching."""
-    assert "Sync before searching" in SEARCH_WORKFLOW_PROMPT
-    assert "index" in SEARCH_WORKFLOW_PROMPT
-    assert "search" in SEARCH_WORKFLOW_PROMPT
+    assert "list_repos" in SEARCH_WORKFLOW_PROMPT
 
 
 def test_search_workflow_prompt_contains_filter_information():
@@ -55,14 +46,14 @@ def test_search_workflow_prompt_contains_example_workflow():
 
 def test_search_workflow_prompt_example_shows_all_steps():
     """Test that the example workflow demonstrates all key steps."""
-    assert 'repos = read_resource("repos://list")' in SEARCH_WORKFLOW_PROMPT
-    assert 'call_tool("index"' in SEARCH_WORKFLOW_PROMPT
-    assert 'call_tool("search"' in SEARCH_WORKFLOW_PROMPT
+    assert 'call_tool("list_repos")' in SEARCH_WORKFLOW_PROMPT
+    assert 'call_tool("search_repo"' in SEARCH_WORKFLOW_PROMPT
 
 
-def test_search_workflow_prompt_mentions_incremental_sync():
-    """Test that the prompt mentions incremental syncing."""
-    assert "incremental" in SEARCH_WORKFLOW_PROMPT.lower()
+def test_search_workflow_prompt_mentions_automatic_indexing():
+    """Test that the prompt mentions automatic indexing."""
+    assert "automatically" in SEARCH_WORKFLOW_PROMPT.lower()
+    assert "index" in SEARCH_WORKFLOW_PROMPT.lower()
 
 
 def test_search_workflow_prompt_filter_examples():
@@ -74,11 +65,10 @@ def test_search_workflow_prompt_filter_examples():
 
 def test_search_workflow_prompt_has_numbered_steps():
     """Test that the workflow includes numbered steps."""
-    # Should have numbered steps 1-4
+    # Should have numbered steps 1-3
     assert "1." in SEARCH_WORKFLOW_PROMPT
     assert "2." in SEARCH_WORKFLOW_PROMPT
     assert "3." in SEARCH_WORKFLOW_PROMPT
-    assert "4." in SEARCH_WORKFLOW_PROMPT
 
 
 def test_search_workflow_prompt_structured_sections():
@@ -97,8 +87,8 @@ def test_search_workflow_prompt_markdown_formatting():
 
     # Should have numbered lists
     lines = SEARCH_WORKFLOW_PROMPT.split("\n")
-    numbered_lines = [line for line in lines if line.strip().startswith(("1.", "2.", "3.", "4."))]
-    assert len(numbered_lines) >= 4
+    numbered_lines = [line for line in lines if line.strip().startswith(("1.", "2.", "3."))]
+    assert len(numbered_lines) >= 3
 
 
 def test_search_workflow_prompt_code_example_validity():
@@ -131,32 +121,16 @@ def test_search_workflow_prompt_filter_descriptions():
         assert has_description, f"Filter {filter_name} lacks description"
 
 
-def test_search_workflow_prompt_workflow_order():
-    """Test that workflow steps appear in logical order."""
-    # Find positions of key steps
+def test_search_workflow_prompt_uses_correct_tool_names():
+    """Test that the prompt uses the correct tool names."""
     prompt = SEARCH_WORKFLOW_PROMPT
 
-    repos_pos = prompt.find("repos")
-    index_pos = prompt.find("index")
-    search_pos = prompt.find("search")
+    # Should use list_repos and search_repo
+    assert "list_repos" in prompt
+    assert "search_repo" in prompt
 
-    # All should be present
-    assert repos_pos != -1
-    assert index_pos != -1
-    assert search_pos != -1
-
-    # In the example, index should come before search
-    # (though they might appear in different contexts)
-    example_start = prompt.find("## Example Workflow")
-    if example_start != -1:
-        example_section = prompt[example_start:]
-        example_index_pos = example_section.find('call_tool("index"')
-        example_search_pos = example_section.find('call_tool("search"')
-
-        if example_index_pos != -1 and example_search_pos != -1:
-            assert example_index_pos < example_search_pos, (
-                "Index should be called before search in example"
-            )
+    # Should NOT reference old resource URIs
+    assert "repos://" not in prompt
 
 
 def test_search_workflow_prompt_no_placeholder_variables():
@@ -202,9 +176,8 @@ async def test_get_prompt_search_workflow_content(mcp_client):
 
     # Verify key content is present
     assert "Indexter Code Search Workflow" in message_text
-    assert "repos://" in message_text
-    assert "index" in message_text
-    assert "search" in message_text
+    assert "list_repos" in message_text
+    assert "search_repo" in message_text
 
 
 async def test_get_prompt_search_workflow_matches_constant(mcp_client):

@@ -519,12 +519,12 @@ class VectorStore:
         self,
         collection_name: str,
         query: str,
-        limit: int = 10,
         file_path: str | None = None,
         language: str | None = None,
         node_type: str | None = None,
         node_name: str | None = None,
         has_documentation: bool | None = None,
+        limit: int = 10,
     ) -> list[dict]:
         """Perform semantic search on a collection with optional filters.
 

@@ -207,7 +207,7 @@ def index(
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            progress.add_task("Syncing...", total=None)
+            progress.add_task("Indexing...", total=None)
             repo, result = cast(tuple[Repo, IndexResult], anyio.run(_index))
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
@@ -289,7 +289,7 @@ def search(
     async def _search() -> tuple[Repo, list]:
         """Run all search operations in a single event loop."""
         repo = await Repo.get(name)
-        results = await repo.search(query, limit)
+        results = await repo.search(query, limit=limit)
         return repo, results
 
     try:

@@ -4,7 +4,6 @@ Tests cover the full user journey from listing repos, indexing, to searching.
 Uses FastMCP Client to interact with the server in an end-to-end manner.
 """
 
-import json
 from textwrap import dedent
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,12 +12,10 @@ from fastmcp.client import Client
 from fastmcp.client.transports import FastMCPTransport
 
 from indexter.exceptions import RepoNotFoundError
-from indexter.models import IndexResult
 
 # =============================================================================
 # Fixtures
 # =============================================================================
-# Note: mcp_client fixture is now in conftest.py for reuse across all tests
 
 
 @pytest.fixture
@@ -67,12 +64,10 @@ async def test_server_initialization(mcp_client: Client[FastMCPTransport]):
 
     # List available capabilities
     tools = await mcp_client.list_tools()
-    resources = await mcp_client.list_resources()
     prompts = await mcp_client.list_prompts()
 
     # Verify expected capabilities are present
-    assert len(tools) == 2  # index and search
-    assert len(resources) == 1  # repos:// (parameterized resources not listed separately)
+    assert len(tools) == 2  # list_repositories and search_repository
     assert len(prompts) == 1  # search_workflow
 
 
@@ -83,29 +78,18 @@ async def test_list_tools(mcp_client: Client[FastMCPTransport]):
     assert len(tools) == 2
 
     tool_names = [tool.name for tool in tools]
-    assert "index" in tool_names
-    assert "search" in tool_names
+    assert "list_repositories" in tool_names
+    assert "search_repository" in tool_names
 
-    # Verify index tool schema
-    index_tool = next(t for t in tools if t.name == "index")
-    assert index_tool.description is not None
-    assert "Index a repository's code" in index_tool.description
+    # Verify list_repositories tool schema
+    list_tool = next(t for t in tools if t.name == "list_repositories")
+    assert list_tool.description is not None
+    assert "List all" in list_tool.description or "repositories" in list_tool.description
 
-    # Verify search tool schema
-    search_tool = next(t for t in tools if t.name == "search")
+    # Verify search_repository tool schema
+    search_tool = next(t for t in tools if t.name == "search_repository")
     assert search_tool.description is not None
     assert "Semantic search" in search_tool.description
-
-
-async def test_list_resources(mcp_client: Client[FastMCPTransport]):
-    """Test listing available resources."""
-    resources = await mcp_client.list_resources()
-
-    assert len(resources) == 1
-
-    # Verify the base repos resource is available
-    assert str(resources[0].uri) == "repos://"
-    assert "repositories" in resources[0].description.lower()
 
 
 async def test_list_prompts(mcp_client: Client[FastMCPTransport]):
@@ -118,188 +102,51 @@ async def test_list_prompts(mcp_client: Client[FastMCPTransport]):
 
 
 # =============================================================================
-# Resource Tests - Full Journey
+# Tool Tests - List Repositories Journey
 # =============================================================================
 
 
-async def test_resource_list_repos_success(
+async def test_tool_list_repositories_success(
     mcp_client: Client[FastMCPTransport],
     sample_repos_list,
 ):
-    """Test listing all repositories via resource."""
-    with patch("indexter.mcp.resources.Repo.list", return_value=sample_repos_list):
-        result = await mcp_client.read_resource("repos://")
+    """Test listing all repositories via tool."""
+    # Mock status for each repo
+    sample_repos_list[0].status = AsyncMock(
+        return_value={
+            "repository": "frontend-app",
+            "path": "/home/user/projects/frontend-app",
+            "nodes_indexed": 100,
+            "documents_indexed": 20,
+            "documents_indexed_stale": 0,
+        }
+    )
+    sample_repos_list[1].status = AsyncMock(
+        return_value={
+            "repository": "backend-api",
+            "path": "/home/user/projects/backend-api",
+            "nodes_indexed": 200,
+            "documents_indexed": 40,
+            "documents_indexed_stale": 2,
+        }
+    )
 
-    assert result is not None
-    assert len(result) == 1  # Should return one text content
+    with patch(
+        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
+    ):
+        result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
-    # Parse the JSON response
-    repos = json.loads(result[0].text)
-    assert len(repos) == 2
-    assert repos[0]["name"] == "frontend-app"
-    assert repos[0]["path"] == "/home/user/projects/frontend-app"
-    assert repos[1]["name"] == "backend-api"
-    assert repos[1]["path"] == "/home/user/projects/backend-api"
+    assert result.data is not None
+    assert len(result.data) == 2
 
 
-async def test_resource_list_repos_empty(mcp_client: Client[FastMCPTransport]):
+async def test_tool_list_repositories_empty(mcp_client: Client[FastMCPTransport]):
     """Test listing repositories when none are configured."""
-    with patch("indexter.mcp.resources.Repo.list", return_value=[]):
-        result = await mcp_client.read_resource("repos://")
-
-    repos = json.loads(result[0].text)
-    assert repos == []
-
-
-async def test_resource_repo_status_success(
-    mcp_client: Client[FastMCPTransport],
-    mock_repo_instance,
-):
-    """Test getting repository status via resource."""
-    status_data = {
-        "repository": "test-repo",
-        "path": "/path/to/test-repo",
-        "nodes_indexed": 150,
-        "documents_indexed": 25,
-        "documents_indexed_stale": 0,
-    }
-    mock_repo_instance.status = AsyncMock(return_value=status_data)
-
-    with patch("indexter.mcp.resources.Repo.get", return_value=mock_repo_instance):
-        result = await mcp_client.read_resource("repos://test-repo")
-
-    status = json.loads(result[0].text)
-    assert status["repository"] == "test-repo"
-    assert status["nodes_indexed"] == 150
-    assert status["documents_indexed"] == 25
-    assert status["documents_indexed_stale"] == 0
-
-
-async def test_resource_repo_status_not_found(mcp_client: Client[FastMCPTransport]):
-    """Test getting status for non-existent repository."""
-    with patch(
-        "indexter.mcp.resources.Repo.get",
-        side_effect=RepoNotFoundError("Repository not found: missing-repo"),
-    ):
-        result = await mcp_client.read_resource("repos://missing-repo")
-
-    status = json.loads(result[0].text)
-    assert status["error"] == "repo_not_found"
-    assert "missing-repo" in status["message"]
-
-
-# =============================================================================
-# Tool Tests - Indexing Journey
-# =============================================================================
-
-
-async def test_tool_index_incremental_success(
-    mcp_client: Client[FastMCPTransport],
-    mock_repo_instance,
-):
-    """Test incremental indexing via tool call."""
-    index_result = IndexResult(
-        files_synced=["main.py", "utils.py", "models.py"],
-        files_deleted=["old_module.py"],
-        files_checked=20,
-        skipped_files=15,
-        nodes_added=12,
-        nodes_deleted=3,
-        nodes_updated=5,
-        errors=[],
-    )
-    mock_repo_instance.index = AsyncMock(return_value=index_result)
-
-    with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
-        result = await mcp_client.call_tool(
-            name="index",
-            arguments={"name": "test-repo", "full": False},
-        )
+    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=[]):
+        result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
     assert result.data is not None
-    assert result.data["files_synced"] == ["main.py", "utils.py", "models.py"]
-    assert result.data["files_deleted"] == ["old_module.py"]
-    assert result.data["nodes_added"] == 12
-    assert result.data["nodes_updated"] == 5
-    assert result.data["files_checked"] == 20
-
-    # Verify incremental flag was used
-    mock_repo_instance.index.assert_called_once_with(full=False)
-
-
-async def test_tool_index_full_rebuild(
-    mcp_client: Client[FastMCPTransport],
-    mock_repo_instance,
-):
-    """Test full re-indexing via tool call."""
-    index_result = IndexResult(
-        files_synced=["main.py", "utils.py"],
-        files_deleted=[],
-        files_checked=2,
-        skipped_files=0,
-        nodes_added=25,
-        nodes_deleted=0,
-        nodes_updated=0,
-        errors=[],
-    )
-    mock_repo_instance.index = AsyncMock(return_value=index_result)
-
-    with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
-        result = await mcp_client.call_tool(
-            name="index",
-            arguments={"name": "test-repo", "full": True},
-        )
-
-    assert result.data is not None
-    assert result.data["nodes_added"] == 25
-    assert result.data["files_synced"] == ["main.py", "utils.py"]
-
-    # Verify full rebuild flag was used
-    mock_repo_instance.index.assert_called_once_with(full=True)
-
-
-async def test_tool_index_repo_not_found(mcp_client: Client[FastMCPTransport]):
-    """Test indexing non-existent repository."""
-    with patch(
-        "indexter.mcp.tools.Repo.get",
-        side_effect=RepoNotFoundError("Repository not found: invalid-repo"),
-    ):
-        result = await mcp_client.call_tool(
-            name="index",
-            arguments={"name": "invalid-repo"},
-        )
-
-    assert result.data is not None
-    assert result.data["error"] == "repo_not_found"
-    assert "invalid-repo" in result.data["message"]
-
-
-async def test_tool_index_with_errors(
-    mcp_client: Client[FastMCPTransport],
-    mock_repo_instance,
-):
-    """Test indexing that encounters errors."""
-    index_result = IndexResult(
-        files_synced=["main.py"],
-        files_deleted=[],
-        files_checked=3,
-        skipped_files=0,
-        nodes_added=5,
-        nodes_deleted=0,
-        nodes_updated=0,
-        errors=["Failed to parse corrupted.py: SyntaxError"],
-    )
-    mock_repo_instance.index = AsyncMock(return_value=index_result)
-
-    with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
-        result = await mcp_client.call_tool(
-            name="index",
-            arguments={"name": "test-repo"},
-        )
-
-    assert result.data is not None
-    assert len(result.data["errors"]) == 1
-    assert "corrupted.py" in result.data["errors"][0]
+    assert result.data == []
 
 
 # =============================================================================
@@ -311,7 +158,7 @@ async def test_tool_search_basic_success(
     mcp_client: Client[FastMCPTransport],
     mock_repo_instance,
 ):
-    """Test basic semantic search via tool call."""
+    """Test basic semantic search via tool call (indexing is automatic)."""
     content_1 = dedent("""
         def authenticate_user(username, password):
         \n    return validate_credentials(username, password)
@@ -349,11 +196,12 @@ async def test_tool_search_basic_success(
             },
         },
     ]
+    mock_repo_instance.index = AsyncMock()
     mock_repo_instance.search = AsyncMock(return_value=search_results)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": "test-repo",
                 "query": "user authentication",
@@ -370,6 +218,8 @@ async def test_tool_search_basic_success(
     assert "authenticate_user" in first_result["content"]
     assert first_result["metadata"]["node_name"] == "authenticate_user"
 
+    # Verify automatic indexing was called
+    mock_repo_instance.index.assert_called_once()
     # Verify search was called correctly
     mock_repo_instance.search.assert_called_once()
     call_kwargs = mock_repo_instance.search.call_args[1]
@@ -395,11 +245,12 @@ async def test_tool_search_with_filters(
             },
         }
     ]
+    mock_repo_instance.index = AsyncMock()
     mock_repo_instance.search = AsyncMock(return_value=search_results)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": "test-repo",
                 "query": "data processing",
@@ -414,6 +265,7 @@ async def test_tool_search_with_filters(
     assert result.data["count"] == 1
 
     # Verify all filters were passed
+    mock_repo_instance.index.assert_called_once()
     call_kwargs = mock_repo_instance.search.call_args[1]
     assert call_kwargs["language"] == "python"
     assert call_kwargs["node_type"] == "class"
@@ -425,7 +277,7 @@ async def test_tool_search_node_name_filter(
     mcp_client: Client[FastMCPTransport],
     mock_repo_instance,
 ):
-    """Test search filtering by specific node name."""
+    """Test search filtering by specific node name (indexing is automatic)."""
     search_results = [
         {
             "id": "chunk-1",
@@ -439,11 +291,12 @@ async def test_tool_search_node_name_filter(
             },
         }
     ]
+    mock_repo_instance.index = AsyncMock()
     mock_repo_instance.search = AsyncMock(return_value=search_results)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": "test-repo",
                 "query": "calculate total price",
@@ -454,6 +307,7 @@ async def test_tool_search_node_name_filter(
     assert result.data is not None
     assert result.data["results"][0]["metadata"]["node_name"] == "calculate_total"
 
+    mock_repo_instance.index.assert_called_once()
     call_kwargs = mock_repo_instance.search.call_args[1]
     assert call_kwargs["node_name"] == "calculate_total"
 
@@ -465,7 +319,7 @@ async def test_tool_search_repo_not_found(mcp_client: Client[FastMCPTransport]):
         side_effect=RepoNotFoundError("Repository not found: missing-repo"),
     ):
         result = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": "missing-repo",
                 "query": "test query",
@@ -481,21 +335,23 @@ async def test_tool_search_empty_results(
     mcp_client: Client[FastMCPTransport],
     mock_repo_instance,
 ):
-    """Test search that returns no results."""
+    """Test search that returns no results (indexing is automatic)."""
+    mock_repo_instance.index = AsyncMock()
     mock_repo_instance.search = AsyncMock(return_value=[])
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": "test-repo",
-                "query": "nonexistent code pattern",
+                "query": "nonexistent functionality",
             },
         )
 
     assert result.data is not None
     assert result.data["count"] == 0
     assert result.data["results"] == []
+    mock_repo_instance.index.assert_called_once()
 
 
 # =============================================================================
@@ -513,9 +369,8 @@ async def test_prompt_search_workflow(mcp_client: Client[FastMCPTransport]):
     # Check prompt content
     prompt_text = result.messages[0].content.text
     assert "Indexter Code Search Workflow" in prompt_text
-    assert "sync before searching" in prompt_text.lower()
     assert "use filters effectively" in prompt_text.lower()
-    assert "repos://" in prompt_text
+    # No longer mentions repos:// or manual sync - indexing is automatic
 
 
 # =============================================================================
@@ -528,37 +383,40 @@ async def test_full_user_journey_list_index_search(
     mock_repo_instance,
     sample_repos_list,
 ):
-    """Test complete user workflow: list repos → index → search."""
+    """Test complete user workflow: list repos → search (indexing is automatic)."""
     # Step 1: List available repositories
-    with patch("indexter.mcp.resources.Repo.list", return_value=sample_repos_list):
-        repos_result = await mcp_client.read_resource("repos://")
-
-    repos = json.loads(repos_result[0].text)
-    assert len(repos) == 2
-    repo_name = repos[0]["name"]
-
-    # Step 2: Index the repository
-    index_result = IndexResult(
-        files_synced=["main.py", "utils.py"],
-        files_deleted=[],
-        files_checked=2,
-        skipped_files=0,
-        nodes_added=15,
-        nodes_deleted=0,
-        nodes_updated=0,
-        errors=[],
+    sample_repos_list[0].name = "frontend-app"
+    sample_repos_list[0].path = "/home/user/projects/frontend-app"
+    sample_repos_list[0].status = AsyncMock(
+        return_value={
+            "repository": "frontend-app",
+            "path": "/home/user/projects/frontend-app",
+            "nodes_indexed": 100,
+            "documents_indexed": 20,
+            "documents_indexed_stale": 0,
+        }
     )
-    mock_repo_instance.index = AsyncMock(return_value=index_result)
+    sample_repos_list[1].status = AsyncMock(
+        return_value={
+            "repository": "backend-api",
+            "path": "/home/user/projects/backend-api",
+            "nodes_indexed": 200,
+            "documents_indexed": 40,
+            "documents_indexed_stale": 2,
+        }
+    )
 
-    with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
-        index_response = await mcp_client.call_tool(
-            name="index",
-            arguments={"name": repo_name},
-        )
+    with patch(
+        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
+    ):
+        repos_result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
-    assert index_response.data["nodes_added"] == 15
+    assert len(repos_result.data) == 2
+    # Access data as a list - data is returned directly from the tool
+    repo_name = sample_repos_list[0].name
+    assert repo_name == "frontend-app"
 
-    # Step 3: Search the indexed repository
+    # Step 2: Search the repository (indexing is automatic)
     search_results = [
         {
             "id": "result-1",
@@ -572,11 +430,12 @@ async def test_full_user_journey_list_index_search(
             },
         }
     ]
+    mock_repo_instance.index = AsyncMock()
     mock_repo_instance.search = AsyncMock(return_value=search_results)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         search_response = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": repo_name,
                 "query": "application entry point",
@@ -585,55 +444,54 @@ async def test_full_user_journey_list_index_search(
 
     assert search_response.data["count"] == 1
     assert "main()" in search_response.data["results"][0]["content"]
+    mock_repo_instance.index.assert_called_once()
 
 
 async def test_full_journey_check_status_before_search(
     mcp_client: Client[FastMCPTransport],
     mock_repo_instance,
+    sample_repos_list,
 ):
-    """Test workflow: check status → index if needed → search."""
-    # Step 1: Check repository status
-    status_data = {
-        "repository": "my-project",
-        "path": "/home/user/my-project",
-        "nodes_indexed": 0,
-        "documents_indexed": 0,
-        "documents_indexed_stale": 0,
-    }
-    mock_repo_instance.status = AsyncMock(return_value=status_data)
-
-    with patch("indexter.mcp.resources.Repo.get", return_value=mock_repo_instance):
-        status_result = await mcp_client.read_resource("repos://my-project")
-
-    status = json.loads(status_result[0].text)
-    assert status["nodes_indexed"] == 0  # Not indexed yet
-
-    # Step 2: Index because status shows 0 nodes
-    index_result = IndexResult(
-        files_synced=["app.py"],
-        files_deleted=[],
-        files_checked=1,
-        skipped_files=0,
-        nodes_added=10,
-        nodes_deleted=0,
-        nodes_updated=0,
-        errors=[],
+    """Test workflow: list repos and check status → search (automatic indexing)."""
+    # Step 1: List repositories and check status
+    sample_repos_list[0].name = "my-project"
+    sample_repos_list[0].path = "/home/user/my-project"
+    sample_repos_list[0].status = AsyncMock(
+        return_value={
+            "repository": "my-project",
+            "path": "/home/user/my-project",
+            "nodes_indexed": 0,
+            "documents_indexed": 0,
+            "documents_indexed_stale": 0,
+        }
     )
-    mock_repo_instance.index = AsyncMock(return_value=index_result)
+    sample_repos_list[1].status = AsyncMock(
+        return_value={
+            "repository": "backend-api",
+            "path": "/home/user/backend-api",
+            "nodes_indexed": 100,
+            "documents_indexed": 20,
+            "documents_indexed_stale": 0,
+        }
+    )
 
-    with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
-        await mcp_client.call_tool(
-            name="index",
-            arguments={"name": "my-project"},
-        )
+    with patch(
+        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
+    ):
+        list_result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
-    # Step 3: Now search
+    assert len(list_result.data) == 2
+    # Get status directly from the mock since we set it up
+    assert sample_repos_list[0].name == "my-project"
+
+    # Step 2: Search (indexing happens automatically)
     search_results = [{"id": "1", "content": "test", "score": 0.9, "metadata": {}}]
+    mock_repo_instance.index = AsyncMock()
     mock_repo_instance.search = AsyncMock(return_value=search_results)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         search_response = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": "my-project",
                 "query": "test code",
@@ -641,17 +499,21 @@ async def test_full_journey_check_status_before_search(
         )
 
     assert search_response.data["count"] == 1
+    mock_repo_instance.index.assert_called_once()  # Automatic indexing
 
 
-async def test_error_recovery_workflow(mcp_client: Client[FastMCPTransport]):
-    """Test workflow with error recovery: search fails → check repos → retry."""
+async def test_error_recovery_workflow(
+    mcp_client: Client[FastMCPTransport],
+    sample_repos_list,
+):
+    """Test workflow with error recovery: search fails → list repos → retry."""
     # Step 1: Attempt search on non-existent repo
     with patch(
         "indexter.mcp.tools.Repo.get",
         side_effect=RepoNotFoundError("Repository not found: wrong-name"),
     ):
         search_result = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": "wrong-name",
                 "query": "test",
@@ -661,26 +523,47 @@ async def test_error_recovery_workflow(mcp_client: Client[FastMCPTransport]):
     assert search_result.data["error"] == "repo_not_found"
 
     # Step 2: List available repos to find correct name
-    repo1 = MagicMock()
-    repo1.name = "correct-name"
-    repo1.path = "/path/to/correct-name"
+    sample_repos_list[0].name = "correct-name"
+    sample_repos_list[0].path = "/path/to/correct-name"
+    sample_repos_list[0].status = AsyncMock(
+        return_value={
+            "repository": "correct-name",
+            "path": "/path/to/correct-name",
+            "nodes_indexed": 50,
+            "documents_indexed": 10,
+            "documents_indexed_stale": 0,
+        }
+    )
+    sample_repos_list[1].status = AsyncMock(
+        return_value={
+            "repository": "backend-api",
+            "path": "/path/to/backend",
+            "nodes_indexed": 100,
+            "documents_indexed": 20,
+            "documents_indexed_stale": 0,
+        }
+    )
 
-    with patch("indexter.mcp.resources.Repo.list", return_value=[repo1]):
-        repos_result = await mcp_client.read_resource("repos://")
+    with patch(
+        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
+    ):
+        repos_result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
-    repos = json.loads(repos_result[0].text)
-    correct_name = repos[0]["name"]
+    # Get the name from the mock we set up
+    correct_name = sample_repos_list[0].name
     assert correct_name == "correct-name"
+    assert len(repos_result.data) == 2
 
     # Step 3: Retry search with correct repo name
     mock_repo = MagicMock()
     mock_repo.settings = MagicMock()
     mock_repo.settings.top_k = 20
+    mock_repo.index = AsyncMock()
     mock_repo.search = AsyncMock(return_value=[])
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo):
         retry_result = await mcp_client.call_tool(
-            name="search",
+            name="search_repository",
             arguments={
                 "name": correct_name,
                 "query": "test",
@@ -689,47 +572,12 @@ async def test_error_recovery_workflow(mcp_client: Client[FastMCPTransport]):
 
     assert "error" not in retry_result.data
     assert retry_result.data["count"] == 0
+    mock_repo.index.assert_called_once()
 
 
 # =============================================================================
 # Parameterized Tests
 # =============================================================================
-
-
-@pytest.mark.parametrize(
-    "full_rebuild,expected_nodes",
-    [
-        (False, 5),  # Incremental
-        (True, 25),  # Full rebuild
-    ],
-)
-async def test_index_modes(
-    mcp_client: Client[FastMCPTransport],
-    mock_repo_instance,
-    full_rebuild,
-    expected_nodes,
-):
-    """Test indexing in both incremental and full modes."""
-    index_result = IndexResult(
-        files_synced=["file.py"],
-        files_deleted=[],
-        files_checked=1,
-        skipped_files=0,
-        nodes_added=expected_nodes,
-        nodes_deleted=0,
-        nodes_updated=0,
-        errors=[],
-    )
-    mock_repo_instance.index = AsyncMock(return_value=index_result)
-
-    with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
-        result = await mcp_client.call_tool(
-            name="index",
-            arguments={"name": "test-repo", "full": full_rebuild},
-        )
-
-    assert result.data["nodes_added"] == expected_nodes
-    mock_repo_instance.index.assert_called_once_with(full=full_rebuild)
 
 
 @pytest.mark.parametrize(
@@ -749,7 +597,7 @@ async def test_search_with_various_filters(
     node_type,
     expected_count,
 ):
-    """Test search with different filter combinations."""
+    """Test search with different filter combinations (indexing is automatic)."""
     # Generate mock results based on expected count
     search_results = [
         {
@@ -765,6 +613,7 @@ async def test_search_with_various_filters(
         }
         for i in range(expected_count)
     ]
+    mock_repo_instance.index = AsyncMock()
     mock_repo_instance.search = AsyncMock(return_value=search_results)
 
     args = {
@@ -777,7 +626,8 @@ async def test_search_with_various_filters(
         args["node_type"] = node_type
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
-        result = await mcp_client.call_tool(name="search", arguments=args)
+        result = await mcp_client.call_tool(name="search_repository", arguments=args)
 
     assert result.data["count"] == expected_count
     assert len(result.data["results"]) == expected_count
+    mock_repo_instance.index.assert_called_once()

@@ -423,12 +423,12 @@ class Repo(BaseModel):
     async def search(
         self,
         query: str,
-        limit: int = 10,
         file_path: str | None = None,
         language: str | None = None,
         node_type: str | None = None,
         node_name: str | None = None,
         has_documentation: bool | None = None,
+        limit: int | None = None,
     ) -> builtins.list[dict]:
         """
         Perform semantic search over indexed code nodes in the repository.
@@ -439,7 +439,7 @@ class Repo(BaseModel):
 
         Args:
             query: Natural language or code search query.
-            limit: Maximum number of results to return. Defaults to 10.
+            limit: Maximum number of results to return. Defaults to the repository's top_k setting.
             file_path: Filter by file path. Use exact match or prefix with
                 trailing '/' for directory filtering.
             language: Filter by programming language (e.g., 'python', 'javascript').
@@ -455,12 +455,12 @@ class Repo(BaseModel):
         return await store.search(
             collection_name=self.collection_name,
             query=query,
-            limit=limit,
             file_path=file_path,
             language=language,
             node_type=node_type,
             node_name=node_name,
             has_documentation=has_documentation,
+            limit=limit or self.settings.top_k,
         )
 
     async def status(self) -> dict:

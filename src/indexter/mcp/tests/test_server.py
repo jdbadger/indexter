@@ -61,31 +61,13 @@ def test_run_server_custom_http_config(mock_settings):
 # MCP Protocol Endpoint Registration Tests
 
 
-async def test_mcp_server_has_resources(mcp_client):
-    """Test that MCP server registers resource endpoints."""
-    resources = await mcp_client.list_resources()
-
-    # Should have at least the repos:// resource
-    uris = [str(r.uri) for r in resources]
-    assert "repos://" in uris
-
-
-async def test_mcp_server_has_resource_templates(mcp_client):
-    """Test that MCP server registers resource templates."""
-    templates = await mcp_client.list_resource_templates()
-
-    # Should have repos://{name} template
-    uri_templates = [rt.uriTemplate for rt in templates]
-    assert any("repos://{name}" in template for template in uri_templates)
-
-
 async def test_mcp_server_has_tools(mcp_client):
     """Test that MCP server registers tool endpoints."""
     tools = await mcp_client.list_tools()
 
     tool_names = [t.name for t in tools]
-    assert "index" in tool_names
-    assert "search" in tool_names
+    assert "list_repositories" in tool_names
+    assert "search_repository" in tool_names
 
 
 async def test_mcp_server_has_prompts(mcp_client):
@@ -94,17 +76,6 @@ async def test_mcp_server_has_prompts(mcp_client):
 
     prompt_names = [p.name for p in prompts]
     assert "search_workflow" in prompt_names
-
-
-async def test_mcp_server_resources_accessible(mcp_client):
-    """Test that registered resources are accessible."""
-    # List all resources
-    resources = await mcp_client.list_resources()
-
-    # Each resource should be accessible
-    for resource in resources:
-        content = await mcp_client.read_resource(resource.uri)
-        assert content is not None
 
 
 async def test_mcp_server_tools_have_schemas(mcp_client):
@@ -127,16 +98,6 @@ async def test_mcp_server_prompts_have_descriptions(mcp_client):
         assert prompt.description
 
 
-async def test_mcp_server_resource_templates_have_schemas(mcp_client):
-    """Test that resource templates have proper schemas."""
-    templates = await mcp_client.list_resource_templates()
-
-    for template in templates:
-        assert template.uriTemplate
-        assert template.name
-        assert template.description
-
-
 # Server Metadata Tests
 
 
@@ -152,10 +113,7 @@ async def test_mcp_server_info(mcp_client):
 
 async def test_mcp_server_capabilities(mcp_client):
     """Test that MCP server declares its capabilities."""
-    # Server should support all MCP capabilities
-    resources = await mcp_client.list_resources()
-    assert resources is not None
-
+    # Server should support tools and prompts
     tools = await mcp_client.list_tools()
     assert tools is not None
 
@@ -166,27 +124,11 @@ async def test_mcp_server_capabilities(mcp_client):
 # Endpoint Count Validation
 
 
-async def test_mcp_server_expected_resource_count(mcp_client):
-    """Test that MCP server has expected number of resources."""
-    resources = await mcp_client.list_resources()
-
-    # Should have at least 1 static resource (repos://)
-    assert len(resources) >= 1
-
-
-async def test_mcp_server_expected_template_count(mcp_client):
-    """Test that MCP server has expected number of resource templates."""
-    templates = await mcp_client.list_resource_templates()
-
-    # Should have at least 1 template (repos://{name})
-    assert len(templates) >= 1
-
-
 async def test_mcp_server_expected_tool_count(mcp_client):
     """Test that MCP server has expected number of tools."""
     tools = await mcp_client.list_tools()
 
-    # Should have exactly 2 tools (index, search)
+    # Should have exactly 2 tools (list_repositories, search_repository)
     assert len(tools) == 2
 
 
@@ -201,25 +143,24 @@ async def test_mcp_server_expected_prompt_count(mcp_client):
 # Tool Schema Validation
 
 
-async def test_index_tool_schema(mcp_client):
-    """Test that index tool has correct schema."""
+async def test_list_repositories_tool_schema(mcp_client):
+    """Test that list_repositories tool has correct schema."""
     tools = await mcp_client.list_tools()
 
-    index_tool = next((t for t in tools if t.name == "index"), None)
-    assert index_tool is not None
+    list_tool = next((t for t in tools if t.name == "list_repositories"), None)
+    assert list_tool is not None
 
-    schema = index_tool.inputSchema
+    schema = list_tool.inputSchema
     assert "properties" in schema
-    assert "name" in schema["properties"]
-    assert "full" in schema["properties"]
-    assert schema["required"] == ["name"]
+    # list_repositories has no required parameters
+    assert schema.get("required", []) == []
 
 
-async def test_search_tool_schema(mcp_client):
-    """Test that search tool has correct schema."""
+async def test_search_repository_tool_schema(mcp_client):
+    """Test that search_repository tool has correct schema."""
     tools = await mcp_client.list_tools()
 
-    search_tool = next((t for t in tools if t.name == "search"), None)
+    search_tool = next((t for t in tools if t.name == "search_repository"), None)
     assert search_tool is not None
 
     schema = search_tool.inputSchema
@@ -233,33 +174,6 @@ async def test_search_tool_schema(mcp_client):
     assert "node_name" in schema["properties"]
     assert "has_documentation" in schema["properties"]
     assert set(schema["required"]) == {"name", "query"}
-
-
-# Resource Schema Validation
-
-
-async def test_repos_list_resource_metadata(mcp_client):
-    """Test that repos:// resource has correct metadata."""
-    resources = await mcp_client.list_resources()
-
-    repos_resource = next((r for r in resources if str(r.uri) == "repos://"), None)
-    assert repos_resource is not None
-    assert repos_resource.name
-    assert repos_resource.description
-    # FastMCP may use text/plain as default
-    assert repos_resource.mimeType in ("application/json", "text/plain")
-
-
-async def test_repo_status_template_metadata(mcp_client):
-    """Test that repos://{name} template has correct metadata."""
-    templates = await mcp_client.list_resource_templates()
-
-    status_template = next((rt for rt in templates if "{name}" in rt.uriTemplate), None)
-    assert status_template is not None
-    assert status_template.name
-    assert status_template.description
-    # FastMCP may use text/plain as default
-    assert status_template.mimeType in ("application/json", "text/plain")
 
 
 # Prompt Schema Validation
