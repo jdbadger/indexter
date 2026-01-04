@@ -136,7 +136,7 @@ def test_index_successful_with_changes(cli_runner):
     mock_repo.name = "test-repo"
 
     mock_result = Mock()
-    mock_result.files_synced = ["file1.py", "file2.py"]
+    mock_result.files_indexed = ["file1.py", "file2.py"]
     mock_result.files_deleted = ["old.py"]
     mock_result.files_checked = 10
     mock_result.nodes_added = 5
@@ -152,7 +152,7 @@ def test_index_successful_with_changes(cli_runner):
 
         assert result.exit_code == 0
         assert "test-repo: +5 ~3 -1" in result.stdout
-        assert "2 files synced" in result.stdout
+        assert "2 files indexed" in result.stdout
         assert "1 files deleted" in result.stdout
         assert "Indexing complete!" in result.stdout
 
@@ -163,7 +163,7 @@ def test_index_successful_no_changes(cli_runner):
     mock_repo.name = "test-repo"
 
     mock_result = Mock()
-    mock_result.files_synced = 0
+    mock_result.files_indexed = 0
     mock_result.files_checked = 10
     mock_result.errors = []
 
@@ -185,7 +185,7 @@ def test_index_with_full_flag(cli_runner):
     mock_repo.index = Mock()
 
     mock_result = Mock()
-    mock_result.files_synced = 0
+    mock_result.files_indexed = 0
     mock_result.files_checked = 10
     mock_result.errors = []
 
@@ -205,7 +205,7 @@ def test_index_with_errors(cli_runner):
     mock_repo.name = "test-repo"
 
     mock_result = Mock()
-    mock_result.files_synced = ["file1.py"]
+    mock_result.files_indexed = ["file1.py"]
     mock_result.files_deleted = []
     mock_result.nodes_added = 1
     mock_result.nodes_updated = 0
@@ -231,7 +231,7 @@ def test_index_with_many_errors(cli_runner):
 
     errors = [f"Error {i}" for i in range(10)]
     mock_result = Mock()
-    mock_result.files_synced = ["file1.py"]
+    mock_result.files_indexed = ["file1.py"]
     mock_result.files_deleted = []
     mock_result.nodes_added = 1
     mock_result.nodes_updated = 0
@@ -255,7 +255,7 @@ def test_index_with_skipped_files(cli_runner):
     mock_repo.name = "test-repo"
 
     mock_result = Mock()
-    mock_result.files_synced = ["file1.py"]
+    mock_result.files_indexed = ["file1.py"]
     mock_result.files_deleted = []
     mock_result.nodes_added = 1
     mock_result.nodes_updated = 0
@@ -574,7 +574,7 @@ def test_index_command_help(cli_runner):
     result = cli_runner.invoke(app, ["index", "--help"])
 
     assert result.exit_code == 0
-    assert "Sync a git repository to the vector store" in result.stdout
+    assert "Index a git repository in the vector store" in result.stdout
 
 
 def test_search_command_help(cli_runner):

@@ -53,7 +53,7 @@ Typical usage follows this pattern:
 
 2. Index the repository (incremental by default):
    >>> result = await repo.index()
-   >>> print(f"Indexed {result.nodes_added} nodes from {len(result.files_synced)} files")
+   >>> print(f"Indexed {result.nodes_added} nodes from {len(result.files_indexed)} files")
 
 3. Search the indexed code:
    >>> results = await repo.search("authentication logic", limit=5)
@@ -149,7 +149,7 @@ class IndexResult(BaseModel):
     including file counts, node counts, errors, and timing information.
 
     Attributes:
-        files_synced: List of file paths that were successfully synced.
+        files_indexed: List of file paths that were successfully indexed.
         files_deleted: List of file paths that were deleted from the index.
         files_checked: Total number of files examined during the sync.
         skipped_files: Number of files skipped due to max_files limit.
@@ -160,7 +160,7 @@ class IndexResult(BaseModel):
         errors: List of error messages encountered during indexing.
     """
 
-    files_synced: list[str] = Field(default_factory=list)
+    files_indexed: list[str] = Field(default_factory=list)
     files_deleted: list[str] = Field(default_factory=list)
     files_checked: int = 0
     skipped_files: int = 0
@@ -531,10 +531,10 @@ class Repo(BaseModel):
         upsert_batch_size = repo_settings.upsert_batch_size
         max_files = repo_settings.max_files
 
-        # On full sync, recreate the collection
+        # On full index, recreate the collection
         if full:
             await store.delete_collection(self.collection_name)
-            logger.info(f"Performing full sync for repository: {self.name}")
+            logger.info(f"Performing full inedex for repository: {self.name}")
 
         # Ensure collection exists
         await store.ensure_collection(self.collection_name)
@@ -560,9 +560,14 @@ class Repo(BaseModel):
 
             if stored_hash is None:
                 # New file
+                logger.debug(f"New file detected: {doc.path}")
                 files_to_process.append({"doc": doc, "is_new": True})
             elif stored_hash != doc.hash:
                 # Modified file
+                logger.debug(
+                    f"Modified file detected: {doc.path} "
+                    f"(stored: {stored_hash[:8]}, current: {doc.hash[:8]})"
+                )
                 files_to_process.append({"doc": doc, "is_new": False})
             # else: unchanged, skip
 
@@ -574,7 +579,7 @@ class Repo(BaseModel):
             result.skipped_files = len(files_to_process) - max_files
             files_to_process = files_to_process[:max_files]
             logger.warning(
-                f"Sync limited to {max_files} files, skipping {result.skipped_files} files"
+                f"Indexing limited to {max_files} files, skipping {result.skipped_files} files"
             )
 
         # Delete nodes for modified files (before re-adding)
@@ -591,6 +596,7 @@ class Repo(BaseModel):
             try:
                 parser = get_parser(doc.path)
                 if parser is None:
+                    logger.debug(f"No parser available for {doc.path}")
                     continue
 
                 logger.info(f"Parsing {doc.path}")
@@ -619,14 +625,35 @@ class Repo(BaseModel):
                     )
                     file_nodes.append(node)
 
+                if not file_nodes:
+                    logger.debug(f"No nodes extracted from {doc.path}")
+                    placeholder_node = Node(
+                        content="",  # empty content for placeholder
+                        metadata=NodeMetadata(
+                            hash=doc.hash,
+                            repo_path=self.path,
+                            document_path=doc.path,
+                            language="unknown",
+                            node_type="__document_marker__",  # identify placeholders
+                            node_name="",
+                            start_byte=0,
+                            end_byte=0,
+                            start_line=0,
+                            end_line=0,
+                        ),
+                    )
+                    file_nodes = [placeholder_node]
+
                 if file_nodes:
                     pending_nodes.extend(file_nodes)
-                    result.files_synced.append(doc.path)
 
-                    if is_new:
-                        result.nodes_added += len(file_nodes)
-                    else:
-                        result.nodes_updated += len(file_nodes)
+                    # Only count as indexed if it's not just a placeholder
+                    if file_nodes[0].metadata.node_type != "__document_marker__":
+                        result.files_indexed.append(doc.path)
+                        if is_new:
+                            result.nodes_added += len(file_nodes)
+                        else:
+                            result.nodes_updated += len(file_nodes)
 
                     # Batch upsert when we have enough nodes
                     if len(pending_nodes) >= upsert_batch_size:
@@ -651,11 +678,12 @@ class Repo(BaseModel):
 
         result.indexed_at = datetime.now(UTC)
 
-        logger.info(
-            f"Sync complete for {self.name}: "
-            f"{len(result.files_synced)} files synced, "
-            f"{len(result.files_deleted)} files deleted, "
-            f"+{result.nodes_added} ~{result.nodes_updated} -{result.nodes_deleted} nodes"
+        logger.debug(
+            f"Indexing complete for {self.name}: "
+            f"+{result.nodes_added} ~{result.nodes_updated} -{result.nodes_deleted} "
+            f"({result.files_checked} files checked, "
+            f"{len(result.files_indexed)} files indexed, "
+            f"{len(result.files_deleted)} files deleted)"
         )
 
         return result

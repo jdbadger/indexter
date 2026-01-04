@@ -26,7 +26,7 @@ def mock_repo():
 def sample_index_result():
     """Create a sample IndexResult for testing."""
     return IndexResult(
-        files_synced=["file1.py", "file2.py"],
+        files_indexed=["file1.py", "file2.py"],
         files_deleted=["old_file.py"],
         files_checked=10,
         skipped_files=2,

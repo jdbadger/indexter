@@ -25,7 +25,7 @@ def test_index_result_defaults():
     """Test IndexResult with default values."""
     result = IndexResult()
 
-    assert result.files_synced == []
+    assert result.files_indexed == []
     assert result.files_deleted == []
     assert result.files_checked == 0
     assert result.skipped_files == 0
@@ -41,7 +41,7 @@ def test_index_result_with_data():
     """Test IndexResult with custom data."""
     now = datetime.now(UTC)
     result = IndexResult(
-        files_synced=["file1.py", "file2.py"],
+        files_indexed=["file1.py", "file2.py"],
         files_deleted=["old.py"],
         files_checked=10,
         skipped_files=2,
@@ -52,7 +52,7 @@ def test_index_result_with_data():
         errors=["Error 1", "Error 2"],
     )
 
-    assert result.files_synced == ["file1.py", "file2.py"]
+    assert result.files_indexed == ["file1.py", "file2.py"]
     assert result.files_deleted == ["old.py"]
     assert result.files_checked == 10
     assert result.skipped_files == 2
@@ -667,7 +667,7 @@ async def test_repo_index_new_file(temp_git_repo):
                 result = await repo.index()
 
                 assert result.files_checked == 1
-                assert result.files_synced == ["new_file.py"]
+                assert result.files_indexed == ["new_file.py"]
                 assert result.nodes_added == 1
                 assert result.nodes_updated == 0
                 assert result.files_deleted == []
@@ -722,7 +722,7 @@ async def test_repo_index_modified_file(temp_git_repo):
                 result = await repo.index()
 
                 assert result.files_checked == 1
-                assert result.files_synced == ["modified.py"]
+                assert result.files_indexed == ["modified.py"]
                 assert result.nodes_added == 0
                 assert result.nodes_updated == 1
                 # Modified files should be deleted first
@@ -790,7 +790,7 @@ async def test_repo_index_unchanged_file(temp_git_repo):
             result = await repo.index()
 
             assert result.files_checked == 1
-            assert result.files_synced == []
+            assert result.files_indexed == []
             assert result.nodes_added == 0
             assert result.nodes_updated == 0
             # Should not upsert unchanged files
@@ -852,7 +852,7 @@ async def test_repo_index_respects_max_files(temp_git_repo):
 
                 assert result.files_checked == 5
                 assert result.skipped_files == 3
-                assert len(result.files_synced) == 2
+                assert len(result.files_indexed) == 2
 
 
 @pytest.mark.asyncio
@@ -889,7 +889,7 @@ async def test_repo_index_parser_error(temp_git_repo):
                 result = await repo.index()
 
                 assert result.files_checked == 1
-                assert result.files_synced == []
+                assert result.files_indexed == []
                 assert len(result.errors) == 1
                 assert "broken.py" in result.errors[0]
                 assert "Parse error!" in result.errors[0]
@@ -926,7 +926,7 @@ async def test_repo_index_no_parser_available(temp_git_repo):
                 result = await repo.index()
 
                 assert result.files_checked == 1
-                assert result.files_synced == []
+                assert result.files_indexed == []
                 # No parser, so file is silently skipped
                 mock_store.upsert_nodes.assert_not_called()
 
@@ -986,4 +986,4 @@ async def test_repo_index_batching(temp_git_repo):
 
                 # Should be called twice: once for batch of 2, once for remaining 1
                 assert mock_store.upsert_nodes.call_count == 2
-                assert result.files_synced == ["file0.py", "file1.py", "file2.py"]
+                assert result.files_indexed == ["file0.py", "file1.py", "file2.py"]

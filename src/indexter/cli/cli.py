@@ -166,10 +166,13 @@ def index(
         ),
     ] = False,
 ) -> None:
-    """Sync a git repository to the vector store.
+    """
+    Index a git repository in the vector store.
 
-    Indexes or updates the vector store with code from the specified repository.
-    By default, only changed files are synced for efficiency. Use --full to
+    Performs semantic indexing of the specified git repository, storing code
+    snippets as vector embeddings for efficient retrieval.
+
+    By default, only changed files are indexed for efficiency. Use --full to
     force complete re-indexing of all files.
 
     The command tracks added, updated, and deleted nodes, and reports any
@@ -217,7 +220,7 @@ def index(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    if result.files_synced == 0:
+    if result.files_indexed == 0:
         console.print(f"  [dim]●[/dim] {repo.name}: up to date")
         console.print(
             f" [green]✓[/green] No changes detected. {result.files_checked} "
@@ -227,8 +230,9 @@ def index(
         console.print(
             f"  [green]✓[/green] {repo.name}: "
             f"+{result.nodes_added} ~{result.nodes_updated} -{result.nodes_deleted} "
-            f"({len(result.files_synced)} files synced) "
-            f"({len(result.files_deleted)} files deleted)"
+            f"({result.files_checked} files checked, "
+            f"{len(result.files_indexed)} files indexed, "
+            f"{len(result.files_deleted)} files deleted)"
         )
 
     if result.errors:
