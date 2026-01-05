@@ -6,7 +6,6 @@ Tools perform actions and can mutate state.
 
 from anyio import create_task_group
 
-from indexter.exceptions import RepoNotFoundError
 from indexter.models import Repo
 
 
@@ -42,6 +41,7 @@ async def search_repo(
     node_type: str | None = None,
     node_name: str | None = None,
     has_documentation: bool | None = None,
+    limit: int | None = None,
 ) -> dict:
     """
     Perform semantic search across an Indexter-configured repository's indexed code.
@@ -57,33 +57,29 @@ async def search_repo(
         node_type: Filter by node type (e.g., 'function', 'class', 'method').
         node_name: Filter by node name.
         has_documentation: Filter by documentation presence.
-
+        limit: Maximum number of results to return (defaults to 10).
     Returns:
         Dict with results list containing matched code chunks with scores.
-        On error, returns a dict with error details.
+
+    Raises:
+        RepoNotFoundError: If the specified repository is not found.
     """
-    try:
-        repo = await Repo.get(name)
+    repo = await Repo.get(name)
 
-        # Ensure the index is up to date before searching
-        await repo.index()
+    # Ensure the index is up to date before searching
+    await repo.index()
 
-        # Use repo settings top_k if available, otherwise default to 20
-        limit = repo.settings.top_k if repo.settings else 20
+    # Use repo settings top_k if available, otherwise default to 10
+    default_limit = repo.settings.top_k if repo.settings else 10
+    limit = limit if limit is not None else default_limit
 
-        results = await repo.search(
-            query=query,
-            file_path=file_path,
-            language=language,
-            node_type=node_type,
-            node_name=node_name,
-            has_documentation=has_documentation,
-            limit=limit,
-        )
-        return {"results": results, "count": len(results)}
-    except RepoNotFoundError:
-        return {
-            "error": "repo_not_found",
-            "message": f"Repository not found: {name}",
-            "name": name,
-        }
+    results = await repo.search(
+        query=query,
+        file_path=file_path,
+        language=language,
+        node_type=node_type,
+        node_name=node_name,
+        has_documentation=has_documentation,
+        limit=limit,
+    )
+    return {"results": results, "count": len(results)}

@@ -127,14 +127,11 @@ async def test_search_repo_tool_not_found(mcp_client: Client[FastMCPTransport]):
     with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
         mock_get.side_effect = RepoNotFoundError("Repository not found: missing-repo")
 
-        result = await mcp_client.call_tool(
-            name="search_repository", arguments={"name": "missing-repo", "query": "test query"}
-        )
-
-        assert result.data is not None
-        assert result.data["error"] == "repo_not_found"
-        assert "missing-repo" in result.data["message"]
-        assert result.data["name"] == "missing-repo"
+        # Should raise exception, not return error dict
+        with pytest.raises(Exception):  # noqa: B017
+            await mcp_client.call_tool(
+                name="search_repository", arguments={"name": "missing-repo", "query": "test query"}
+            )
 
 
 async def test_search_repo_tool_with_file_path_filter(mcp_client: Client[FastMCPTransport]):
@@ -247,6 +244,7 @@ async def test_search_repo_tool_with_all_filters(mcp_client: Client[FastMCPTrans
                 "node_type": "class",
                 "node_name": "MyClass",
                 "has_documentation": True,
+                "limit": 15,
             },
         )
 
@@ -256,6 +254,7 @@ async def test_search_repo_tool_with_all_filters(mcp_client: Client[FastMCPTrans
         assert call_kwargs["node_type"] == "class"
         assert call_kwargs["node_name"] == "MyClass"
         assert call_kwargs["has_documentation"] is True
+        assert call_kwargs["limit"] == 15
 
 
 async def test_search_repo_tool_uses_repo_settings_top_k(mcp_client: Client[FastMCPTransport]):
@@ -275,10 +274,10 @@ async def test_search_repo_tool_uses_repo_settings_top_k(mcp_client: Client[Fast
         assert call_kwargs["limit"] == 50
 
 
-async def test_search_repo_tool_defaults_to_20_when_no_settings(
+async def test_search_repo_tool_defaults_to_10_when_no_settings(
     mcp_client: Client[FastMCPTransport],
 ):
-    """Test that search_repository tool defaults to 20 when repo has no settings."""
+    """Test that search_repository tool defaults to 10 when repo has no settings."""
     with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
         mock_repo = MagicMock()
         mock_repo.settings = None
@@ -291,7 +290,7 @@ async def test_search_repo_tool_defaults_to_20_when_no_settings(
         )
 
         call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["limit"] == 20
+        assert call_kwargs["limit"] == 10
 
 
 async def test_search_repo_tool_empty_results(mcp_client: Client[FastMCPTransport]):
@@ -351,20 +350,22 @@ async def test_search_repo_tool_passes_query_correctly(mcp_client: Client[FastMC
         assert call_kwargs["query"] == query_string
 
 
-async def test_search_repo_tool_error_dict_structure(mcp_client: Client[FastMCPTransport]):
-    """Test that error dict has correct structure."""
+async def test_search_repo_tool_with_custom_limit(mcp_client: Client[FastMCPTransport]):
+    """Test that search_repository tool uses custom limit when provided."""
     with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_get.side_effect = RepoNotFoundError()
+        mock_repo = MagicMock()
+        mock_repo.settings = MagicMock(top_k=50)
+        mock_repo.index = AsyncMock()
+        mock_repo.search = AsyncMock(return_value=[])
+        mock_get.return_value = mock_repo
 
-        result = await mcp_client.call_tool(
-            name="search_repository", arguments={"name": "test", "query": "query"}
+        await mcp_client.call_tool(
+            name="search_repository", arguments={"name": "test-repo", "query": "query", "limit": 5}
         )
 
-        assert result.data is not None
-        assert isinstance(result.data, dict)
-        assert set(result.data.keys()) == {"error", "message", "name"}
-        assert result.data["error"] == "repo_not_found"
-        assert result.data["name"] == "test"
+        call_kwargs = mock_repo.search.call_args.kwargs
+        # Custom limit should override repo settings
+        assert call_kwargs["limit"] == 5
 
 
 async def test_search_repo_tool_with_none_filters(mcp_client: Client[FastMCPTransport]):
@@ -386,6 +387,7 @@ async def test_search_repo_tool_with_none_filters(mcp_client: Client[FastMCPTran
                 "node_type": None,
                 "node_name": None,
                 "has_documentation": None,
+                "limit": None,
             },
         )
 

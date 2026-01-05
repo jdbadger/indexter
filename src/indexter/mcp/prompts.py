@@ -18,6 +18,7 @@ When searching code in a repository using Indexter:
    - `node_type`: Filter by code structure ('function', 'class', 'method')
    - `node_name`: Filter by specific symbol name
    - `has_documentation`: Find documented or undocumented code
+   - `limit`: Specify the maximum number of results to return (defaults to 10)
 
 3. **Handle errors** - If a repo is not found, check available repos with the `list_repos` tool.
 

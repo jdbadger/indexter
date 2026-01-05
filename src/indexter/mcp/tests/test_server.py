@@ -173,6 +173,7 @@ async def test_search_repository_tool_schema(mcp_client):
     assert "node_type" in schema["properties"]
     assert "node_name" in schema["properties"]
     assert "has_documentation" in schema["properties"]
+    assert "limit" in schema["properties"]
     assert set(schema["required"]) == {"name", "query"}
 
 

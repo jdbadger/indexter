@@ -41,6 +41,7 @@ async def search_repository(
     node_type: str | None = None,
     node_name: str | None = None,
     has_documentation: bool | None = None,
+    limit: int | None = None,
 ) -> dict:
     """
     Semantic search across an Indexter-configured repository's indexed code.
@@ -56,6 +57,7 @@ async def search_repository(
         node_type: Filter by node type (e.g., 'function', 'class', 'method').
         node_name: Filter by node name.
         has_documentation: Filter by documentation presence.
+        limit: Maximum number of results to return (defaults to 10).
 
     Returns code chunks ranked by semantic similarity to the query.
     """
@@ -67,6 +69,7 @@ async def search_repository(
         node_type=node_type,
         node_name=node_name,
         has_documentation=has_documentation,
+        limit=limit,
     )
 
 
