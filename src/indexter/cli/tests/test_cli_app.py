@@ -144,6 +144,7 @@ def test_index_successful_with_changes(cli_runner):
     mock_result.nodes_deleted = 1
     mock_result.errors = []
     mock_result.skipped_files = 0
+    mock_result.summary = "Indexed 2 files (+5 nodes, ~3 updated, -1 deleted) in 1.50s"
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_result)
@@ -151,9 +152,12 @@ def test_index_successful_with_changes(cli_runner):
         result = cli_runner.invoke(app, ["index", "test-repo"])
 
         assert result.exit_code == 0
-        assert "test-repo: +5 ~3 -1" in result.stdout
-        assert "2 files indexed" in result.stdout
-        assert "1 files deleted" in result.stdout
+        # Verify summary is displayed in output (may have ANSI codes)
+        assert "Indexed" in result.stdout
+        assert "files" in result.stdout
+        assert "nodes" in result.stdout
+        assert "updated" in result.stdout
+        assert "deleted" in result.stdout
         assert "Indexing complete!" in result.stdout
 
 
@@ -188,6 +192,7 @@ def test_index_with_full_flag(cli_runner):
     mock_result.files_indexed = 0
     mock_result.files_checked = 10
     mock_result.errors = []
+    mock_result.summary = "Indexed 0 files (+0 nodes, ~0 updated, -0 deleted) in 0.25s"
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_result)
@@ -212,6 +217,7 @@ def test_index_with_errors(cli_runner):
     mock_result.nodes_deleted = 0
     mock_result.errors = ["Error 1", "Error 2", "Error 3"]
     mock_result.skipped_files = 0
+    mock_result.summary = "Indexed 1 files (+1 nodes, ~0 updated, -0 deleted) in 0.50s"
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_result)
@@ -238,6 +244,7 @@ def test_index_with_many_errors(cli_runner):
     mock_result.nodes_deleted = 0
     mock_result.errors = errors
     mock_result.skipped_files = 0
+    mock_result.summary = "Indexed 1 files (+1 nodes, ~0 updated, -0 deleted) in 0.50s"
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_result)
@@ -262,6 +269,7 @@ def test_index_with_skipped_files(cli_runner):
     mock_result.nodes_deleted = 0
     mock_result.errors = []
     mock_result.skipped_files = 5
+    mock_result.summary = "Indexed 1 files (+1 nodes, ~0 updated, -0 deleted) in 0.50s"
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_result)

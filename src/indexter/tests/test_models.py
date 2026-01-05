@@ -63,6 +63,43 @@ def test_index_result_with_data():
     assert result.errors == ["Error 1", "Error 2"]
 
 
+def test_index_result_summary():
+    """Test IndexResult.summary property generates correct formatted string."""
+    result = IndexResult(
+        files_indexed=["file1.py", "file2.py", "file3.py"],
+        nodes_added=10,
+        nodes_updated=5,
+        nodes_deleted=2,
+        duration=1.5,
+    )
+
+    summary = result.summary
+    assert "Indexed 3 files" in summary
+    assert "+10 nodes" in summary
+    assert "~5 updated" in summary
+    assert "-2 deleted" in summary
+    assert "in 1.50s" in summary
+    assert isinstance(summary, str)
+
+
+def test_index_result_summary_no_files():
+    """Test IndexResult.summary with no files indexed."""
+    result = IndexResult(
+        files_indexed=[],
+        nodes_added=0,
+        nodes_updated=0,
+        nodes_deleted=0,
+        duration=0.25,
+    )
+
+    summary = result.summary
+    assert "Indexed 0 files" in summary
+    assert "+0 nodes" in summary
+    assert "~0 updated" in summary
+    assert "-0 deleted" in summary
+    assert "in 0.25s" in summary
+
+
 # ============================================================================
 # NodeMetadata Tests
 # ============================================================================
@@ -618,6 +655,9 @@ async def test_repo_index_full_sync(temp_git_repo):
             mock_store.delete_collection.assert_called_once_with(repo.collection_name)
             mock_store.ensure_collection.assert_called_once_with(repo.collection_name)
             assert isinstance(result, IndexResult)
+            # Verify summary is accessible
+            assert isinstance(result.summary, str)
+            assert "Indexed" in result.summary
 
 
 @pytest.mark.asyncio
@@ -672,6 +712,10 @@ async def test_repo_index_new_file(temp_git_repo):
                 assert result.nodes_updated == 0
                 assert result.files_deleted == []
                 mock_store.upsert_nodes.assert_called_once()
+                # Verify summary property
+                assert "Indexed 1 files" in result.summary
+                assert "+1 nodes" in result.summary
+                assert "~0 updated" in result.summary
 
 
 @pytest.mark.asyncio
@@ -729,6 +773,10 @@ async def test_repo_index_modified_file(temp_git_repo):
                 mock_store.delete_by_document_paths.assert_called_once_with(
                     repo.collection_name, ["modified.py"]
                 )
+                # Verify summary property
+                assert "Indexed 1 files" in result.summary
+                assert "+0 nodes" in result.summary
+                assert "~1 updated" in result.summary
 
 
 @pytest.mark.asyncio
@@ -758,6 +806,9 @@ async def test_repo_index_deleted_file(temp_git_repo):
             mock_store.delete_by_document_paths.assert_called_once_with(
                 repo.collection_name, ["deleted.py"]
             )
+            # Verify summary property
+            assert "Indexed 0 files" in result.summary
+            assert "-1 deleted" in result.summary
 
 
 @pytest.mark.asyncio
@@ -795,6 +846,9 @@ async def test_repo_index_unchanged_file(temp_git_repo):
             assert result.nodes_updated == 0
             # Should not upsert unchanged files
             mock_store.upsert_nodes.assert_not_called()
+            # Verify summary property
+            assert "Indexed 0 files" in result.summary
+            assert "+0 nodes" in result.summary
 
 
 @pytest.mark.asyncio
@@ -853,6 +907,8 @@ async def test_repo_index_respects_max_files(temp_git_repo):
                 assert result.files_checked == 5
                 assert result.skipped_files == 3
                 assert len(result.files_indexed) == 2
+                # Verify summary property
+                assert "Indexed 2 files" in result.summary
 
 
 @pytest.mark.asyncio

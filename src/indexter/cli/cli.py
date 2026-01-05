@@ -227,13 +227,7 @@ def index(
             f"files checked. Repository is up to date."
         )
     else:
-        console.print(
-            f"  [green]✓[/green] {repo.name}: "
-            f"+{result.nodes_added} ~{result.nodes_updated} -{result.nodes_deleted} "
-            f"({result.files_checked} files checked, "
-            f"{len(result.files_indexed)} files indexed, "
-            f"{len(result.files_deleted)} files deleted)"
-        )
+        console.print(f"  [green]✓[/green] {repo.name}: {result.summary}")
 
     if result.errors:
         console.print(f"  [yellow]Errors: {len(result.errors)}[/yellow]")

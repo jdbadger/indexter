@@ -168,7 +168,18 @@ class IndexResult(BaseModel):
     nodes_deleted: int = 0
     nodes_updated: int = 0
     indexed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    duration: float = 0.0
     errors: list[str] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def summary(self) -> str:
+        """Summary of the indexing result."""
+        return (
+            f"Indexed {len(self.files_indexed)} files (+{self.nodes_added} nodes, "
+            f"~{self.nodes_updated} updated, -{self.nodes_deleted} deleted) "
+            f"in {self.duration:.2f}s"
+        )
 
 
 class NodeMetadata(BaseModel):
@@ -524,6 +535,8 @@ class Repo(BaseModel):
             operation, including files processed, nodes added/updated/deleted,
             and any errors encountered.
         """
+        start_time = datetime.now(UTC)
+
         result = IndexResult()
 
         # Load per-repo configuration
@@ -676,14 +689,12 @@ class Repo(BaseModel):
             # We don't know exact node count deleted, but track file count
             result.nodes_deleted = len(deleted_paths)  # Approximation
 
-        result.indexed_at = datetime.now(UTC)
+        end_time = datetime.now(UTC)
 
-        logger.debug(
-            f"Indexing complete for {self.name}: "
-            f"+{result.nodes_added} ~{result.nodes_updated} -{result.nodes_deleted} "
-            f"({result.files_checked} files checked, "
-            f"{len(result.files_indexed)} files indexed, "
-            f"{len(result.files_deleted)} files deleted)"
-        )
+        # Finalize result
+        result.indexed_at = end_time
+        result.duration = (end_time - start_time).total_seconds()
+
+        logger.debug(f"Indexing complete for {self.name}\n{result.summary}")
 
         return result
