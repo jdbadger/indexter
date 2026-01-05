@@ -34,9 +34,8 @@ Indexter indexes your local git repositories, parses them semantically using tre
 ## Features
 
 - 🌳 **Semantic parsing** using tree-sitter for:
-  - Python, JavaScript, TypeScript (including JSX/TSX)
-  - Rust, HTML, CSS
-  - JSON, YAML, TOML, Markdown
+  - Python, JavaScript, TypeScript (including JSX/TSX), Rust
+  - HTML, CSS, JSON, YAML, TOML, Markdown
   - Generic chunking fallback for other file types
 - 📁 **Respects .gitignore** and configurable ignore patterns
 - 🔄 **Incremental updates** sync changed files via content hash comparison
@@ -53,10 +52,10 @@ Indexter uses tree-sitter for semantic parsing. Each parser extracts meaningful 
 | Language | Extensions | Semantic Units Extracted |
 |----------|------------|-------------------------|
 | Python | `.py` | Functions (sync/async), classes, decorated definitions, module-level constants + docstrings |
-| JavaScript | `.js`, `.jsx`, `.mjs` | Function declarations, generators, arrow functions, classes, methods + JSDoc comments |
+| JavaScript | `.js`, `.jsx` | Function declarations, generators, arrow functions, classes, methods + JSDoc comments |
 | TypeScript | `.ts`, `.tsx` | Functions, generators, arrow functions, classes, interfaces, type aliases + TSDoc comments |
 | Rust | `.rs` | Functions (sync/async/unsafe), structs, enums, traits, impl blocks + doc comments (`///`, `//!`) |
-| HTML | `.html`, `.htm` | Semantic elements: tables, lists, headers (`<h1>`–`<h6>`) |
+| HTML | `.html` | Semantic elements: tables, lists, headers (`<h1>`–`<h6>`) |
 | CSS | `.css` | Rule sets, media queries, keyframes, imports, at-rules |
 | JSON | `.json` | Objects, arrays |
 | YAML | `.yaml`, `.yml` | Block mappings, block sequences |
@@ -261,7 +260,9 @@ Commands:
   search <query> <name> Search indexed nodes in a repository
   status                Show status of indexed repositories
   forget <name>         Remove a repository from indexter
-  config                Inspect global configuration
+  config                View Indexter global settings
+    show                Show global settings with syntax highlighting
+    path                Print path to the settings config file
 
 Options:
   --verbose, -v         Enable verbose output
@@ -292,10 +293,8 @@ Indexter provides an MCP server for AI agent integration. The server exposes:
 
 | Type | Name | Description |
 |------|------|-------------|
-| Tool | `index` | Index (or sync) a repository's code |
-| Tool | `search` | Semantic search across indexed code with filtering options |
-| Resource | `indexter://repos` | List all configured repositories |
-| Resource | `indexter://repos/{name}` | Get indexing status of a repository |
+| Tool | `list_repositories` | List all configured repositories with their indexing status |
+| Tool | `search_repository` | Semantic search across indexed code with filtering options |
 | Prompt | `search_workflow` | Guide for effectively searching code repositories |
 
 ### Claude Desktop & Claude Code
