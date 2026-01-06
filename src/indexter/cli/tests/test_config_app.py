@@ -37,7 +37,7 @@ def test_config_show_with_existing_config_file(cli_runner):
     config_content = """
     # indexter global configuration
 
-    embedding_model = "BAAI/bge-small-en-v1.5"
+    embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 
     ignore_patterns = [".git/", "__pycache__/", "*.pyc"]
 

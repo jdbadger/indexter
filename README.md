@@ -145,7 +145,7 @@ $EDITOR $(indexter config path)
 # ~/.config/indexter/config.toml
 
 # Embedding model to use for generating vector embeddings
-embedding_model = "BAAI/bge-small-en-v1.5"
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 
 # File patterns to exclude from indexing (gitignore-style syntax)
 # These are in addition to patterns from .gitignore files
@@ -205,7 +205,7 @@ Settings can also be overridden via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `INDEXTER_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Embedding model name |
+| `INDEXTER_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model name |
 | `INDEXTER_MAX_FILE_SIZE` | `1048576` | Maximum file size in bytes |
 | `INDEXTER_MAX_FILES` | `1000` | Maximum files per repository |
 | `INDEXTER_TOP_K` | `10` | Number of search results |
@@ -228,7 +228,7 @@ Create an `indexter.toml` in your repository root, or add a `[tool.indexter]` se
 # indexter.toml (or [tool.indexter] in pyproject.toml)
 
 # Embedding model to use for this repository
-# embedding_model = "BAAI/bge-small-en-v1.5"
+# embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 
 # Additional patterns to ignore (combined with .gitignore and global patterns)
 ignore_patterns = [

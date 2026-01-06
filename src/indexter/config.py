@@ -44,7 +44,7 @@ Configuration File Format
 -------------------------
 Global config (indexter.toml):
 
-    embedding_model = "BAAI/bge-small-en-v1.5"
+    embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
     max_file_size = 1048576
     ignore_patterns = [".git/", "__pycache__/", "*.pyc"]
 
@@ -404,7 +404,7 @@ class DefaultSettings(BaseSettings):
         upsert_batch_size: Number of documents to batch for vector store operations.
     """
 
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     ignore_patterns: list[str] = Field(default_factory=lambda: DEFAULT_IGNORE_PATTERNS.copy())
     max_file_size: int = 1 * 1024 * 1024  # 1 MB
     max_files: int = 1000

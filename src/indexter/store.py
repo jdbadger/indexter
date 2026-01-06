@@ -51,7 +51,7 @@ The module uses FastEmbed for automatic embedding generation:
 
 - Models are lazy-loaded on first use
 - Embeddings are generated automatically during upsert
-- Default model: "BAAI/bge-small-en-v1.5" (384 dimensions)
+- Default model: "sentence-transformers/all-MiniLM-L6-v2" (384 dimensions)
 - Model can be configured globally or per-repository
 
 FastEmbed integration provides:
@@ -228,7 +228,7 @@ Store behavior is controlled through global settings:
     api_key = ""               # Optional authentication
 
     # Global embedding model
-    embedding_model = "BAAI/bge-small-en-v1.5"
+    embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 
 Limitations
 -----------

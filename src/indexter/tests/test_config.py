@@ -219,7 +219,7 @@ def test_settings_defaults(tmp_path):
 
     settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
 
-    assert settings_obj.embedding_model == "BAAI/bge-small-en-v1.5"
+    assert settings_obj.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
     assert settings_obj.ignore_patterns == DEFAULT_IGNORE_PATTERNS
     assert settings_obj.max_file_size == 1 * 1024 * 1024
     assert settings_obj.max_files == 1000
