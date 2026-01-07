@@ -6,7 +6,7 @@
   <strong>Semantic Code Context For Your LLM</strong>
 </p>
 
-Indexter indexes your local git repositories, parses them semantically using tree-sitter, and provides a vector search interface for AI agents via the Model Context Protocol (MCP).
+Indexter indexes your local git repositories, parses them semantically using tree-sitter, and provides a hybrid search interface for AI agents via the Model Context Protocol (MCP).
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@ Indexter indexes your local git repositories, parses them semantically using tre
 - [Supported Languages](#supported-languages)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
-  - [Using uv (recommended)](#using-uv-recommended)
+  - [Using uv](#using-uv)
   - [Modular Installation](#modular-installation)
   - [Using pipx](#using-pipx)
   - [From source](#from-source)
@@ -82,11 +82,11 @@ Indexter uses tree-sitter for semantic parsing. Each parser extracts meaningful 
 ## Prerequisites
 
 - Python 3.11, 3.12, or 3.13
-- [uv](https://docs.astral.sh/uv/) (recommended) or [pipx](https://pipx.pypa.io/)
+- [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/)
 
 ## Installation
 
-### Using uv (recommended)
+### Using uv
 
 To install the full application (CLI + MCP server):
 
