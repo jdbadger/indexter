@@ -131,9 +131,7 @@ async def test_tool_list_repositories_success(
         }
     )
 
-    with patch(
-        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
-    ):
+    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list):
         result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
     assert result.data is not None
@@ -324,11 +322,12 @@ async def test_tool_search_repo_not_found(mcp_client: Client[FastMCPTransport]):
                 "name": "missing-repo",
                 "query": "test query",
             },
+            raise_on_error=False,
         )
 
-    assert result.data is not None
-    assert result.data["error"] == "repo_not_found"
-    assert "missing-repo" in result.data["message"]
+    assert result.is_error is True
+    # The error message should be in the content
+    assert "missing-repo" in result.content[0].text
 
 
 async def test_tool_search_empty_results(
@@ -406,9 +405,7 @@ async def test_full_user_journey_list_index_search(
         }
     )
 
-    with patch(
-        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
-    ):
+    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list):
         repos_result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
     assert len(repos_result.data) == 2
@@ -475,9 +472,7 @@ async def test_full_journey_check_status_before_search(
         }
     )
 
-    with patch(
-        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
-    ):
+    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list):
         list_result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
     assert len(list_result.data) == 2
@@ -518,9 +513,10 @@ async def test_error_recovery_workflow(
                 "name": "wrong-name",
                 "query": "test",
             },
+            raise_on_error=False,
         )
 
-    assert search_result.data["error"] == "repo_not_found"
+    assert search_result.is_error is True
 
     # Step 2: List available repos to find correct name
     sample_repos_list[0].name = "correct-name"
@@ -544,9 +540,7 @@ async def test_error_recovery_workflow(
         }
     )
 
-    with patch(
-        "indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list
-    ):
+    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list):
         repos_result = await mcp_client.call_tool(name="list_repositories", arguments={})
 
     # Get the name from the mock we set up

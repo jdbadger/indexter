@@ -92,6 +92,7 @@ source-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
 [tool.pytest.ini_options]
 addopts = ["--pyargs"]
 asyncio_mode = "auto"
+python_files = ["test_*.py", "*_test.py", "*_tests.py"]
 
 [tool.ruff]
 indent-width = 4
