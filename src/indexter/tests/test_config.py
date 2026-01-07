@@ -824,7 +824,10 @@ async def test_repo_settings_load_handles_errors(tmp_path, caplog):
             repos = await RepoSettings.load()
 
         assert repos == []
-        assert any("Failed to load repos config" in record.message for record in caplog.records)
+        assert any(
+            "Failed to load repos config" in record.message or "repos.json is invalid/corrupted" in record.message
+            for record in caplog.records
+        )
 
 
 async def test_repo_settings_save(tmp_path):

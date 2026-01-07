@@ -95,6 +95,8 @@ Save/update repository registry:
 import json
 import logging
 import os
+import shutil
+import tempfile
 import tomllib
 from enum import StrEnum
 from pathlib import Path
@@ -788,8 +790,19 @@ class RepoSettings(DefaultSettings):
             return []
         try:
             text = path.read_text()
+            if not text.strip():
+                logger.warning("repos.json is empty, treating as no repos registered.")
+                return []
             data = json.loads(text)
             return [cls(**repo) for repo in data.get("repos", [])]
+        except json.JSONDecodeError as e:
+            logger.error(f"repos.json is invalid/corrupted: {e}. Resetting file.")
+            # Optionally, reset the file to a valid empty state
+            try:
+                path.write_text(json.dumps({"repos": []}, indent=4))
+            except Exception as write_e:
+                logger.error(f"Failed to reset repos.json: {write_e}")
+            return []
         except Exception as e:
             logger.error(f"Failed to load repos config: {e}")
             return []
@@ -797,11 +810,11 @@ class RepoSettings(DefaultSettings):
     @classmethod
     async def save(cls, repos: list["RepoSettings"]) -> None:
         """
-        Save repository settings to the repository registry file.
+        Save repository settings to the repository registry file atomically.
 
         Persists the list of registered repositories to repos.json in the
         global config directory. Replaces the entire registry with the
-        provided list.
+        provided list using an atomic write to prevent file corruption.
 
         Args:
             repos: List of RepoSettings instances to save to the registry.
@@ -810,7 +823,12 @@ class RepoSettings(DefaultSettings):
         path = Path(repos_config_file)
         data = {"repos": [repo.model_dump(mode="json") for repo in repos]}
         try:
-            path.write_text(json.dumps(data, indent=4))
-            logger.debug(f"Saved repos config to {repos_config_file}")
+            # Write to a temporary file in the same directory
+            with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8") as tf:
+                json.dump(data, tf, indent=4)
+                tempname = tf.name
+            # Atomically replace the original file
+            shutil.move(tempname, path)
+            logger.debug(f"Saved repos config to {repos_config_file} (atomic write)")
         except Exception as e:
             logger.error(f"Failed to save repos config: {e}")
