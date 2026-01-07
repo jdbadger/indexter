@@ -97,9 +97,11 @@ class TestVectorStoreClient:
         mock_settings.data_dir = mock_data_dir
 
         mock_settings.embedding_model = "test-model"
+        mock_settings.sparse_embedding_model = "test-sparse-model"
 
         mock_client_instance = MagicMock()
         mock_client_instance.get_fastembed_vector_params.return_value = {"test-vector": {}}
+        mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"test-sparse-vector": {}}
         mock_qdrant_client.return_value = mock_client_instance
 
         # Execute
@@ -110,8 +112,11 @@ class TestVectorStoreClient:
         assert client is mock_client_instance
         mock_qdrant_client.assert_called_once_with(path="/test/data/store")
         mock_client_instance.set_model.assert_called_once_with("test-model")
+        mock_client_instance.set_sparse_model.assert_called_once_with("test-sparse-model")
         assert store._embedding_model_name == "test-model"
+        assert store._sparse_embedding_model_name == "test-sparse-model"
         assert store._vector_name == "test-vector"
+        assert store._sparse_vector_name == "test-sparse-vector"
 
     @patch("indexter.store.AsyncQdrantClient")
     @patch("indexter.store.settings")
@@ -120,9 +125,11 @@ class TestVectorStoreClient:
         # Setup
         mock_settings.store.mode = StoreMode.memory
         mock_settings.embedding_model = "test-model"
+        mock_settings.sparse_embedding_model = "test-sparse-model"
 
         mock_client_instance = MagicMock()
         mock_client_instance.get_fastembed_vector_params.return_value = {"test-vector": {}}
+        mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"test-sparse-vector": {}}
         mock_qdrant_client.return_value = mock_client_instance
 
         # Execute
@@ -132,6 +139,7 @@ class TestVectorStoreClient:
         # Assert
         mock_qdrant_client.assert_called_once_with(location=":memory:")
         mock_client_instance.set_model.assert_called_once_with("test-model")
+        mock_client_instance.set_sparse_model.assert_called_once_with("test-sparse-model")
 
     @patch("indexter.store.AsyncQdrantClient")
     @patch("indexter.store.settings")
@@ -146,9 +154,11 @@ class TestVectorStoreClient:
         mock_settings.store.api_key = "test-key"
         mock_settings.store.url = "http://localhost:6333"
         mock_settings.embedding_model = "test-model"
+        mock_settings.sparse_embedding_model = "test-sparse-model"
 
         mock_client_instance = MagicMock()
         mock_client_instance.get_fastembed_vector_params.return_value = {"test-vector": {}}
+        mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"test-sparse-vector": {}}
         mock_qdrant_client.return_value = mock_client_instance
 
         # Execute
@@ -164,6 +174,7 @@ class TestVectorStoreClient:
             api_key="test-key",
         )
         mock_client_instance.set_model.assert_called_once_with("test-model")
+        mock_client_instance.set_sparse_model.assert_called_once_with("test-sparse-model")
 
     @patch("indexter.store.AsyncQdrantClient")
     @patch("indexter.store.settings")
@@ -172,9 +183,11 @@ class TestVectorStoreClient:
         # Setup
         mock_settings.store.mode = StoreMode.memory
         mock_settings.embedding_model = "test-model"
+        mock_settings.sparse_embedding_model = "test-sparse-model"
 
         mock_client_instance = MagicMock()
         mock_client_instance.get_fastembed_vector_params.return_value = {"test-vector": {}}
+        mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"test-sparse-vector": {}}
         mock_qdrant_client.return_value = mock_client_instance
 
         # Execute
@@ -196,8 +209,10 @@ class TestVectorStoreCreateCollection:
         # Setup
         mock_client = AsyncMock()
         vector_params = {"test-vector": {"size": 384}}
+        sparse_vector_params = {"test-sparse-vector": {"size": 512}}
         # get_fastembed_vector_params is a sync method
         mock_client.get_fastembed_vector_params = MagicMock(return_value=vector_params)
+        mock_client.get_fastembed_sparse_vector_params = MagicMock(return_value=sparse_vector_params)
         vector_store._client = mock_client
 
         # Execute
@@ -207,6 +222,7 @@ class TestVectorStoreCreateCollection:
         mock_client.create_collection.assert_called_once_with(
             collection_name="test_collection",
             vectors_config=vector_params,
+            sparse_vectors_config=sparse_vector_params,
         )
 
 
@@ -298,8 +314,10 @@ class TestVectorStoreEnsureCollection:
         mock_collections.collections = [other_collection]
         mock_client.get_collections.return_value = mock_collections
         vector_params = {"test-vector": {"size": 384}}
+        sparse_vector_params = {"test-sparse-vector": {"size": 512}}
         # get_fastembed_vector_params is a sync method
         mock_client.get_fastembed_vector_params = MagicMock(return_value=vector_params)
+        mock_client.get_fastembed_sparse_vector_params = MagicMock(return_value=sparse_vector_params)
         vector_store._client = mock_client
 
         # Execute
@@ -485,6 +503,8 @@ class TestVectorStoreUpsertNodes:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         result = await vector_store.upsert_nodes("test_collection", [sample_node])
@@ -507,6 +527,8 @@ class TestVectorStoreUpsertNodes:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         result = await vector_store.upsert_nodes("test_collection", sample_nodes)
@@ -537,6 +559,8 @@ class TestVectorStoreUpsertNodes:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.upsert_nodes("test_collection", [sample_node])
@@ -605,9 +629,7 @@ class TestVectorStoreDeleteByDocumentPaths:
         vector_store._initialized_collections.add("test_collection")
 
         # Execute
-        result = await vector_store.delete_by_document_paths(
-            "test_collection", ["file1.py", "file2.py", "file3.py"]
-        )
+        result = await vector_store.delete_by_document_paths("test_collection", ["file1.py", "file2.py", "file3.py"])
 
         # Assert
         assert result == 3
@@ -644,6 +666,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         results = await vector_store.search("test_collection", "test query")
@@ -668,6 +692,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", file_path="src/main.py")
@@ -689,6 +715,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", file_path="src/")
@@ -710,6 +738,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", language="python")
@@ -731,6 +761,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", node_type="function")
@@ -752,6 +784,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", node_name="my_function")
@@ -773,6 +807,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", has_documentation=True)
@@ -794,6 +830,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", has_documentation=False)
@@ -815,6 +853,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         await vector_store.search("test_collection", "test query", limit=50)
@@ -848,6 +888,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         results = await vector_store.search("test_collection", "test query")
@@ -871,6 +913,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         results = await vector_store.search("test_collection", "test query")
@@ -901,6 +945,8 @@ class TestVectorStoreSearch:
         vector_store._initialized_collections.add("test_collection")
         vector_store._vector_name = "test-vector"
         vector_store._embedding_model_name = "test-model"
+        vector_store._sparse_vector_name = "test-sparse-vector"
+        vector_store._sparse_embedding_model_name = "test-sparse-model"
 
         # Execute
         results = await vector_store.search("test_collection", "test query")

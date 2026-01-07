@@ -39,11 +39,27 @@ Indexter indexes your local git repositories, parses them semantically using tre
   - Generic chunking fallback for other file types
 - 📁 **Respects .gitignore** and configurable ignore patterns
 - 🔄 **Incremental updates** sync changed files via content hash comparison
-- 🔍 **Vector search** powered by Qdrant with fastembed
+- 🔍 **Hybrid search** combining dense semantic vectors and sparse keyword vectors with reciprocal rank fusion (RRF)
+- ⚡ **Powered by Qdrant** vector database with automatic embedding generation via FastEmbed
 - ⌨️ **CLI** for indexing repositories, searching code and inspecting configuration from your terminal
 - 🤖 **MCP server** for seamless AI agent integration via FastMCP
 - 📦 **Multi-repo support** with separate collections per repository
 - ⚙️ **XDG-compliant** configuration and data storage
+
+## Hybrid Search
+
+Indexter uses **hybrid search** to combine the strengths of both semantic and keyword-based retrieval:
+
+- **Dense Vectors**: Semantic embeddings (default: `sentence-transformers/all-MiniLM-L6-v2`) capture the meaning and context of code, enabling natural language queries like "authentication handler" to find relevant code even without exact keyword matches.
+
+- **Sparse Vectors**: BM25 keyword embeddings (default: `Qdrant/bm25`) provide traditional keyword-based search, ensuring exact matches for function names, variable names, and technical terms.
+
+- **Reciprocal Rank Fusion (RRF)**: Results from both dense and sparse searches are combined and re-ranked using RRF, which:
+  - Merges rankings from multiple retrieval methods
+  - Reduces the impact of outliers from any single method
+  - Provides more robust and relevant results than either approach alone
+
+This hybrid approach ensures you get the best of both worlds: semantic understanding for conceptual queries and precision matching for specific identifiers.
 
 ## Supported Languages
 
@@ -144,8 +160,11 @@ $EDITOR $(indexter config path)
 ```toml
 # ~/.config/indexter/config.toml
 
-# Embedding model to use for generating vector embeddings
+# Dense embedding model for semantic search (default: 384-dim sentence-transformers model)
 embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Sparse embedding model for keyword-based search (BM25 algorithm)
+sparse_embedding_model = "Qdrant/bm25"
 
 # File patterns to exclude from indexing (gitignore-style syntax)
 # These are in addition to patterns from .gitignore files
@@ -205,7 +224,8 @@ Settings can also be overridden via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `INDEXTER_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model name |
+| `INDEXTER_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Dense embedding model for semantic search |
+| `INDEXTER_SPARSE_EMBEDDING_MODEL` | `Qdrant/bm25` | Sparse embedding model for keyword search |
 | `INDEXTER_MAX_FILE_SIZE` | `1048576` | Maximum file size in bytes |
 | `INDEXTER_MAX_FILES` | `1000` | Maximum files per repository |
 | `INDEXTER_TOP_K` | `10` | Number of search results |
@@ -227,8 +247,11 @@ Create an `indexter.toml` in your repository root, or add a `[tool.indexter]` se
 ```toml
 # indexter.toml (or [tool.indexter] in pyproject.toml)
 
-# Embedding model to use for this repository
+# Dense embedding model for semantic search
 # embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Sparse embedding model for keyword-based search
+# sparse_embedding_model = "Qdrant/bm25"
 
 # Additional patterns to ignore (combined with .gitignore and global patterns)
 ignore_patterns = [

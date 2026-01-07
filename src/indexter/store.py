@@ -227,8 +227,11 @@ Store behavior is controlled through global settings:
     prefer_grpc = true         # Use gRPC when available
     api_key = ""               # Optional authentication
 
-    # Global embedding model
+    # Global dense embedding model
     embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+
+    # Global sparse embedding model
+    sparse_embedding_model = "bm25"
 
 Limitations
 -----------
@@ -270,8 +273,10 @@ class VectorStore:
         """Initialize the vector store."""
         self._client: AsyncQdrantClient | None = None
         self._embedding_model_name: str | None = None
+        self._sparse_embedding_model_name: str | None = None
         self._initialized_collections: set[str] = set()
         self._vector_name: str | None = None
+        self._sparse_vector_name: str | None = None
 
     @property
     def client(self) -> AsyncQdrantClient:
@@ -291,9 +296,7 @@ class VectorStore:
                 self._client = AsyncQdrantClient(location=":memory:")
             else:
                 # Remote Qdrant server
-                logger.info(
-                    f"Connecting to Qdrant (async) at {settings.store.host}:{settings.store.port}"
-                )
+                logger.info(f"Connecting to Qdrant (async) at {settings.store.host}:{settings.store.port}")
                 self._client = AsyncQdrantClient(
                     host=settings.store.host,
                     port=settings.store.port,
@@ -302,16 +305,21 @@ class VectorStore:
                     api_key=settings.store.api_key,
                 )
 
-            # Set the embedding model for fastembed
+            # Set the embedding models for fastembed
             self._client.set_model(settings.embedding_model)
             self._embedding_model_name = settings.embedding_model
-            # Get the vector name used by fastembed (e.g., 'fast-bge-small-en-v1.5')
+            self._client.set_sparse_model(settings.sparse_embedding_model)
+            self._sparse_embedding_model_name = settings.sparse_embedding_model
+            # Get the vector names used by fastembed (e.g., 'fast-bge-small-en-v1.5')
             if self._vector_name is None:
-                vector_params = self._client.get_fastembed_vector_params()
-                self._vector_name = list(vector_params.keys())[0]
+                if vector_params := self._client.get_fastembed_vector_params():
+                    self._vector_name = list(vector_params.keys())[0]
+            if self._sparse_vector_name is None:
+                if sparse_vector_params := self._client.get_fastembed_sparse_vector_params():
+                    self._sparse_vector_name = list(sparse_vector_params.keys())[0]
             logger.info(
                 f"Using embedding model (async): {self._embedding_model_name} "
-                f"(vector: {self._vector_name})"
+                f"(vector: {self._vector_name}, sparse vector: {self._sparse_vector_name})"
             )
         return self._client
 
@@ -322,9 +330,11 @@ class VectorStore:
             collection_name: Name of the collection to create.
         """
         vector_params = self.client.get_fastembed_vector_params()
+        sparse_vector_params = self.client.get_fastembed_sparse_vector_params()
         await self.client.create_collection(
             collection_name=collection_name,
             vectors_config=vector_params,
+            sparse_vectors_config=sparse_vector_params,
         )
         logger.info(f"Created collection: {collection_name}")
 
@@ -455,8 +465,17 @@ class VectorStore:
         ]
         ids = [node.id for node in nodes]
 
-        # Ensure vector name and embedding model are initialized
-        if self._vector_name is None or self._embedding_model_name is None:
+        vector_name = self._vector_name
+        embedding_model_name = self._embedding_model_name
+        sparse_vector_name = self._sparse_vector_name
+        sparse_embedding_model_name = self._sparse_embedding_model_name
+
+        if (
+            vector_name is None
+            or embedding_model_name is None
+            or sparse_vector_name is None
+            or sparse_embedding_model_name is None
+        ):
             raise RuntimeError("Vector store not properly initialized")
 
         # Build points with Document for automatic embedding inference
@@ -464,7 +483,8 @@ class VectorStore:
             models.PointStruct(
                 id=point_id,
                 vector={
-                    self._vector_name: models.Document(text=doc, model=self._embedding_model_name)
+                    vector_name: models.Document(text=doc, model=embedding_model_name),
+                    sparse_vector_name: models.Document(text=doc, model=sparse_embedding_model_name),
                 },
                 payload=meta,
             )
@@ -612,16 +632,37 @@ class VectorStore:
             query_filter = models.Filter(must=filter_conditions)
 
         # Ensure vector name and embedding model are initialized
-        if self._vector_name is None or self._embedding_model_name is None:
+        vector_name = self._vector_name
+        embedding_model_name = self._embedding_model_name
+        sparse_vector_name = self._sparse_vector_name
+        sparse_embedding_model_name = self._sparse_embedding_model_name
+
+        if (
+            vector_name is None
+            or embedding_model_name is None
+            or sparse_vector_name is None
+            or sparse_embedding_model_name is None
+        ):
             raise RuntimeError("Vector store not properly initialized")
 
         # Perform search using query_points with Document for embedding inference
         results = await self.client.query_points(
             collection_name=collection_name,
-            query=models.Document(text=query, model=self._embedding_model_name),
-            using=self._vector_name,
-            limit=limit,
+            query=models.FusionQuery(
+                fusion=models.Fusion.RRF  # we are using reciprocal rank fusion here
+            ),
+            prefetch=[
+                models.Prefetch(
+                    query=models.Document(text=query, model=embedding_model_name),
+                    using=vector_name,
+                ),
+                models.Prefetch(
+                    query=models.Document(text=query, model=sparse_embedding_model_name),
+                    using=sparse_vector_name,
+                ),
+            ],
             query_filter=query_filter,
+            limit=limit,
         )
 
         # Format results
@@ -638,9 +679,7 @@ class VectorStore:
                     "node_name": point.payload.get("node_name", "") if point.payload else "",
                     "start_line": point.payload.get("start_line", 0) if point.payload else 0,
                     "end_line": point.payload.get("end_line", 0) if point.payload else 0,
-                    "documentation": point.payload.get("documentation", "")
-                    if point.payload
-                    else "",
+                    "documentation": point.payload.get("documentation", "") if point.payload else "",
                     "signature": point.payload.get("signature", "") if point.payload else "",
                     "parent_scope": point.payload.get("parent_scope", "") if point.payload else "",
                 }

@@ -95,7 +95,7 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 indent-width = 4
-line-length = 100
+line-length = 120
 target-version = "py313"
 
 [tool.ruff.lint]

@@ -397,6 +397,7 @@ class DefaultSettings(BaseSettings):
 
     Attributes:
         embedding_model: HuggingFace model for generating vector embeddings.
+        sparse_embedding_model: Sparse embedding model for text search.
         ignore_patterns: File patterns to exclude from indexing.
         max_file_size: Maximum file size in bytes to process (default: 1 MB).
         max_files: Maximum number of files to index per repository.
@@ -405,6 +406,7 @@ class DefaultSettings(BaseSettings):
     """
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    sparse_embedding_model: str = "Qdrant/bm25"
     ignore_patterns: list[str] = Field(default_factory=lambda: DEFAULT_IGNORE_PATTERNS.copy())
     max_file_size: int = 1 * 1024 * 1024  # 1 MB
     max_files: int = 1000
@@ -585,9 +587,7 @@ class Settings(DefaultSettings):
             store.add("prefer_grpc", self.store.prefer_grpc)
             store.add(tomlkit.nl())
             # api_key
-            store.add(
-                tomlkit.comment("# API key for authenticating with the remote Vector Store server")
-            )
+            store.add(tomlkit.comment("# API key for authenticating with the remote Vector Store server"))
             if self.store.api_key:
                 store.add("api_key", self.store.api_key)
             else:
@@ -722,9 +722,7 @@ class RepoSettings(DefaultSettings):
             content = Path(toml_path).read_bytes()
             toml_data = tomllib.loads(content.decode("utf-8"))
             self.embedding_model = toml_data.get("embedding_model", settings.embedding_model)
-            self.ignore_patterns = list(
-                set(toml_data.get("ignore_patterns", []) + settings.ignore_patterns)
-            )
+            self.ignore_patterns = list(set(toml_data.get("ignore_patterns", []) + settings.ignore_patterns))
             self.max_file_size = toml_data.get("max_file_size", settings.max_file_size)
             self.max_files = toml_data.get("max_files", settings.max_files)
             self.top_k = toml_data.get("top_k", settings.top_k)
@@ -755,15 +753,11 @@ class RepoSettings(DefaultSettings):
             if tool_indexter is None:
                 return None
             self.embedding_model = tool_indexter.get("embedding_model", settings.embedding_model)
-            self.ignore_patterns = list(
-                set(tool_indexter.get("ignore_patterns", []) + settings.ignore_patterns)
-            )
+            self.ignore_patterns = list(set(tool_indexter.get("ignore_patterns", []) + settings.ignore_patterns))
             self.max_file_size = tool_indexter.get("max_file_size", settings.max_file_size)
             self.max_files = tool_indexter.get("max_files", settings.max_files)
             self.top_k = tool_indexter.get("top_k", settings.top_k)
-            self.upsert_batch_size = tool_indexter.get(
-                "upsert_batch_size", settings.upsert_batch_size
-            )
+            self.upsert_batch_size = tool_indexter.get("upsert_batch_size", settings.upsert_batch_size)
             logger.debug(f"Loaded config from {pyproject_path} [tool.indexter]")
         except ValidationError as e:
             logger.warning(f"Failed to parse {pyproject_path}: {e}")
