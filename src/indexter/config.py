@@ -536,6 +536,11 @@ class Settings(DefaultSettings):
         doc.add("embedding_model", tomlkit.string(self.embedding_model))
         doc.add(tomlkit.nl())
 
+        # sparse_embedding_model
+        doc.add(tomlkit.comment("# Sparse embedding model for text search"))
+        doc.add("sparse_embedding_model", tomlkit.string(self.sparse_embedding_model))
+        doc.add(tomlkit.nl())
+
         # ignore_patterns
         patterns = tomlkit.array()
         for pattern in self.ignore_patterns:

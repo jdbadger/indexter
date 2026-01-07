@@ -370,7 +370,12 @@ def test_settings_to_toml_basic(tmp_path):
     # Should be valid TOML
     parsed = tomllib.loads(toml_str)
     assert "embedding_model" in parsed
+    assert "sparse_embedding_model" in parsed
     assert "ignore_patterns" in parsed
+    assert "max_file_size" in parsed
+    assert "max_files" in parsed
+    assert "top_k" in parsed
+    assert "upsert_batch_size" in parsed
     assert "store" in parsed
     assert "mcp" in parsed
 
@@ -684,8 +689,7 @@ def test_repo_settings_from_pyproject_logs_debug_message(tmp_path, caplog):
 
     # Should log debug message
     assert any(
-        "Loaded config from" in record.message and "tool.indexter" in record.message
-        for record in caplog.records
+        "Loaded config from" in record.message and "tool.indexter" in record.message for record in caplog.records
     )
 
 
