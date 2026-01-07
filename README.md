@@ -468,7 +468,7 @@ This repository uses [pre-commit](https://pre-commit.com/) to automatically run 
 - **Code formatting**: Format code with [Ruff](https://docs.astral.sh/ruff/)
 - **Linting**: Lint and auto-fix issues with Ruff
 - **Testing**: Run tests with [pytest](https://pytest.org/) and [testmon](https://testmon.org/) for fast incremental testing
-- **Type checking**: Verify type hints with [ty](https://github.com/jdbadger/ty)
+- **Type checking**: Verify type hints with [ty](https://docs.astral.sh/ty/)
 
 #### Setup
 
