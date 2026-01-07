@@ -120,11 +120,11 @@ uv sync --all-extras
 ## Quickstart
 
 ```bash
-# Initialize a repository for indexing
-indexter init /path/to/your/repo/root
+# Initialize and index a repository (indexes automatically by default)
+indexter init --path /path/to/your/repo/root
 
-# Index the repository
-indexter index your-repo-name
+# Or initialize current directory
+indexter init
 
 # Search the indexed code
 indexter search "function that handles authentication" your-repo-name
@@ -278,7 +278,9 @@ ignore_patterns = [
 indexter - Enhanced codebase context for AI agents via RAG.
 
 Commands:
-  init <path>           Initialize a git repository for indexing
+  init                  Initialize a git repository for indexing
+    --path, -p          Path to the git repository (defaults to current directory)
+    --no-index, -n      Skip indexing after initialization
   index <name>          Sync a repository to the vector store
   search <query> <name> Search indexed nodes in a repository
   status                Show status of indexed repositories
@@ -297,8 +299,14 @@ Options:
 
 ```bash
 # Initialize and index a repository
-indexter init ~/projects/my-repo
+indexter init --path ~/projects/my-repo
+
+# Initialize without indexing (index later)
+indexter init --path ~/projects/my-repo --no-index
 indexter index my-repo
+
+# Initialize current directory
+indexter init
 
 # Force full re-index (ignores incremental sync)
 indexter index my-repo --full

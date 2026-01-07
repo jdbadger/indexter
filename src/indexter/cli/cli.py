@@ -107,34 +107,58 @@ def main(
 
 @app.command()
 def init(
-    repo_path: Annotated[Path, typer.Argument(help="Path to the git repository to index")],
+    path: Annotated[str, typer.Option("--path", "-p", help="Path to the git repository to index")] = ".",
+    no_index: Annotated[
+        bool,
+        typer.Option("--no-index", "-n", help="Do not index the repository after initialization", show_default=True),
+    ] = False,
 ) -> None:
-    """Initialize a git repository for indexing.
+    """
+    Initialize a git repository for indexing.
 
     Registers a git repository with Indexter, preparing it for semantic indexing.
     This command validates the repository path, creates necessary metadata, and
     adds it to the list of managed repositories.
 
     Args:
-        repo_path: Filesystem path to the git repository to initialize. The path
-            will be resolved to an absolute path.
+        path: a string representing a filesystem path to the git repository to initialize.
+            The path will be resolved to an absolute path.
+        no_index: If True, do not index the repository after initialization.
+            Defaults to False.
 
     Raises:
         typer.Exit: Exits with code 1 if the repository already exists or if an
-            unexpected error occurs during initialization.
+            unexpected error occurs during initialization or indexing.
 
     Examples:
         $ indexter init /home/user/projects/myrepo
         ✓ Added myrepo to indexter
 
-        Repository 'myrepo' initialized successfully!
+        Repository 'myrepo' initialized successfully and indexed successfully!
 
         Next steps:
-          1. Run indexter index myrepo to index the repository.
-          2. Use indexter search 'your query' myrepo to search the indexed code.
+          1. Use indexter search 'your query' myrepo to search the indexed code.
     """
+
+    async def _init() -> tuple[Repo, IndexResult | None]:
+        """Run all init operations in a single event loop."""
+        resolved_path = Path(path).resolve()
+        repo = await Repo.init(resolved_path)
+        if no_index:
+            return repo, None
+        # Call index after init
+        result = await repo.index()
+        return repo, result
+
     try:
-        repo = cast(Repo, anyio.run(Repo.init, repo_path.resolve()))
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task_description = "Initializing..." if no_index else "Initializing and indexing..."
+            progress.add_task(task_description, total=None)
+            repo, result = cast(tuple[Repo, IndexResult | None], anyio.run(_init))
         console.print(f"[green]✓[/green] Added [bold]{repo.name}[/bold] to indexter")
     except RepoExistsError as e:
         console.print(f"[red]✗[/red] {e}")
@@ -143,17 +167,25 @@ def init(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    # Show next steps
-    console.print()
-    console.print(f"[bold]Repository '{repo.name}' initialized successfully![/bold]")
-    console.print()
-    console.print("Next steps:")
-    console.print(f"  1. Run [bold]indexter index {repo.name}[/bold] to index the repository.")
-    console.print(
-        f"  2. Use [bold]indexter search 'your query' {repo.name}[/bold] "
-        f"to search the indexed code."
-    )
-    console.print()
+    if no_index:
+        # Show next steps
+        console.print()
+        console.print(f"[bold]Repository '{repo.name}' initialized successfully![/bold]")
+        console.print()
+        console.print("Next steps:")
+        console.print(f"  1. Run [bold]indexter index {repo.name}[/bold] to index the repository.")
+        console.print(f"  2. Use [bold]indexter search 'your query' {repo.name}[/bold] to search the indexed code.")
+        console.print()
+    else:
+        # Show next steps and index summary
+        console.print()
+        console.print(f"[bold]Repository '{repo.name}' initialized and indexed successfully![/bold]")
+        if result:
+            console.print(f"  [green]✓[/green] {repo.name}: {result.summary}")
+        console.print()
+        console.print("Next steps:")
+        console.print(f"  1. Use [bold]indexter search 'your query' {repo.name}[/bold] to search the indexed code.")
+        console.print()
 
 
 @app.command()
@@ -161,9 +193,7 @@ def index(
     name: Annotated[str, typer.Argument(help="Name of the repository to index")],
     full: Annotated[
         bool,
-        typer.Option(
-            "--full", "-f", help="Force full re-indexing of the repository", show_default=True
-        ),
+        typer.Option("--full", "-f", help="Force full re-indexing of the repository", show_default=True),
     ] = False,
 ) -> None:
     """
@@ -223,8 +253,7 @@ def index(
     if result.files_indexed == 0:
         console.print(f"  [dim]●[/dim] {repo.name}: up to date")
         console.print(
-            f" [green]✓[/green] No changes detected. {result.files_checked} "
-            f"files checked. Repository is up to date."
+            f" [green]✓[/green] No changes detected. {result.files_checked} files checked. Repository is up to date."
         )
     else:
         console.print(f"  [green]✓[/green] {repo.name}: {result.summary}")
@@ -235,16 +264,13 @@ def index(
             console.print(f"    - {error}")
         if len(result.errors) > 5:
             console.print(f"    ... and {len(result.errors) - 5} more")
-        console.print(
-            "  [yellow]Some files could not be indexed. Please check the errors above.[/yellow]"
-        )
+        console.print("  [yellow]Some files could not be indexed. Please check the errors above.[/yellow]")
         return
 
     if result.skipped_files:
         console.print(f"  [yellow]Skipped: {result.skipped_files} files[/yellow]")
         console.print(
-            "  [yellow]Some files skipped during indexing due to maximum allowed "
-            "file limit being exceeded.[/yellow]"
+            "  [yellow]Some files skipped during indexing due to maximum allowed file limit being exceeded.[/yellow]"
         )
 
     console.print("[green]Indexing complete![/green]")
@@ -254,9 +280,7 @@ def index(
 def search(
     query: Annotated[str, typer.Argument(help="Search query")],
     name: Annotated[str, typer.Argument(help="Name of the repository to search")],
-    limit: Annotated[
-        int, typer.Option("--limit", "-l", help="Number of results to return", show_default=True)
-    ] = 10,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Number of results to return", show_default=True)] = 10,
 ) -> None:
     """Search indexed nodes in a repository.
 
@@ -357,9 +381,7 @@ def status() -> None:
 
     if not statuses:
         console.print("[bold]Repositories[/bold]")
-        console.print(
-            "  No repositories indexed. Run 'indexter index <repo_path>' to index a repository."
-        )
+        console.print("  No repositories indexed. Run 'indexter index <repo_path>' to index a repository.")
         console.print()
         return
 

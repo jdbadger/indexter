@@ -83,8 +83,8 @@ def test_init_successful(cli_runner):
     mock_repo = Mock()
     mock_repo.name = "test-repo"
 
-    with patch("indexter.cli.cli.anyio.run", return_value=mock_repo) as mock_run:
-        result = cli_runner.invoke(app, ["init", "/path/to/repo"])
+    with patch("indexter.cli.cli.anyio.run", return_value=(mock_repo, None)) as mock_run:
+        result = cli_runner.invoke(app, ["init", "--path", "/path/to/repo", "--no-index"])
 
         assert result.exit_code == 0
         assert "Added test-repo to indexter" in result.stdout
@@ -99,7 +99,7 @@ def test_init_successful(cli_runner):
 def test_init_with_repo_exists_error(cli_runner):
     """Test init command when repository already exists."""
     with patch("indexter.cli.cli.anyio.run", side_effect=RepoExistsError("Repo exists")):
-        result = cli_runner.invoke(app, ["init", "/path/to/repo"])
+        result = cli_runner.invoke(app, ["init", "--path", "/path/to/repo"])
 
         assert result.exit_code == 1
         assert "Repo exists" in result.stdout
@@ -108,7 +108,7 @@ def test_init_with_repo_exists_error(cli_runner):
 def test_init_with_unexpected_error(cli_runner):
     """Test init command with unexpected error."""
     with patch("indexter.cli.cli.anyio.run", side_effect=ValueError("Unexpected")):
-        result = cli_runner.invoke(app, ["init", "/path/to/repo"])
+        result = cli_runner.invoke(app, ["init", "--path", "/path/to/repo"])
 
         assert result.exit_code == 1
         assert "Unexpected error" in result.stdout
@@ -119,15 +119,16 @@ def test_init_resolves_path(cli_runner):
     mock_repo = Mock()
     mock_repo.name = "test-repo"
 
-    with patch("indexter.cli.cli.anyio.run", return_value=mock_repo):
-        with patch("pathlib.Path.resolve") as mock_resolve:
-            mock_resolve.return_value = Path("/resolved/path")
+    async def mock_init(resolved_path):
+        """Mock Repo.init that verifies the path was resolved."""
+        # Verify we received a resolved absolute path
+        assert resolved_path.is_absolute()
+        return mock_repo
 
-            result = cli_runner.invoke(app, ["init", "relative/path"])
+    with patch("indexter.models.Repo.init", side_effect=mock_init):
+        result = cli_runner.invoke(app, ["init", "--path", "relative/path", "--no-index"])
 
-            assert result.exit_code == 0
-            # Verify resolve was called
-            mock_resolve.assert_called()
+        assert result.exit_code == 0
 
 
 def test_index_successful_with_changes(cli_runner):
