@@ -40,6 +40,7 @@ from indexter.cli.cli import (
     version_callback,
 )
 from indexter.exceptions import RepoExistsError, RepoNotFoundError
+from indexter.models import RepoStatus, SearchResponse, SearchResult
 
 
 def test_version_callback_prints_version_and_exits():
@@ -306,18 +307,23 @@ def test_search_successful(cli_runner):
     mock_repo = Mock()
     mock_repo.name = "test-repo"
 
-    mock_results = [
-        {
-            "score": 0.95,
-            "content": "def hello():\n    print('Hello')",
-            "file_path": "hello.py",
-        },
-        {
-            "score": 0.85,
-            "content": "class World:\n    pass",
-            "file_path": "world.py",
-        },
-    ]
+    mock_results = SearchResponse(
+        count=2,
+        repository="test-repo",
+        query="hello",
+        results=[
+            SearchResult(
+                score=0.95,
+                content="def hello():\n    print('Hello')",
+                metadata={"document_path": "hello.py", "file_path": "hello.py"},
+            ),
+            SearchResult(
+                score=0.85,
+                content="class World:\n    pass",
+                metadata={"document_path": "world.py", "file_path": "world.py"},
+            ),
+        ],
+    )
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_results)
@@ -334,7 +340,7 @@ def test_search_with_limit(cli_runner):
     """Test search command with custom limit."""
     mock_repo = Mock()
     mock_repo.name = "test-repo"
-    mock_results = []
+    mock_results = SearchResponse(count=0, repository="test-repo", query="test", results=[])
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_results)
@@ -351,8 +357,10 @@ def test_search_no_results(cli_runner):
     mock_repo = Mock()
     mock_repo.name = "test-repo"
 
+    mock_results = SearchResponse(count=0, repository="test-repo", query="nonexistent", results=[])
+
     with patch("indexter.cli.cli.anyio.run") as mock_run:
-        mock_run.return_value = (mock_repo, [])
+        mock_run.return_value = (mock_repo, mock_results)
 
         result = cli_runner.invoke(app, ["search", "nonexistent", "test-repo"])
 
@@ -384,13 +392,18 @@ def test_search_truncates_long_content(cli_runner):
     mock_repo.name = "test-repo"
 
     long_content = "x" * 100
-    mock_results = [
-        {
-            "score": 0.95,
-            "content": long_content,
-            "file_path": "test.py",
-        },
-    ]
+    mock_results = SearchResponse(
+        count=1,
+        repository="test-repo",
+        query="test",
+        results=[
+            SearchResult(
+                score=0.95,
+                content=long_content,
+                metadata={"document_path": "test.py", "file_path": "test.py"},
+            ),
+        ],
+    )
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_results)
@@ -415,17 +428,21 @@ def test_status_with_repositories(cli_runner):
     mock_repo2.path = Path("/path/to/repo2")
     mock_repo2.status = Mock()
 
-    mock_status1 = {
-        "nodes_indexed": 100,
-        "documents_indexed": 50,
-        "documents_indexed_stale": 2,
-    }
+    mock_status1 = RepoStatus(
+        repository="repo1",
+        path="/path/to/repo1",
+        nodes_indexed=100,
+        documents_indexed=50,
+        documents_indexed_stale=2,
+    )
 
-    mock_status2 = {
-        "nodes_indexed": 200,
-        "documents_indexed": 75,
-        "documents_indexed_stale": 0,
-    }
+    mock_status2 = RepoStatus(
+        repository="repo2",
+        path="/path/to/repo2",
+        nodes_indexed=200,
+        documents_indexed=75,
+        documents_indexed_stale=0,
+    )
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         # Return list of tuples: (repo, status, error)
@@ -460,11 +477,13 @@ def test_status_with_error(cli_runner):
     mock_repo1.name = "repo1"
     mock_repo1.path = Path("/path/to/repo1")
 
-    mock_status1 = {
-        "nodes_indexed": 100,
-        "documents_indexed": 50,
-        "documents_indexed_stale": 2,
-    }
+    mock_status1 = RepoStatus(
+        repository="repo1",
+        path="/path/to/repo1",
+        nodes_indexed=100,
+        documents_indexed=50,
+        documents_indexed_stale=2,
+    )
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         # Return list of tuples: (repo, status, error)
@@ -620,13 +639,18 @@ def test_search_replaces_newlines_in_content(cli_runner):
     mock_repo = Mock()
     mock_repo.name = "test-repo"
 
-    mock_results = [
-        {
-            "score": 0.95,
-            "content": "line1\nline2\nline3",
-            "file_path": "test.py",
-        },
-    ]
+    mock_results = SearchResponse(
+        count=1,
+        repository="test-repo",
+        query="test",
+        results=[
+            SearchResult(
+                score=0.95,
+                content="line1\nline2\nline3",
+                metadata={"document_path": "test.py", "file_path": "test.py"},
+            ),
+        ],
+    )
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         mock_run.return_value = (mock_repo, mock_results)
@@ -643,8 +667,14 @@ def test_status_missing_status_fields(cli_runner):
     mock_repo.name = "test-repo"
     mock_repo.path = Path("/path/to/repo")
 
-    # Status dict missing some fields
-    mock_status = {"nodes_indexed": 100}
+    # Status with minimal fields (Pydantic model requires all fields now)
+    mock_status = RepoStatus(
+        repository="test-repo",
+        path="/path/to/repo",
+        nodes_indexed=100,
+        documents_indexed=0,
+        documents_indexed_stale=0,
+    )
 
     with patch("indexter.cli.cli.anyio.run") as mock_run:
         # Return list of tuples: (repo, status, error)
@@ -655,5 +685,3 @@ def test_status_missing_status_fields(cli_runner):
         assert result.exit_code == 0
         assert "test-repo" in result.stdout
         assert "100" in result.stdout
-        # Missing fields should show as "-"
-        assert "-" in result.stdout

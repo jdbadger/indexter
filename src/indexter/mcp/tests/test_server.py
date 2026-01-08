@@ -41,7 +41,7 @@ def test_run_server_http_transport(mock_settings):
 
     with patch.object(mcp, "run") as mock_run:
         run_server()
-        mock_run.assert_called_once_with(transport="http", host="0.0.0.0", port=3000)
+        mock_run.assert_called_once_with(transport="streamable-http", host="0.0.0.0", port=3000)
 
 
 @patch("indexter.mcp.server.settings")
@@ -55,7 +55,7 @@ def test_run_server_custom_http_config(mock_settings):
 
     with patch.object(mcp, "run") as mock_run:
         run_server()
-        mock_run.assert_called_once_with(transport="http", host="127.0.0.1", port=8888)
+        mock_run.assert_called_once_with(transport="streamable-http", host="127.0.0.1", port=8888)
 
 
 # MCP Protocol Endpoint Registration Tests

@@ -141,47 +141,6 @@ from .walker import Walker
 logger = logging.getLogger(__name__)
 
 
-class IndexResult(BaseModel):
-    """
-    Result of a repository indexing/sync operation.
-
-    Tracks statistics and outcomes from parsing and indexing a repository,
-    including file counts, node counts, errors, and timing information.
-
-    Attributes:
-        files_indexed: List of file paths that were successfully indexed.
-        files_deleted: List of file paths that were deleted from the index.
-        files_checked: Total number of files examined during the sync.
-        skipped_files: Number of files skipped due to max_files limit.
-        nodes_added: Count of new code nodes added to the index.
-        nodes_deleted: Count of code nodes removed from the index.
-        nodes_updated: Count of code nodes updated (re-indexed).
-        indexed_at: Timestamp when the indexing operation completed.
-        errors: List of error messages encountered during indexing.
-    """
-
-    files_indexed: list[str] = Field(default_factory=list)
-    files_deleted: list[str] = Field(default_factory=list)
-    files_checked: int = 0
-    skipped_files: int = 0
-    nodes_added: int = 0
-    nodes_deleted: int = 0
-    nodes_updated: int = 0
-    indexed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration: float = 0.0
-    errors: list[str] = Field(default_factory=list)
-
-    @computed_field
-    @property
-    def summary(self) -> str:
-        """Summary of the indexing result."""
-        return (
-            f"Indexed {len(self.files_indexed)} files (+{self.nodes_added} nodes, "
-            f"~{self.nodes_updated} updated, -{self.nodes_deleted} deleted) "
-            f"in {self.duration:.2f}s"
-        )
-
-
 class NodeMetadata(BaseModel):
     """
     Metadata describing a parsed code node's location and context.
@@ -262,6 +221,106 @@ class Document(BaseModel):
     mtime: float
     content: str
     hash: str
+
+
+class IndexResult(BaseModel):
+    """
+    Result of a repository indexing/sync operation.
+
+    Tracks statistics and outcomes from parsing and indexing a repository,
+    including file counts, node counts, errors, and timing information.
+
+    Attributes:
+        files_indexed: List of file paths that were successfully indexed.
+        files_deleted: List of file paths that were deleted from the index.
+        files_checked: Total number of files examined during the sync.
+        skipped_files: Number of files skipped due to max_files limit.
+        nodes_added: Count of new code nodes added to the index.
+        nodes_deleted: Count of code nodes removed from the index.
+        nodes_updated: Count of code nodes updated (re-indexed).
+        indexed_at: Timestamp when the indexing operation completed.
+        errors: List of error messages encountered during indexing.
+    """
+
+    files_indexed: list[str] = Field(default_factory=list)
+    files_deleted: list[str] = Field(default_factory=list)
+    files_checked: int = 0
+    skipped_files: int = 0
+    nodes_added: int = 0
+    nodes_deleted: int = 0
+    nodes_updated: int = 0
+    indexed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    duration: float = 0.0
+    errors: list[str] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def summary(self) -> str:
+        """Summary of the indexing result."""
+        return (
+            f"Indexed {len(self.files_indexed)} files (+{self.nodes_added} nodes, "
+            f"~{self.nodes_updated} updated, -{self.nodes_deleted} deleted) "
+            f"in {self.duration:.2f}s"
+        )
+
+
+class RepoStatus(BaseModel):
+    """
+    Status information for an indexed repository.
+
+    Provides current state of repository indexing including node counts,
+    document counts, and staleness indicators.
+
+    Attributes:
+        repository: Name of the repository.
+        path: Absolute path to repository root directory.
+        nodes_indexed: Total number of code nodes in the index.
+        documents_indexed: Number of documents currently indexed.
+        documents_indexed_stale: Number of indexed documents that have been
+            modified or deleted locally and need re-indexing.
+    """
+
+    repository: str = Field(description="Repository name")
+    path: str = Field(description="Absolute path to repository root")
+    nodes_indexed: int = Field(description="Total code nodes in index")
+    documents_indexed: int = Field(description="Number of documents indexed")
+    documents_indexed_stale: int = Field(description="Documents needing re-indexing")
+
+
+class SearchResult(BaseModel):
+    """
+    A single search result from semantic code search.
+
+    Represents one matching code chunk with its similarity score and metadata.
+
+    Attributes:
+        content: The source code content of the matched node.
+        score: Similarity score (0.0-1.0) indicating relevance to the query.
+        metadata: Node metadata including file path, line numbers, node type, etc.
+    """
+
+    content: str = Field(description="Source code content")
+    score: float = Field(description="Similarity score (0.0-1.0)")
+    metadata: dict = Field(description="Node metadata (file, line numbers, etc)")
+
+
+class SearchResponse(BaseModel):
+    """
+    Response from repository semantic search.
+
+    Contains the list of matched code chunks along with query metadata.
+
+    Attributes:
+        results: List of matching code chunks ordered by relevance.
+        count: Number of results returned.
+        repository: Name of the repository that was searched.
+        query: The original search query text.
+    """
+
+    results: list[SearchResult] = Field(description="Matched code chunks")
+    count: int = Field(description="Number of results returned")
+    repository: str = Field(description="Repository name searched")
+    query: str = Field(description="Original search query")
 
 
 class Repo(BaseModel):
@@ -440,7 +499,7 @@ class Repo(BaseModel):
         node_name: str | None = None,
         has_documentation: bool | None = None,
         limit: int | None = None,
-    ) -> builtins.list[dict]:
+    ) -> SearchResponse:
         """
         Perform semantic search over indexed code nodes in the repository.
 
@@ -460,10 +519,10 @@ class Repo(BaseModel):
                 with docstrings/comments, False for undocumented nodes.
 
         Returns:
-            List of search results, each containing the node content, metadata,
-            and similarity score. Ordered by relevance (highest score first).
+            SearchResponse model containing matched code chunks with scores, metadata,
+            and query context. Ordered by relevance (highest score first).
         """
-        return await store.search(
+        results = await store.search(
             collection_name=self.collection_name,
             query=query,
             file_path=file_path,
@@ -474,7 +533,26 @@ class Repo(BaseModel):
             limit=limit or self.settings.top_k,
         )
 
-    async def status(self) -> dict:
+        # Transform flat store results into SearchResult models
+        search_results = []
+        for r in results:
+            # Extract content and score, put everything else in metadata
+            search_results.append(
+                SearchResult(
+                    content=r.get("content", ""),
+                    score=r.get("score", 0.0),
+                    metadata={k: v for k, v in r.items() if k not in ("content", "score", "id")},
+                )
+            )
+
+        return SearchResponse(
+            results=search_results,
+            count=len(results),
+            repository=self.name,
+            query=query,
+        )
+
+    async def status(self) -> RepoStatus:
         """
         Get indexing status and statistics for the repository.
 
@@ -482,26 +560,21 @@ class Repo(BaseModel):
         stale documents (files that have been modified or deleted since last indexing).
 
         Returns:
-            Dictionary with the following keys:
-                - repository: Name of the repository.
-                - path: Absolute path to the repository.
-                - nodes_indexed: Total number of code nodes in the index.
-                - documents_indexed: Number of documents currently indexed.
-                - documents_indexed_stale: Number of indexed documents that have
-                  been modified or deleted locally (need re-indexing).
+            RepoStatus model with repository name, path, node counts, document counts,
+            and stale document count.
         """
         local_hashes = list((await self.get_document_hashes()).values())
         stored_hashes = list((await store.get_document_hashes(self.collection_name)).values())
         num_documents = len(stored_hashes)
         num_documents_stale = len([h for h in stored_hashes if h not in local_hashes])
         num_nodes = await store.count_nodes(self.collection_name)
-        return {
-            "repository": self.name,
-            "path": self.path,
-            "nodes_indexed": num_nodes,
-            "documents_indexed": num_documents,
-            "documents_indexed_stale": num_documents_stale,
-        }
+        return RepoStatus(
+            repository=self.name,
+            path=self.path,
+            nodes_indexed=num_nodes,
+            documents_indexed=num_documents,
+            documents_indexed_stale=num_documents_stale,
+        )
 
     async def index(self, full: bool = False) -> IndexResult:
         """
@@ -577,10 +650,7 @@ class Repo(BaseModel):
                 files_to_process.append({"doc": doc, "is_new": True})
             elif stored_hash != doc.hash:
                 # Modified file
-                logger.debug(
-                    f"Modified file detected: {doc.path} "
-                    f"(stored: {stored_hash[:8]}, current: {doc.hash[:8]})"
-                )
+                logger.debug(f"Modified file detected: {doc.path} (stored: {stored_hash[:8]}, current: {doc.hash[:8]})")
                 files_to_process.append({"doc": doc, "is_new": False})
             # else: unchanged, skip
 
@@ -591,9 +661,7 @@ class Repo(BaseModel):
         if len(files_to_process) > max_files:
             result.skipped_files = len(files_to_process) - max_files
             files_to_process = files_to_process[:max_files]
-            logger.warning(
-                f"Indexing limited to {max_files} files, skipping {result.skipped_files} files"
-            )
+            logger.warning(f"Indexing limited to {max_files} files, skipping {result.skipped_files} files")
 
         # Delete nodes for modified files (before re-adding)
         if modified_paths := [f["doc"].path for f in files_to_process if not f["is_new"]]:

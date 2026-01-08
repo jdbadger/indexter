@@ -12,6 +12,7 @@ from fastmcp.client import Client
 from fastmcp.client.transports import FastMCPTransport
 
 from indexter.exceptions import RepoNotFoundError
+from indexter.models import IndexResult, RepoStatus, SearchResponse, SearchResult
 
 # =============================================================================
 # Fixtures
@@ -30,10 +31,16 @@ def mock_repo_instance():
     repo.settings = MagicMock()
     repo.settings.top_k = 20
 
-    # Configure async methods
-    repo.index = AsyncMock()
-    repo.search = AsyncMock()
-    repo.status = AsyncMock()
+    # Mock index to return an IndexResult with no changes
+    repo.index = AsyncMock(
+        return_value=IndexResult(
+            nodes_added=0,
+            nodes_updated=0,
+            nodes_deleted=0,
+        )
+    )
+
+    return repo
 
     return repo
 
@@ -166,36 +173,41 @@ async def test_tool_search_basic_success(
             def login(self, credentials):
                 pass
     """).strip()
-    search_results = [
-        {
-            "id": "chunk-1",
-            "content": content_1,
-            "score": 0.95,
-            "metadata": {
-                "file_path": "src/auth.py",
-                "language": "python",
-                "node_type": "function",
-                "node_name": "authenticate_user",
-                "start_line": 10,
-                "end_line": 12,
-            },
-        },
-        {
-            "id": "chunk-2",
-            "content": content_2,
-            "score": 0.88,
-            "metadata": {
-                "file_path": "src/services/auth_service.py",
-                "language": "python",
-                "node_type": "class",
-                "node_name": "AuthService",
-                "start_line": 5,
-                "end_line": 8,
-            },
-        },
-    ]
-    mock_repo_instance.index = AsyncMock()
-    mock_repo_instance.search = AsyncMock(return_value=search_results)
+
+    # Create SearchResponse with SearchResult items
+    search_response = SearchResponse(
+        count=2,
+        repository="test-repo",
+        query="user authentication",
+        results=[
+            SearchResult(
+                content=content_1,
+                score=0.95,
+                metadata={
+                    "file_path": "src/auth.py",
+                    "language": "python",
+                    "node_type": "function",
+                    "node_name": "authenticate_user",
+                    "start_line": 10,
+                    "end_line": 12,
+                },
+            ),
+            SearchResult(
+                content=content_2,
+                score=0.88,
+                metadata={
+                    "file_path": "src/services/auth_service.py",
+                    "language": "python",
+                    "node_type": "class",
+                    "node_name": "AuthService",
+                    "start_line": 5,
+                    "end_line": 8,
+                },
+            ),
+        ],
+    )
+
+    mock_repo_instance.search = AsyncMock(return_value=search_response)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
@@ -230,21 +242,25 @@ async def test_tool_search_with_filters(
     mock_repo_instance,
 ):
     """Test search with various metadata filters."""
-    search_results = [
-        {
-            "id": "chunk-1",
-            "content": "class DataProcessor:\n    def process(self):\n        pass",
-            "score": 0.92,
-            "metadata": {
-                "file_path": "src/processors/data_processor.py",
-                "language": "python",
-                "node_type": "class",
-                "node_name": "DataProcessor",
-            },
-        }
-    ]
-    mock_repo_instance.index = AsyncMock()
-    mock_repo_instance.search = AsyncMock(return_value=search_results)
+    search_response = SearchResponse(
+        count=1,
+        repository="test-repo",
+        query="data processing",
+        results=[
+            SearchResult(
+                content="class DataProcessor:\n    def process(self):\n        pass",
+                score=0.92,
+                metadata={
+                    "file_path": "src/processors/data_processor.py",
+                    "language": "python",
+                    "node_type": "class",
+                    "node_name": "DataProcessor",
+                },
+            ),
+        ],
+    )
+
+    mock_repo_instance.search = AsyncMock(return_value=search_response)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
@@ -276,21 +292,25 @@ async def test_tool_search_node_name_filter(
     mock_repo_instance,
 ):
     """Test search filtering by specific node name (indexing is automatic)."""
-    search_results = [
-        {
-            "id": "chunk-1",
-            "content": "def calculate_total(items):\n    return sum(item.price for item in items)",
-            "score": 0.98,
-            "metadata": {
-                "file_path": "src/calculator.py",
-                "language": "python",
-                "node_type": "function",
-                "node_name": "calculate_total",
-            },
-        }
-    ]
-    mock_repo_instance.index = AsyncMock()
-    mock_repo_instance.search = AsyncMock(return_value=search_results)
+    search_response = SearchResponse(
+        count=1,
+        repository="test-repo",
+        query="calculate total price",
+        results=[
+            SearchResult(
+                content="def calculate_total(items):\n    return sum(item.price for item in items)",
+                score=0.98,
+                metadata={
+                    "file_path": "src/calculator.py",
+                    "language": "python",
+                    "node_type": "function",
+                    "node_name": "calculate_total",
+                },
+            ),
+        ],
+    )
+
+    mock_repo_instance.search = AsyncMock(return_value=search_response)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
@@ -335,8 +355,14 @@ async def test_tool_search_empty_results(
     mock_repo_instance,
 ):
     """Test search that returns no results (indexing is automatic)."""
-    mock_repo_instance.index = AsyncMock()
-    mock_repo_instance.search = AsyncMock(return_value=[])
+    empty_response = SearchResponse(
+        count=0,
+        repository="test-repo",
+        query="nonexistent code pattern",
+        results=[],
+    )
+
+    mock_repo_instance.search = AsyncMock(return_value=empty_response)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         result = await mcp_client.call_tool(
@@ -414,21 +440,25 @@ async def test_full_user_journey_list_index_search(
     assert repo_name == "frontend-app"
 
     # Step 2: Search the repository (indexing is automatic)
-    search_results = [
-        {
-            "id": "result-1",
-            "content": "def main():\n    app.run()",
-            "score": 0.91,
-            "metadata": {
-                "file_path": "main.py",
-                "language": "python",
-                "node_type": "function",
-                "node_name": "main",
-            },
-        }
-    ]
-    mock_repo_instance.index = AsyncMock()
-    mock_repo_instance.search = AsyncMock(return_value=search_results)
+    search_response_obj = SearchResponse(
+        count=1,
+        repository="frontend-app",
+        query="application entry point",
+        results=[
+            SearchResult(
+                content="def main():\n    app.run()",
+                score=0.91,
+                metadata={
+                    "file_path": "main.py",
+                    "language": "python",
+                    "node_type": "function",
+                    "node_name": "main",
+                },
+            ),
+        ],
+    )
+
+    mock_repo_instance.search = AsyncMock(return_value=search_response_obj)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         search_response = await mcp_client.call_tool(
@@ -480,9 +510,20 @@ async def test_full_journey_check_status_before_search(
     assert sample_repos_list[0].name == "my-project"
 
     # Step 2: Search (indexing happens automatically)
-    search_results = [{"id": "1", "content": "test", "score": 0.9, "metadata": {}}]
-    mock_repo_instance.index = AsyncMock()
-    mock_repo_instance.search = AsyncMock(return_value=search_results)
+    search_response_obj = SearchResponse(
+        count=1,
+        repository="my-project",
+        query="test code",
+        results=[
+            SearchResult(
+                content="test",
+                score=0.9,
+                metadata={},
+            ),
+        ],
+    )
+
+    mock_repo_instance.search = AsyncMock(return_value=search_response_obj)
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo_instance):
         search_response = await mcp_client.call_tool(
@@ -522,22 +563,22 @@ async def test_error_recovery_workflow(
     sample_repos_list[0].name = "correct-name"
     sample_repos_list[0].path = "/path/to/correct-name"
     sample_repos_list[0].status = AsyncMock(
-        return_value={
-            "repository": "correct-name",
-            "path": "/path/to/correct-name",
-            "nodes_indexed": 50,
-            "documents_indexed": 10,
-            "documents_indexed_stale": 0,
-        }
+        return_value=RepoStatus(
+            repository="correct-name",
+            path="/path/to/correct-name",
+            nodes_indexed=50,
+            documents_indexed=10,
+            documents_indexed_stale=0,
+        )
     )
     sample_repos_list[1].status = AsyncMock(
-        return_value={
-            "repository": "backend-api",
-            "path": "/path/to/backend",
-            "nodes_indexed": 100,
-            "documents_indexed": 20,
-            "documents_indexed_stale": 0,
-        }
+        return_value=RepoStatus(
+            repository="backend-api",
+            path="/path/to/backend",
+            nodes_indexed=100,
+            documents_indexed=20,
+            documents_indexed_stale=0,
+        )
     )
 
     with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock, return_value=sample_repos_list):
@@ -552,8 +593,15 @@ async def test_error_recovery_workflow(
     mock_repo = MagicMock()
     mock_repo.settings = MagicMock()
     mock_repo.settings.top_k = 20
-    mock_repo.index = AsyncMock()
-    mock_repo.search = AsyncMock(return_value=[])
+    mock_repo.index = AsyncMock(return_value=IndexResult())
+    mock_repo.search = AsyncMock(
+        return_value=SearchResponse(
+            count=0,
+            repository="correct-name",
+            query="test",
+            results=[],
+        )
+    )
 
     with patch("indexter.mcp.tools.Repo.get", return_value=mock_repo):
         retry_result = await mcp_client.call_tool(
@@ -593,22 +641,26 @@ async def test_search_with_various_filters(
 ):
     """Test search with different filter combinations (indexing is automatic)."""
     # Generate mock results based on expected count
-    search_results = [
-        {
-            "id": f"result-{i}",
-            "content": f"mock content {i}",
-            "score": 0.9 - (i * 0.05),
-            "metadata": {
-                "file_path": f"src/file{i}.py",
-                "language": language or "python",
-                "node_type": node_type or "function",
-                "node_name": f"item_{i}",
-            },
-        }
-        for i in range(expected_count)
-    ]
-    mock_repo_instance.index = AsyncMock()
-    mock_repo_instance.search = AsyncMock(return_value=search_results)
+    search_response_obj = SearchResponse(
+        count=expected_count,
+        repository="test-repo",
+        query=query,
+        results=[
+            SearchResult(
+                content=f"mock content {i}",
+                score=0.9 - (i * 0.05),
+                metadata={
+                    "file_path": f"src/file{i}.py",
+                    "language": language or "python",
+                    "node_type": node_type or "function",
+                    "node_name": f"item_{i}",
+                },
+            )
+            for i in range(expected_count)
+        ],
+    )
+
+    mock_repo_instance.search = AsyncMock(return_value=search_response_obj)
 
     args = {
         "name": "test-repo",

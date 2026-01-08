@@ -82,14 +82,16 @@ def mock_repo_list():
 
 @pytest.fixture
 def sample_repo_status():
-    """Create a sample repo status dict."""
-    return {
-        "repository": "test-repo",
-        "path": "/path/to/test-repo",
-        "nodes_indexed": 150,
-        "documents_indexed": 25,
-        "documents_indexed_stale": 0,
-    }
+    """Create a sample repo status model."""
+    from indexter.models import RepoStatus
+
+    return RepoStatus(
+        repository="test-repo",
+        path="/path/to/test-repo",
+        nodes_indexed=150,
+        documents_indexed=25,
+        documents_indexed_stale=0,
+    )
 
 
 @pytest.fixture

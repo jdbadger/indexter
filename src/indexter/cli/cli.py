@@ -40,7 +40,7 @@ from rich.table import Table
 
 from indexter import __version__
 from indexter.exceptions import RepoExistsError, RepoNotFoundError
-from indexter.models import IndexResult, Repo
+from indexter.models import IndexResult, Repo, RepoStatus, SearchResponse
 
 from .config import config_app
 
@@ -308,14 +308,14 @@ def search(
         $ indexter search "error handling" myrepo --limit 5
     """
 
-    async def _search() -> tuple[Repo, list]:
+    async def _search() -> tuple[Repo, SearchResponse]:
         """Run all search operations in a single event loop."""
         repo = await Repo.get(name)
         results = await repo.search(query, limit=limit)
         return repo, results
 
     try:
-        repo, results = cast(tuple[Repo, list], anyio.run(_search))
+        repo, search_response = cast(tuple[Repo, SearchResponse], anyio.run(_search))
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         raise typer.Exit(1) from e
@@ -323,7 +323,7 @@ def search(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    if not results:
+    if not search_response.results:
         console.print(f"[yellow]No results found for query:[/yellow] {query}")
         return
 
@@ -332,11 +332,11 @@ def search(
     table.add_column("Content", style="magenta")
     table.add_column("Document Path", style="green")
 
-    for result in results:
+    for result in search_response.results:
         table.add_row(
-            f"{result['score']:.4f}",
-            result["content"].strip().replace("\n", " ")[:50] + "...",
-            str(result["file_path"]),
+            f"{result.score:.4f}",
+            result.content.strip().replace("\n", " ")[:50] + "...",
+            str(result.metadata.get("document_path", "unknown")),
         )
 
     console.print(table)
@@ -365,10 +365,10 @@ def status() -> None:
         └─────────┴────────────────┴───────┴───────┴─────────────┘
     """
 
-    async def _get_all_statuses() -> list[tuple[Repo, dict | None, str | None]]:
+    async def _get_all_statuses() -> list[tuple[Repo, RepoStatus | None, str | None]]:
         """Get status for all repos in a single event loop."""
         repos = await Repo.list()
-        results: list[tuple[Repo, dict | None, str | None]] = []
+        results: list[tuple[Repo, RepoStatus | None, str | None]] = []
         for repo in repos:
             try:
                 repo_status = await repo.status()
@@ -377,7 +377,7 @@ def status() -> None:
                 results.append((repo, None, str(e)))
         return results
 
-    statuses = cast(list[tuple[Repo, dict | None, str | None]], anyio.run(_get_all_statuses))
+    statuses = cast(list[tuple[Repo, RepoStatus | None, str | None]], anyio.run(_get_all_statuses))
 
     if not statuses:
         console.print("[bold]Repositories[/bold]")
@@ -405,9 +405,9 @@ def status() -> None:
             table.add_row(
                 repo.name,
                 str(repo.path),
-                str(repo_status.get("nodes_indexed", "-")),
-                str(repo_status.get("documents_indexed", "-")),
-                str(repo_status.get("documents_indexed_stale", "-")),
+                str(repo_status.nodes_indexed),
+                str(repo_status.documents_indexed),
+                str(repo_status.documents_indexed_stale),
             )
 
     console.print(table)

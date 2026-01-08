@@ -14,6 +14,8 @@ from indexter.models import (
     Node,
     NodeMetadata,
     Repo,
+    RepoStatus,
+    SearchResponse,
 )
 
 # ============================================================================
@@ -363,9 +365,7 @@ async def test_repo_list_multiple(tmp_path):
     settings2 = RepoSettings(path=repos_paths[1])
     settings3 = RepoSettings(path=repos_paths[2])
 
-    with patch.object(
-        RepoSettings, "load", new=AsyncMock(return_value=[settings1, settings2, settings3])
-    ):
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[settings1, settings2, settings3])):
         repos = await Repo.list()
 
         assert len(repos) == 3
@@ -456,9 +456,7 @@ async def test_repo_remove_keeps_other_repos(tmp_path):
     settings2 = RepoSettings(path=repos_paths[1])
     settings3 = RepoSettings(path=repos_paths[2])
 
-    with patch.object(
-        RepoSettings, "load", new=AsyncMock(return_value=[settings1, settings2, settings3])
-    ):
+    with patch.object(RepoSettings, "load", new=AsyncMock(return_value=[settings1, settings2, settings3])):
         with patch.object(RepoSettings, "save", new=AsyncMock()) as mock_save:
             with patch("indexter.models.store") as mock_store:
                 mock_store.delete_collection = AsyncMock()
@@ -517,12 +515,27 @@ async def test_repo_search_basic(temp_git_repo):
     settings = RepoSettings(path=temp_git_repo)
     repo = Repo(settings=settings)
 
-    expected_results = [{"content": "result1"}, {"content": "result2"}]
+    # Mock results need score and metadata fields for SearchResult model
+    expected_results = [
+        {"content": "result1", "score": 0.9, "metadata": {"file": "test.py"}},
+        {"content": "result2", "score": 0.8, "metadata": {"file": "main.py"}},
+    ]
 
     with patch("indexter.models.store") as mock_store:
         mock_store.search = AsyncMock(return_value=expected_results)
 
-        results = await repo.search("test query", limit=5)
+        response = await repo.search("test query", limit=5)
+
+        # Check it's a SearchResponse model
+        assert isinstance(response, SearchResponse)
+        assert response.count == 2
+        assert response.repository == repo.name
+        assert response.query == "test query"
+        assert len(response.results) == 2
+        assert response.results[0].content == "result1"
+        assert response.results[0].score == 0.9
+        assert response.results[1].content == "result2"
+        assert response.results[1].score == 0.8
 
         mock_store.search.assert_called_once_with(
             collection_name=repo.collection_name,
@@ -534,7 +547,6 @@ async def test_repo_search_basic(temp_git_repo):
             node_name=None,
             has_documentation=None,
         )
-        assert results == expected_results
 
 
 @pytest.mark.asyncio
@@ -546,7 +558,7 @@ async def test_repo_search_with_filters(temp_git_repo):
     with patch("indexter.models.store") as mock_store:
         mock_store.search = AsyncMock(return_value=[])
 
-        await repo.search(
+        response = await repo.search(
             query="find function",
             limit=20,
             file_path="src/module.py",
@@ -555,6 +567,12 @@ async def test_repo_search_with_filters(temp_git_repo):
             node_name="my_func",
             has_documentation=True,
         )
+
+        # Check it's a SearchResponse model
+        assert isinstance(response, SearchResponse)
+        assert response.count == 0
+        assert response.repository == repo.name
+        assert response.query == "find function"
 
         mock_store.search.assert_called_once_with(
             collection_name=repo.collection_name,
@@ -615,12 +633,14 @@ async def test_repo_status(temp_git_repo):
 
             status = await repo.status()
 
-            assert status["repository"] == temp_git_repo.name
-            assert status["path"] == str(settings.path)
-            assert status["nodes_indexed"] == 42
-            assert status["documents_indexed"] == 3
+            # Check it's a RepoStatus model
+            assert isinstance(status, RepoStatus)
+            assert status.repository == temp_git_repo.name
+            assert status.path == str(settings.path)
+            assert status.nodes_indexed == 42
+            assert status.documents_indexed == 3
             # hash2_old and hash4 are not in local_hashes
-            assert status["documents_indexed_stale"] == 2
+            assert status.documents_indexed_stale == 2
 
 
 # ============================================================================
@@ -770,9 +790,7 @@ async def test_repo_index_modified_file(temp_git_repo):
                 assert result.nodes_added == 0
                 assert result.nodes_updated == 1
                 # Modified files should be deleted first
-                mock_store.delete_by_document_paths.assert_called_once_with(
-                    repo.collection_name, ["modified.py"]
-                )
+                mock_store.delete_by_document_paths.assert_called_once_with(repo.collection_name, ["modified.py"])
                 # Verify summary property
                 assert "Indexed 1 files" in result.summary
                 assert "+0 nodes" in result.summary
@@ -803,9 +821,7 @@ async def test_repo_index_deleted_file(temp_git_repo):
 
             assert result.files_deleted == ["deleted.py"]
             assert result.nodes_deleted == 1
-            mock_store.delete_by_document_paths.assert_called_once_with(
-                repo.collection_name, ["deleted.py"]
-            )
+            mock_store.delete_by_document_paths.assert_called_once_with(repo.collection_name, ["deleted.py"])
             # Verify summary property
             assert "Indexed 0 files" in result.summary
             assert "-1 deleted" in result.summary
