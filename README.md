@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./indexter.svg" alt="Indexter Logo" style="filter: brightness(0) invert(1);">
+  <img src="./indexter.svg" alt="Indexter Logo">
 </div>
 
 <p align="center">
@@ -141,7 +141,7 @@ Indexter uses XDG-compliant paths for configuration and data storage:
 
 | Type | Path |
 |------|------|
-| Config | `~/.config/indexter/config.toml` |
+| Config | `~/.config/indexter/indexter.toml` |
 | Data | `~/.local/share/indexter/` |
 
 The global config controls embedding model, file processing settings, vector store, and MCP server:
@@ -158,7 +158,7 @@ $EDITOR $(indexter config path)
 ```
 
 ```toml
-# ~/.config/indexter/config.toml
+# ~/.config/indexter/indexter.toml
 
 # Dense embedding model for semantic search (default: 384-dim sentence-transformers model)
 embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
@@ -189,7 +189,7 @@ max_files = 1000
 top_k = 10
 
 # Number of documents to upsert in a single batch operation
-upsert_batch_size = 100
+upsert_batch_size = 50
 
 [store]
 # Vector Store connection mode: 'local', 'remote', or 'memory'
@@ -229,7 +229,7 @@ Settings can also be overridden via environment variables:
 | `INDEXTER_MAX_FILE_SIZE` | `1048576` | Maximum file size in bytes |
 | `INDEXTER_MAX_FILES` | `1000` | Maximum files per repository |
 | `INDEXTER_TOP_K` | `10` | Number of search results |
-| `INDEXTER_UPSERT_BATCH_SIZE` | `100` | Batch size for vector operations |
+| `INDEXTER_UPSERT_BATCH_SIZE` | `50` | Batch size for vector operations |
 | `INDEXTER_STORE_MODE` | `local` | Storage mode: `local`, `memory`, or `remote` |
 | `INDEXTER_STORE_HOST` | `localhost` | Remote Qdrant host |
 | `INDEXTER_STORE_PORT` | `6333` | Remote Qdrant HTTP API port |
@@ -268,8 +268,8 @@ ignore_patterns = [
 # Number of top similar documents to retrieve for queries. Default: 10
 # top_k = 10
 
-# Number of documents to batch when upserting to vector store. Default: 100
-# upsert_batch_size = 100
+# Number of documents to batch when upserting to vector store. Default: 50
+# upsert_batch_size = 50
 ```
 
 ## CLI Usage
@@ -325,6 +325,7 @@ Indexter provides an MCP server for AI agent integration. The server exposes:
 | Type | Name | Description |
 |------|------|-------------|
 | Tool | `list_repositories` | List all configured repositories with their indexing status |
+| Tool | `get_repository` | Get metadata for a specific repository |
 | Tool | `search_repository` | Semantic search across indexed code with filtering options |
 | Prompt | `search_workflow` | Guide for effectively searching code repositories |
 
@@ -414,28 +415,34 @@ If installed with uv:
 For custom integrations, use the `Repo` class directly:
 
 ```python
+import asyncio
+from pathlib import Path
 from indexter import Repo
 
-# Initialize a new repository
-repo = Repo.init("/path/to/your/repo", name="my-repo")
+async def main():
+    # Initialize a new repository (name derived from directory)
+    repo = await Repo.init(Path("/path/to/your/repo"))
 
-# Index the repository
-await repo.index()
+    # Index the repository
+    result = await repo.index()
+    print(f"Indexed {result.nodes_added} nodes")
 
-# Search indexed code
-results = await repo.search("authentication handler", top_k=5)
+    # Search indexed code
+    results = await repo.search("authentication handler", limit=5)
+    for r in results.results:
+        print(f"{r.score:.3f}: {r.metadata['node_name']}")
 
-# Check indexing status
-status = await repo.status()
+    # Retrieve an existing repository with status metadata
+    repo = await Repo.get_one("my-repo", with_metadata=True)
+    print(f"Stale: {repo.metadata.is_stale}")
 
-# Retrieve an existing repository
-repo = Repo.get("my-repo")
+    # List all configured repositories
+    all_repos = await Repo.get_all()
 
-# List all configured repositories
-all_repos = Repo.all()
+    # Remove a repository and its indexed data
+    await Repo.remove_one("my-repo")
 
-# Remove a repository
-Repo.forget("my-repo")
+asyncio.run(main())
 ```
 
 Key properties: `repo.name`, `repo.path`, `repo.collection_name`, `repo.settings`.

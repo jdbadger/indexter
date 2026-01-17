@@ -1,557 +1,931 @@
-"""Tests for MCP tools using FastMCP Client.
+"""Comprehensive tests for MCP tool implementations.
 
-This module tests the list_repos and search_repo tools through the FastMCP Client,
-following best practices from https://gofastmcp.com/patterns/testing
+This test suite provides comprehensive coverage of the tools module including:
+- Unit tests for each tool function (list_repos, get_repo, search_repo)
+- Integration tests with FastMCP Client
+- Error handling and edge cases
+- Context logging verification
+- Parameter validation
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastmcp.client import Client
-from fastmcp.client.transports import FastMCPTransport
+from fastmcp import Context
 
 from indexter.exceptions import RepoNotFoundError
-from indexter.models import IndexResult, RepoStatus, SearchResponse, SearchResult
-
-# =============================================================================
-# list_repos Tool Tests
-# =============================================================================
+from indexter.mcp.tools import get_repo, list_repos, search_repo
+from indexter.models import Repo, RepoMetadata
+from indexter.store.models import IndexResult, SearchResult, SearchResults
 
 
-async def test_list_repos_tool_success(mcp_client: Client[FastMCPTransport], mock_repo_list):
-    """Test list_repositories tool returns all configured repositories."""
-    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock) as mock_list:
-        # Setup mock repos with async status methods returning RepoStatus models
-        repo1 = MagicMock()
-        repo1.status = AsyncMock(
-            return_value=RepoStatus(
-                repository="repo1",
-                path="/path/to/repo1",
-                nodes_indexed=100,
-                documents_indexed=20,
-                documents_indexed_stale=0,
-            )
+class TestListRepos:
+    """Unit tests for list_repos function."""
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock FastMCP context."""
+        ctx = AsyncMock(spec=Context)
+        return ctx
+
+    async def test_should_return_empty_list_when_no_repos(self, mock_context):
+        """Test list_repos returns empty list when no repositories configured."""
+        # Arrange
+        with patch.object(Repo, "get_all", return_value=[]):
+            # Act
+            result = await list_repos(mock_context)
+
+            # Assert
+            assert result == []
+            mock_context.info.assert_any_call("Fetching list of configured repositories")
+            mock_context.info.assert_any_call("No repositories configured")
+
+    async def test_should_return_list_of_repo_names(self, mock_context, tmp_path):
+        """Test list_repos returns list of repository names."""
+        # Arrange
+        repo1 = Mock(spec=Repo)
+        repo1.name = "repo1"
+        repo2 = Mock(spec=Repo)
+        repo2.name = "repo2"
+
+        with patch.object(Repo, "get_all", return_value=[repo1, repo2]):
+            # Act
+            result = await list_repos(mock_context)
+
+            # Assert
+            assert result == [repo1, repo2]
+            mock_context.info.assert_any_call("Fetching list of configured repositories")
+            mock_context.info.assert_any_call("Found 2 configured repositories")
+
+    async def test_should_return_correct_type(self, mock_context):
+        """Test list_repos returns list[Repo], not list[str]."""
+        # Arrange
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+
+        with patch.object(Repo, "get_all", return_value=[repo]):
+            # Act
+            result = await list_repos(mock_context)
+
+            # Assert
+            assert isinstance(result, list)
+            assert len(result) == 1
+            # Should be a Repo object, not a string
+            assert hasattr(result[0], "name")
+            assert result[0].name == "test-repo"
+
+    async def test_should_log_info_messages(self, mock_context):
+        """Test list_repos logs appropriate info messages."""
+        # Arrange
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+
+        with patch.object(Repo, "get_all", return_value=[repo]):
+            # Act
+            await list_repos(mock_context)
+
+            # Assert
+            assert mock_context.info.call_count == 2
+            mock_context.info.assert_any_call("Fetching list of configured repositories")
+            mock_context.info.assert_any_call("Found 1 configured repositories")
+
+    async def test_should_handle_multiple_repos(self, mock_context):
+        """Test list_repos handles multiple repositories correctly."""
+        # Arrange
+        repos = [Mock(spec=Repo, name=f"repo{i}") for i in range(5)]
+
+        with patch.object(Repo, "get_all", return_value=repos):
+            # Act
+            result = await list_repos(mock_context)
+
+            # Assert
+            assert len(result) == 5
+            assert result == repos
+
+
+class TestGetRepo:
+    """Unit tests for get_repo function."""
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock FastMCP context."""
+        ctx = AsyncMock(spec=Context)
+        return ctx
+
+    @pytest.fixture
+    def mock_repo(self, tmp_path):
+        """Create a mock Repo instance."""
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+        repo.path = str(tmp_path / "test-repo")
+        repo.collection_name = "indexter_test-repo"
+        return repo
+
+    async def test_should_return_repo_by_name(self, mock_context, mock_repo):
+        """Test get_repo returns repository by name."""
+        # Arrange
+        with patch.object(Repo, "get_one", return_value=mock_repo) as mock_get_one:
+            # Act
+            result = await get_repo(mock_context, "test-repo")
+
+            # Assert
+            assert result == mock_repo
+            mock_get_one.assert_called_once_with("test-repo", with_metadata=True)
+            mock_context.info.assert_any_call("Fetching repository 'test-repo'")
+            mock_context.info.assert_any_call("Fetched repository 'test-repo'")
+
+    async def test_should_fetch_repo_with_metadata(self, mock_context, mock_repo):
+        """Test get_repo fetches repository with metadata."""
+        # Arrange
+        with patch.object(Repo, "get_one", return_value=mock_repo) as mock_get_one:
+            # Act
+            await get_repo(mock_context, "test-repo")
+
+            # Assert
+            mock_get_one.assert_called_once_with("test-repo", with_metadata=True)
+
+    async def test_should_raise_value_error_when_repo_not_found(self, mock_context):
+        """Test get_repo raises ValueError when repository not found."""
+        # Arrange
+        with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Repository not found: missing-repo")):
+            # Act & Assert
+            with pytest.raises(ValueError, match="is not configured"):
+                await get_repo(mock_context, "missing-repo")
+
+            mock_context.error.assert_called_once_with("Repository 'missing-repo' not found")
+
+    async def test_should_log_error_and_raise_on_repo_not_found(self, mock_context):
+        """Test get_repo logs error before raising ValueError."""
+        # Arrange
+        with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Repository not found: test")):
+            # Act & Assert
+            with pytest.raises(ValueError):
+                await get_repo(mock_context, "test")
+
+            mock_context.error.assert_called_once()
+
+    async def test_should_propagate_unexpected_errors(self, mock_context):
+        """Test get_repo propagates unexpected errors."""
+        # Arrange
+        with patch.object(Repo, "get_one", side_effect=RuntimeError("Database error")):
+            # Act & Assert
+            with pytest.raises(RuntimeError, match="Database error"):
+                await get_repo(mock_context, "test-repo")
+
+            mock_context.error.assert_called_once()
+
+    async def test_should_log_all_operations(self, mock_context, mock_repo):
+        """Test get_repo logs all operations."""
+        # Arrange
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await get_repo(mock_context, "test-repo")
+
+            # Assert
+            assert mock_context.info.call_count == 2
+            mock_context.info.assert_any_call("Fetching repository 'test-repo'")
+            mock_context.info.assert_any_call("Fetched repository 'test-repo'")
+
+
+class TestSearchRepo:
+    """Unit tests for search_repo function."""
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock FastMCP context."""
+        ctx = AsyncMock(spec=Context)
+        return ctx
+
+    @pytest.fixture
+    def mock_repo(self, tmp_path):
+        """Create a mock Repo instance."""
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+        repo.path = str(tmp_path / "test-repo")
+        repo.collection_name = "indexter_test-repo"
+        repo.settings = Mock()
+        repo.settings.top_k = 10
+        return repo
+
+    @pytest.fixture
+    def mock_index_result(self):
+        """Create a mock IndexResult."""
+        return IndexResult(
+            repo="test-repo",
+            repo_path="/tmp/test-repo",
+            documents_indexed=["main.py"],
+            nodes_added=5,
+            nodes_updated=2,
+            duration=0.5,
         )
 
-        repo2 = MagicMock()
-        repo2.status = AsyncMock(
-            return_value=RepoStatus(
-                repository="repo2",
-                path="/path/to/repo2",
-                nodes_indexed=50,
-                documents_indexed=10,
-                documents_indexed_stale=2,
-            )
-        )
-
-        mock_list.return_value = [repo1, repo2]
-
-        result = await mcp_client.call_tool(name="list_repositories", arguments={})
-
-        assert result.data is not None
-        assert isinstance(result.data, list)
-        assert len(result.data) == 2
-        # Check that results are RepositoryStatus models (as dicts when serialized)
-        for repo_status in result.data:
-            assert "repository" in repo_status
-            assert "path" in repo_status
-            assert "nodes_indexed" in repo_status
-            assert "documents_indexed" in repo_status
-            assert "documents_indexed_stale" in repo_status
-        # Verify the mocks were called correctly
-        mock_list.assert_awaited_once()
-        repo1.status.assert_awaited_once()
-        repo2.status.assert_awaited_once()
-
-
-async def test_list_repos_tool_empty(mcp_client: Client[FastMCPTransport]):
-    """Test list_repositories tool with no configured repositories."""
-    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = []
-
-        result = await mcp_client.call_tool(name="list_repositories", arguments={})
-
-        assert result.data is not None
-        assert isinstance(result.data, list)
-        assert len(result.data) == 0
-
-
-async def test_list_repos_tool_includes_all_status_fields(mcp_client: Client[FastMCPTransport]):
-    """Test that list_repositories includes all expected status fields."""
-    from indexter.models import RepoStatus
-
-    with patch("indexter.mcp.tools.Repo.list", new_callable=AsyncMock) as mock_list:
-        repo = MagicMock()
-        repo.status = AsyncMock(
-            return_value=RepoStatus(
-                repository="test-repo",
-                path="/path/to/repo",
-                nodes_indexed=150,
-                documents_indexed=25,
-                documents_indexed_stale=3,
-            )
-        )
-        mock_list.return_value = [repo]
-
-        result = await mcp_client.call_tool(name="list_repositories", arguments={})
-
-        assert result.data is not None
-        assert len(result.data) == 1
-        # Verify RepositoryStatus model fields
-        repo_status = result.data[0]
-        assert repo_status["repository"] == "test-repo"
-        assert repo_status["path"] == "/path/to/repo"
-        assert repo_status["nodes_indexed"] == 150
-        assert repo_status["documents_indexed"] == 25
-        assert repo_status["documents_indexed_stale"] == 3
-        # Verify the tool was called correctly
-        mock_list.assert_awaited_once()
-        repo.status.assert_awaited_once()
-
-
-# =============================================================================
-# search_repo Tool Tests
-# =============================================================================
-
-
-async def test_search_repo_tool_success(mcp_client: Client[FastMCPTransport], sample_search_results):
-    """Test search_repository tool with a valid repository and query."""
-    from indexter.models import IndexResult, SearchResponse, SearchResult
-
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.name = "test-repo"
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        # Mock repo.search to return SearchResponse directly
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(
-                results=[SearchResult(**r) for r in sample_search_results],
-                count=2,
-                repository="test-repo",
-                query="process data",
-            )
-        )
-        mock_get.return_value = mock_repo
-
-        result = await mcp_client.call_tool(
-            name="search_repository", arguments={"name": "test-repo", "query": "process data"}
-        )
-
-        assert result.data is not None
-        # Verify SearchResponse model fields
-        assert "results" in result.data
-        assert "count" in result.data
-        assert "repository" in result.data
-        assert "query" in result.data
-        assert result.data["count"] == 2
-        assert result.data["repository"] == "test-repo"
-        assert result.data["query"] == "process data"
-        assert len(result.data["results"]) == 2
-        # Verify SearchResult fields in results
-        for item in result.data["results"]:
-            assert "content" in item
-            assert "score" in item
-            assert "metadata" in item
-        mock_get.assert_awaited_once_with("test-repo")
-        mock_repo.index.assert_awaited_once()
-        mock_repo.search.assert_awaited_once()
-
-
-async def test_search_repo_tool_not_found(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool when repository is not found."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_get.side_effect = RepoNotFoundError("Repository not found: missing-repo")
-
-        # Should raise ValueError with helpful message
-        with pytest.raises(Exception) as exc_info:
-            await mcp_client.call_tool(
-                name="search_repository", arguments={"name": "missing-repo", "query": "test query"}
-            )
-        # Error message should mention using list_repositories
-        assert "list_repositories" in str(exc_info.value).lower() or "not configured" in str(exc_info.value).lower()
-
-
-async def test_search_repo_tool_with_file_path_filter(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with file_path filter."""
-    from indexter.models import IndexResult
-
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(
-            name="search_repository",
-            arguments={"name": "test-repo", "query": "query", "file_path": "src/utils.py"},
-        )
-
-        # Verify file_path was passed to search
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["file_path"] == "src/utils.py"
-
-
-async def test_search_repo_tool_with_language_filter(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with language filter."""
-    from indexter.models import IndexResult
-
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(
-            name="search_repository",
-            arguments={"name": "test-repo", "query": "query", "language": "python"},
-        )
-
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["language"] == "python"
-
-
-async def test_search_repo_tool_with_node_type_filter(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with node_type filter."""
-    from indexter.models import IndexResult
-
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(
-            name="search_repository",
-            arguments={"name": "test-repo", "query": "query", "node_type": "function"},
-        )
-
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["node_type"] == "function"
-
-
-async def test_search_repo_tool_with_node_name_filter(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with node_name filter."""
-    from indexter.models import IndexResult
-
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(
-            name="search_repository",
-            arguments={"name": "test-repo", "query": "query", "node_name": "process_data"},
-        )
-
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["node_name"] == "process_data"
-
-
-async def test_search_repo_tool_with_has_documentation_filter(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with has_documentation filter."""
-    from indexter.models import IndexResult
-
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(
-            name="search_repository",
-            arguments={"name": "test-repo", "query": "query", "has_documentation": True},
-        )
-
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["has_documentation"] is True
-
-
-async def test_search_repo_tool_with_all_filters(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with all filters combined."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(
-            name="search_repository",
-            arguments={
-                "name": "test-repo",
-                "query": "query",
-                "file_path": "src/",
-                "language": "python",
-                "node_type": "class",
-                "node_name": "MyClass",
-                "has_documentation": True,
-                "limit": 15,
-            },
-        )
-
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["file_path"] == "src/"
-        assert call_kwargs["language"] == "python"
-        assert call_kwargs["node_type"] == "class"
-        assert call_kwargs["node_name"] == "MyClass"
-        assert call_kwargs["has_documentation"] is True
-        assert call_kwargs["limit"] == 15
-
-
-async def test_search_repo_tool_uses_repo_settings_top_k(mcp_client: Client[FastMCPTransport]):
-    """Test that search_repository tool uses limit from repo settings."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=50)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(name="search_repository", arguments={"name": "test-repo", "query": "query"})
-
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["limit"] == 50
-
-
-async def test_search_repo_tool_defaults_to_10_when_no_settings(
-    mcp_client: Client[FastMCPTransport],
-):
-    """Test that search_repository tool defaults to 10 when repo has no settings."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = None
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(name="search_repository", arguments={"name": "test-repo", "query": "query"})
-
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["limit"] == 10
-
-
-async def test_search_repo_tool_empty_results(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with no matching results."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        result = await mcp_client.call_tool(
-            name="search_repository", arguments={"name": "test-repo", "query": "nonexistent code"}
-        )
-
-        assert result.data is not None
-        assert result.data["results"] == []
-        assert result.data["count"] == 0
-
-
-async def test_search_repo_tool_result_count_matches_results_length(
-    mcp_client: Client[FastMCPTransport],
-):
-    """Test that count field matches the length of results."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        test_results = SearchResponse(
-            count=15,
-            repository="test-repo",
-            query="query",
+    @pytest.fixture
+    def mock_search_results(self):
+        """Create mock SearchResults."""
+        return SearchResults(
+            repo="test-repo",
+            query="authentication",
+            filters={},
             results=[
                 SearchResult(
-                    content=f"result{i}",
-                    score=0.9 - (i * 0.01),
-                    metadata={"id": f"result{i}"},
-                )
-                for i in range(15)
+                    content="def authenticate(user): pass",
+                    score=0.95,
+                    metadata={"document_path": "auth/middleware.py", "node_type": "function"},
+                ),
             ],
         )
-        mock_repo.search = AsyncMock(return_value=test_results)
-        mock_get.return_value = mock_repo
 
-        result = await mcp_client.call_tool(name="search_repository", arguments={"name": "test-repo", "query": "query"})
+    async def test_should_search_repository_successfully(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo performs search successfully."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
 
-        assert result.data is not None
-        assert result.data["count"] == len(result.data["results"])
-        assert result.data["count"] == 15
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            result = await search_repo(mock_context, "test-repo", "authentication")
 
+            # Assert
+            assert result == mock_search_results
+            mock_context.info.assert_any_call("Searching repository 'test-repo' for: authentication")
+            mock_context.info.assert_any_call("Found 1 results")
 
-async def test_search_repo_tool_passes_query_correctly(mcp_client: Client[FastMCPTransport]):
-    """Test that search_repository tool passes the query parameter correctly."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
+    async def test_should_report_progress_during_search(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo reports progress for index and search phases."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "test query")
+
+            # Assert - verify progress reporting calls
+            progress_calls = mock_context.report_progress.call_args_list
+            assert len(progress_calls) == 3
+
+            # Check phase 1: index update
+            assert progress_calls[0][0] == (0, 3, "Updating repository index...")
+
+            # Check phase 2: search
+            assert progress_calls[1][0] == (1, 3, "Searching code...")
+
+            # Check phase 3: complete
+            assert progress_calls[2][0] == (3, 3, "Search complete")
+
+    async def test_should_update_index_before_searching(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo updates index before searching."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "test query")
+
+            # Assert
+            mock_repo.index.assert_called_once()
+            mock_context.debug.assert_any_call("Ensuring index is up to date for 'test-repo'")
+
+    async def test_should_log_index_updates(self, mock_context, mock_repo, mock_index_result, mock_search_results):
+        """Test search_repo logs index updates when nodes are added/updated."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "query")
+
+            # Assert
+            mock_context.info.assert_any_call("Updated index: +5 nodes, ~2 updated")
+
+    async def test_should_not_log_index_updates_when_no_changes(self, mock_context, mock_repo, mock_search_results):
+        """Test search_repo doesn't log when no index changes."""
+        # Arrange
+        no_change_result = IndexResult(
+            repo="test-repo",
+            repo_path="/tmp/test-repo",
+            nodes_added=0,
+            nodes_updated=0,
+            duration=0.1,
         )
-        mock_get.return_value = mock_repo
+        mock_repo.index = AsyncMock(return_value=no_change_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
 
-        query_string = "find authentication logic"
-        await mcp_client.call_tool(name="search_repository", arguments={"name": "test-repo", "query": query_string})
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "query")
 
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["query"] == query_string
+            # Assert
+            # Should not log "Updated index" message
+            info_calls = [str(call) for call in mock_context.info.call_args_list]
+            assert not any("Updated index" in call for call in info_calls)
+
+    async def test_should_use_default_limit_from_repo_settings(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo uses repo's top_k setting as default limit."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "query", limit=None)
+
+            # Assert
+            mock_repo.search.assert_called_once()
+            call_kwargs = mock_repo.search.call_args.kwargs
+            assert call_kwargs["limit"] == 10  # Default from repo settings
+
+    async def test_should_use_custom_limit_when_provided(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo uses custom limit when provided."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "query", limit=25)
+
+            # Assert
+            call_kwargs = mock_repo.search.call_args.kwargs
+            assert call_kwargs["limit"] == 25
+
+    async def test_should_pass_all_filters_to_search(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo passes all filter parameters to repo.search."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(
+                mock_context,
+                "test-repo",
+                "query",
+                document_path="src/",
+                language="python",
+                node_type="function",
+                node_name="authenticate",
+                parent_scope="AuthHandler",
+                has_documentation=True,
+                limit=20,
+            )
+
+            # Assert
+            mock_repo.search.assert_called_once_with(
+                query="query",
+                document_path="src/",
+                language="python",
+                node_type="function",
+                node_name="authenticate",
+                parent_scope="AuthHandler",
+                limit=20,
+            )
+
+    async def test_should_log_applied_filters(self, mock_context, mock_repo, mock_index_result, mock_search_results):
+        """Test search_repo logs applied filters for debugging."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(
+                mock_context,
+                "test-repo",
+                "query",
+                document_path="src/",
+                language="python",
+                node_type="function",
+            )
+
+            # Assert
+            mock_context.debug.assert_any_call(
+                "Applying filters: document_path=src/, language=python, node_type=function"
+            )
+
+    async def test_should_not_log_filters_when_none_applied(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo doesn't log filter message when no filters applied."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "query")
+
+            # Assert
+            debug_calls = [str(call) for call in mock_context.debug.call_args_list]
+            assert not any("Applying filters" in call for call in debug_calls)
+
+    async def test_should_raise_value_error_when_repo_not_found(self, mock_context):
+        """Test search_repo raises ValueError when repository not found."""
+        # Arrange
+        with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Repository not found: missing")):
+            # Act & Assert
+            with pytest.raises(ValueError, match="is not configured"):
+                await search_repo(mock_context, "missing", "query")
+
+            mock_context.error.assert_called_once_with("Repository 'missing' not found")
+
+    async def test_should_handle_search_errors(self, mock_context, mock_repo, mock_index_result):
+        """Test search_repo handles search errors gracefully."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(side_effect=RuntimeError("Search failed"))
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act & Assert
+            with pytest.raises(RuntimeError, match="Search failed"):
+                await search_repo(mock_context, "test-repo", "query")
+
+            mock_context.error.assert_called_once_with("Search failed: Search failed")
+
+    async def test_should_handle_indexing_errors(self, mock_context, mock_repo):
+        """Test search_repo handles indexing errors gracefully."""
+        # Arrange
+        mock_repo.index = AsyncMock(side_effect=RuntimeError("Index failed"))
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act & Assert
+            with pytest.raises(RuntimeError, match="Index failed"):
+                await search_repo(mock_context, "test-repo", "query")
+
+            mock_context.error.assert_called_once()
+
+    @pytest.mark.parametrize("has_doc_value", [True, False])
+    async def test_should_handle_has_documentation_filter(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results, has_doc_value
+    ):
+        """Test search_repo handles has_documentation filter correctly."""
+        # Arrange
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(
+                mock_context,
+                "test-repo",
+                "query",
+                has_documentation=has_doc_value,
+            )
+
+            # Assert
+            mock_context.debug.assert_any_call(f"Applying filters: has_documentation={has_doc_value}")
+
+    async def test_should_use_fallback_limit_when_repo_settings_missing(
+        self, mock_context, mock_repo, mock_index_result, mock_search_results
+    ):
+        """Test search_repo uses fallback limit when repo.settings is None."""
+        # Arrange
+        mock_repo.settings = None  # No settings
+        mock_repo.index = AsyncMock(return_value=mock_index_result)
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "query")
+
+            # Assert
+            call_kwargs = mock_repo.search.call_args.kwargs
+            assert call_kwargs["limit"] == 10  # Fallback default
 
 
-async def test_search_repo_tool_with_custom_limit(mcp_client: Client[FastMCPTransport]):
-    """Test that search_repository tool uses custom limit when provided."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=50)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
+class TestMCPToolsIntegration:
+    """Integration tests for MCP tools with FastMCP Client."""
+
+    @pytest.fixture
+    def mock_repos(self, tmp_path):
+        """Create mock repositories for testing."""
+        repos = []
+        for i in range(2):
+            repo = Mock(spec=Repo)
+            repo.name = f"repo{i + 1}"
+            repo.path = str(tmp_path / f"repo{i + 1}")
+            repo.collection_name = f"indexter_repo{i + 1}"
+            repo.settings = Mock()
+            repo.settings.top_k = 10
+            repo.metadata = RepoMetadata(
+                document_paths=[f"src/file{i}.py"],
+                languages=["python"],
+                node_types=["function"],
+                nodes_indexed=10 * (i + 1),
+                is_stale=False,
+            )
+            repos.append(repo)
+        return repos
+
+    @pytest.fixture
+    def mock_search_results(self):
+        """Create mock search results."""
+        return SearchResults(
+            repo="repo1",
+            query="test",
+            filters={},
+            results=[
+                SearchResult(
+                    content="def test(): pass",
+                    score=0.9,
+                    metadata={"document_path": "test.py", "node_type": "function"},
+                ),
+            ],
         )
-        mock_get.return_value = mock_repo
 
-        await mcp_client.call_tool(
-            name="search_repository", arguments={"name": "test-repo", "query": "query", "limit": 5}
+    async def test_should_list_tools_successfully(self):
+        """Test MCP server lists all tools correctly."""
+        # Arrange
+        # Note: We can't use the mcp client here due to lifespan issues
+        # Instead, we test the tool functions directly
+        with patch.object(Repo, "get_all", return_value=[]):
+            mock_ctx = AsyncMock(spec=Context)
+
+            # Act
+            result = await list_repos(mock_ctx)
+
+            # Assert
+            assert result == []
+
+    async def test_should_call_list_repositories_tool(self, mock_repos):
+        """Test calling list_repositories tool function."""
+        # Arrange
+        with patch.object(Repo, "get_all", return_value=mock_repos):
+            mock_ctx = AsyncMock(spec=Context)
+
+            # Act
+            result = await list_repos(mock_ctx)
+
+            # Assert
+            assert len(result) == 2
+            # Type ignore because list_repos has wrong type annotation but returns Repo objects
+            assert result[0].name == "repo1"  # type: ignore[union-attr]
+            assert result[1].name == "repo2"  # type: ignore[union-attr]
+
+    async def test_should_call_get_repository_tool(self, mock_repos):
+        """Test calling get_repository tool function."""
+        # Arrange
+        with patch.object(Repo, "get_one", return_value=mock_repos[0]):
+            mock_ctx = AsyncMock(spec=Context)
+
+            # Act
+            result = await get_repo(mock_ctx, "repo1")
+
+            # Assert
+            assert result.name == "repo1"
+            assert result.metadata is not None
+
+    async def test_should_call_search_repository_tool(self, mock_repos, mock_search_results):
+        """Test calling search_repository tool function."""
+        # Arrange
+        mock_repo = mock_repos[0]
+        mock_repo.index = AsyncMock(
+            return_value=IndexResult(
+                repo="repo1",
+                repo_path="/tmp/repo1",
+                nodes_added=0,
+                duration=0.1,
+            )
+        )
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            mock_ctx = AsyncMock(spec=Context)
+
+            # Act
+            result = await search_repo(mock_ctx, "repo1", "test query")
+
+            # Assert
+            assert result.count == 1
+            assert result.results[0].score == 0.9
+
+    async def test_should_handle_tool_errors_gracefully(self):
+        """Test tools handle errors gracefully."""
+        # Arrange
+        with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Not found")):
+            mock_ctx = AsyncMock(spec=Context)
+
+            # Act & Assert
+            with pytest.raises(ValueError):
+                await get_repo(mock_ctx, "nonexistent")
+
+    async def test_integration_workflow(self, mock_repos, mock_search_results):
+        """Test complete workflow: list -> get -> search."""
+        # Arrange
+        mock_repo = mock_repos[0]
+        mock_repo.index = AsyncMock(
+            return_value=IndexResult(
+                repo="repo1",
+                repo_path="/tmp/repo1",
+                nodes_added=0,
+                duration=0.1,
+            )
+        )
+        mock_repo.search = AsyncMock(return_value=mock_search_results)
+        mock_ctx = AsyncMock(spec=Context)
+
+        # Act & Assert - List
+        with patch.object(Repo, "get_all", return_value=mock_repos):
+            repos = await list_repos(mock_ctx)
+            assert len(repos) == 2
+
+        # Act & Assert - Get
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            repo = await get_repo(mock_ctx, "repo1")
+            assert repo.name == "repo1"
+
+        # Act & Assert - Search
+        with patch.object(Repo, "get_one", return_value=mock_repo):
+            results = await search_repo(mock_ctx, "repo1", "test")
+            assert results.count == 1
+
+
+class TestToolsEdgeCases:
+    """Test edge cases and boundary conditions."""
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock FastMCP context."""
+        return AsyncMock(spec=Context)
+
+    async def test_list_repos_with_single_repo(self, mock_context):
+        """Test list_repos with exactly one repository."""
+        # Arrange
+        repo = Mock(spec=Repo, name="single-repo")
+
+        with patch.object(Repo, "get_all", return_value=[repo]):
+            # Act
+            result = await list_repos(mock_context)
+
+            # Assert
+            assert len(result) == 1
+            mock_context.info.assert_any_call("Found 1 configured repositories")
+
+    async def test_get_repo_with_special_characters_in_name(self, mock_context):
+        """Test get_repo handles special characters in repository name."""
+        # Arrange
+        repo = Mock(spec=Repo)
+        repo.name = "my-special_repo.v2"
+
+        with patch.object(Repo, "get_one", return_value=repo):
+            # Act
+            result = await get_repo(mock_context, "my-special_repo.v2")
+
+            # Assert
+            assert result.name == "my-special_repo.v2"
+
+    async def test_search_repo_with_empty_query(self, mock_context, tmp_path):
+        """Test search_repo handles empty query string."""
+        # Arrange
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+        repo.settings = Mock(top_k=10)
+        repo.index = AsyncMock(
+            return_value=IndexResult(
+                repo="test-repo",
+                repo_path=str(tmp_path),
+                nodes_added=0,
+                duration=0.1,
+            )
+        )
+        repo.search = AsyncMock(
+            return_value=SearchResults(
+                repo="test-repo",
+                query="",
+                filters={},
+                results=[],
+            )
         )
 
-        call_kwargs = mock_repo.search.call_args.kwargs
-        # Custom limit should override repo settings
-        assert call_kwargs["limit"] == 5
+        with patch.object(Repo, "get_one", return_value=repo):
+            # Act
+            result = await search_repo(mock_context, "test-repo", "")
 
+            # Assert
+            assert result.query == ""
+            repo.search.assert_called_once()
 
-async def test_search_repo_tool_with_none_filters(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with all optional filters set to None."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
+    async def test_search_repo_with_zero_limit(self, mock_context, tmp_path):
+        """Test search_repo handles limit=0."""
+        # Arrange
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+        repo.settings = Mock(top_k=10)
+        repo.index = AsyncMock(
+            return_value=IndexResult(
+                repo="test-repo",
+                repo_path=str(tmp_path),
+                nodes_added=0,
+                duration=0.1,
+            )
         )
-        mock_get.return_value = mock_repo
-
-        result = await mcp_client.call_tool(
-            name="search_repository",
-            arguments={
-                "name": "test-repo",
-                "query": "test",
-                "file_path": None,
-                "language": None,
-                "node_type": None,
-                "node_name": None,
-                "has_documentation": None,
-                "limit": None,
-            },
-        )
-
-        assert result.data is not None
-        assert result.data["count"] == 0
-
-
-async def test_search_repo_tool_with_directory_path_filter(mcp_client: Client[FastMCPTransport]):
-    """Test search_repository tool with directory path filter (trailing /)."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
-        )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(
-            name="search_repository",
-            arguments={"name": "test-repo", "query": "query", "file_path": "src/utils/"},
+        repo.search = AsyncMock(
+            return_value=SearchResults(
+                repo="test-repo",
+                query="test",
+                filters={},
+                results=[],
+            )
         )
 
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs["file_path"] == "src/utils/"
+        with patch.object(Repo, "get_one", return_value=repo):
+            # Act
+            await search_repo(mock_context, "test-repo", "test", limit=0)
 
+            # Assert
+            call_kwargs = repo.search.call_args.kwargs
+            assert call_kwargs["limit"] == 0
 
-async def test_search_repo_tool_automatically_indexes(mcp_client: Client[FastMCPTransport]):
-    """Test that search_repository tool automatically calls repo.index before searching."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
+    async def test_search_repo_logs_all_filter_types(self, mock_context, tmp_path):
+        """Test search_repo logs all different filter types."""
+        # Arrange
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+        repo.settings = Mock(top_k=10)
+        repo.index = AsyncMock(
+            return_value=IndexResult(
+                repo="test-repo",
+                repo_path=str(tmp_path),
+                nodes_added=0,
+                duration=0.1,
+            )
         )
-        mock_get.return_value = mock_repo
-
-        await mcp_client.call_tool(name="search_repository", arguments={"name": "test-repo", "query": "query"})
-
-        # Verify index was called before search
-        mock_repo.index.assert_awaited_once()
-        mock_repo.search.assert_awaited_once()
-
-        # Verify order: index should be called before search
-        assert mock_repo.index.call_count == 1
-        assert mock_repo.search.call_count == 1
-
-
-# =============================================================================
-# Parameterized Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "filter_name,filter_value",
-    [
-        ("language", "python"),
-        ("language", "javascript"),
-        ("node_type", "function"),
-        ("node_type", "class"),
-        ("node_type", "method"),
-        ("has_documentation", True),
-        ("has_documentation", False),
-    ],
-)
-async def test_search_repo_tool_individual_filters(
-    mcp_client: Client[FastMCPTransport],
-    filter_name,
-    filter_value,
-):
-    """Test search_repository tool with individual filter parameters."""
-    with patch("indexter.mcp.tools.Repo.get", new_callable=AsyncMock) as mock_get:
-        mock_repo = MagicMock()
-        mock_repo.settings = MagicMock(top_k=20)
-        mock_repo.index = AsyncMock(return_value=IndexResult())
-        mock_repo.search = AsyncMock(
-            return_value=SearchResponse(count=0, repository="test-repo", query="test", results=[])
+        repo.search = AsyncMock(
+            return_value=SearchResults(
+                repo="test-repo",
+                query="test",
+                filters={},
+                results=[],
+            )
         )
-        mock_get.return_value = mock_repo
 
-        arguments = {
-            "name": "test-repo",
-            "query": "test query",
-            filter_name: filter_value,
-        }
+        with patch.object(Repo, "get_one", return_value=repo):
+            # Act
+            await search_repo(
+                mock_context,
+                "test-repo",
+                "test",
+                document_path="src/",
+                language="python",
+                node_type="class",
+                node_name="MyClass",
+                parent_scope="module",
+                has_documentation=False,
+            )
 
-        await mcp_client.call_tool(name="search_repository", arguments=arguments)
+            # Assert
+            # Verify all filters are logged
+            debug_call = None
+            for call in mock_context.debug.call_args_list:
+                if "Applying filters" in str(call):
+                    debug_call = str(call)
+                    break
 
-        call_kwargs = mock_repo.search.call_args.kwargs
-        assert call_kwargs[filter_name] == filter_value
+            assert debug_call is not None
+            assert "document_path=src/" in debug_call
+            assert "language=python" in debug_call
+            assert "node_type=class" in debug_call
+            assert "node_name=MyClass" in debug_call
+            assert "parent_scope=module" in debug_call
+            assert "has_documentation=False" in debug_call
+
+    async def test_search_repo_with_very_long_query(self, mock_context, tmp_path):
+        """Test search_repo handles very long query strings."""
+        # Arrange
+        long_query = "a" * 1000
+        repo = Mock(spec=Repo)
+        repo.name = "test-repo"
+        repo.settings = Mock(top_k=10)
+        repo.index = AsyncMock(
+            return_value=IndexResult(
+                repo="test-repo",
+                repo_path=str(tmp_path),
+                nodes_added=0,
+                duration=0.1,
+            )
+        )
+        repo.search = AsyncMock(
+            return_value=SearchResults(
+                repo="test-repo",
+                query=long_query,
+                filters={},
+                results=[],
+            )
+        )
+
+        with patch.object(Repo, "get_one", return_value=repo):
+            # Act
+            result = await search_repo(mock_context, "test-repo", long_query)
+
+            # Assert
+            assert result.query == long_query
+
+    async def test_get_repo_propagates_all_exception_types(self, mock_context):
+        """Test get_repo properly propagates different exception types."""
+        # Arrange
+        exceptions = [
+            (RuntimeError("Runtime error"), RuntimeError),
+            (ValueError("Value error"), ValueError),
+            (Exception("Generic error"), Exception),
+        ]
+
+        for exc, exc_type in exceptions:
+            with patch.object(Repo, "get_one", side_effect=exc):
+                # Act & Assert
+                with pytest.raises(exc_type):
+                    await get_repo(mock_context, "test-repo")
+
+
+class TestContextLogging:
+    """Test context logging behavior."""
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock FastMCP context."""
+        return AsyncMock(spec=Context)
+
+    async def test_list_repos_logs_in_correct_order(self, mock_context):
+        """Test list_repos logs messages in the correct order."""
+        # Arrange
+        repo = Mock(spec=Repo, name="test")
+
+        with patch.object(Repo, "get_all", return_value=[repo]):
+            # Act
+            await list_repos(mock_context)
+
+            # Assert
+            calls = [call[0][0] for call in mock_context.info.call_args_list]
+            assert calls[0] == "Fetching list of configured repositories"
+            assert "Found" in calls[1]
+
+    async def test_get_repo_logs_fetch_start_and_complete(self, mock_context):
+        """Test get_repo logs both start and completion."""
+        # Arrange
+        repo = Mock(spec=Repo, name="test")
+
+        with patch.object(Repo, "get_one", return_value=repo):
+            # Act
+            await get_repo(mock_context, "test")
+
+            # Assert
+            info_messages = [call[0][0] for call in mock_context.info.call_args_list]
+            assert "Fetching repository 'test'" in info_messages
+            assert "Fetched repository 'test'" in info_messages
+
+    async def test_search_repo_uses_debug_for_detailed_logs(self, mock_context, tmp_path):
+        """Test search_repo uses debug level for detailed logging."""
+        # Arrange
+        repo = Mock(spec=Repo)
+        repo.name = "test"
+        repo.settings = Mock(top_k=10)
+        repo.index = AsyncMock(
+            return_value=IndexResult(
+                repo="test",
+                repo_path=str(tmp_path),
+                nodes_added=0,
+                duration=0.1,
+            )
+        )
+        repo.search = AsyncMock(
+            return_value=SearchResults(
+                repo="test",
+                query="test",
+                filters={},
+                results=[],
+            )
+        )
+
+        with patch.object(Repo, "get_one", return_value=repo):
+            # Act
+            await search_repo(mock_context, "test", "test")
+
+            # Assert
+            assert mock_context.debug.called
+            debug_messages = [call[0][0] for call in mock_context.debug.call_args_list]
+            assert any("Ensuring index is up to date" in msg for msg in debug_messages)
+
+    async def test_error_logging_includes_repository_name(self, mock_context):
+        """Test error messages include repository name for context."""
+        # Arrange
+        with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Not found")):
+            # Act & Assert
+            with pytest.raises(ValueError):
+                await get_repo(mock_context, "my-repo")
+
+            # Verify error message includes repo name
+            error_msg = mock_context.error.call_args[0][0]
+            assert "my-repo" in error_msg

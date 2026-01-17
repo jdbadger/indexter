@@ -1,95 +1,105 @@
 """
-Configuration management for indexter.
+Configuration management for Indexter.
 
 This module provides a hierarchical configuration system with support for:
+
 - Global settings stored in XDG-compliant directories
 - Per-repository settings via indexter.toml or pyproject.toml
 - Environment variable overrides with INDEXTER_ prefix
 
-Configuration Hierarchy
------------------------
-Settings are loaded in the following order (later sources override earlier ones):
+Configuration Hierarchy:
+    Settings are loaded in the following order (later sources override earlier):
 
-1. **Default values**: Hard-coded defaults in DefaultSettings
-2. **Global config**: ~/.config/indexter/indexter.toml (XDG_CONFIG_HOME)
-3. **Repo config**: <repo>/indexter.toml or <repo>/pyproject.toml [tool.indexter]
-4. **Environment variables**: INDEXTER_* variables (e.g., INDEXTER_EMBEDDING_MODEL)
+    1. **Default values**: Hard-coded defaults in DefaultSettings
+    2. **Global config**: ~/.config/indexter/indexter.toml (XDG_CONFIG_HOME)
+    3. **Repo config**: <repo>/indexter.toml or <repo>/pyproject.toml [tool.indexter]
+    4. **Environment variables**: INDEXTER_* (e.g., INDEXTER_EMBEDDING_MODEL)
 
-Directory Structure
--------------------
-The module follows XDG Base Directory Specification:
+Directory Structure:
+    The module follows XDG Base Directory Specification:
 
-- Config: $XDG_CONFIG_HOME/indexter (~/.config/indexter)
-  - indexter.toml: Global settings
-  - repos.json: Repository registry
+    - Config: $XDG_CONFIG_HOME/indexter (~/.config/indexter)
+        - indexter.toml: Global settings
+        - repos.json: Repository registry
 
-- Data: $XDG_DATA_HOME/indexter (~/.local/share/indexter)
-  - Vector store data (when using local mode)
+    - Data: $XDG_DATA_HOME/indexter (~/.local/share/indexter)
+        - Vector store data (when using local mode)
 
-Settings Classes
-----------------
-Settings: Global application settings
-    - Embedding model configuration
-    - Default ignore patterns
-    - File processing limits
-    - Store settings (local/remote/memory mode)
-    - MCP server settings (stdio/http transport)
+Settings Classes:
+    DefaultSettings: Base class with default values for indexing parameters
+        (embedding models, ignore patterns, file limits, batch sizes).
 
-RepoSettings: Per-repository settings
-    - Inherits defaults from global settings
-    - Can override any default setting
-    - Automatically loads from indexter.toml or pyproject.toml
+    Settings: Global application settings singleton
+        - XDG directory paths
+        - Store settings (local/remote/memory mode)
+        - MCP server settings (stdio/http transport)
 
-Configuration File Format
--------------------------
-Global config (indexter.toml):
+    StoreSettings: Vector store connection configuration
+        - Mode selection (local, remote, memory)
+        - Remote connection parameters (host, port, API key)
 
-    embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
-    max_file_size = 1048576
-    ignore_patterns = [".git/", "__pycache__/", "*.pyc"]
+    MCPSettings: Model Context Protocol server configuration
+        - Transport mode (stdio, http)
+        - HTTP server host and port
 
-    [store]
-    mode = "local"  # or "remote" or "memory"
+    RepoSettings: Per-repository settings
+        - Inherits defaults from global settings
+        - Can override any default setting
+        - Automatically loads from indexter.toml or pyproject.toml
 
-    [mcp]
-    transport = "stdio"  # or "http"
+Configuration File Format:
+    Global config (indexter.toml)::
 
-Repo config (indexter.toml or pyproject.toml):
+        embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+        sparse_embedding_model = "Qdrant/bm25"
+        max_file_size = 1048576
+        max_files = 1000
+        top_k = 10
+        upsert_batch_size = 50
+        ignore_patterns = [".git/", "__pycache__/", "*.pyc"]
 
-    # indexter.toml
-    embedding_model = "custom-model"
-    ignore_patterns = ["custom/", "patterns/"]
+        [store]
+        mode = "local"  # or "remote" or "memory"
 
-    # OR in pyproject.toml
-    [tool.indexter]
-    embedding_model = "custom-model"
-    ignore_patterns = ["custom/", "patterns/"]
+        [mcp]
+        transport = "stdio"  # or "http"
 
-Usage
------
-Access global settings via the singleton instance:
+    Repo config (indexter.toml or pyproject.toml)::
 
-    from indexter.config import settings
+        # indexter.toml
+        embedding_model = "custom-model"
+        ignore_patterns = ["custom/", "patterns/"]
 
-    print(settings.embedding_model)
-    print(settings.config_dir)
+        # OR in pyproject.toml
+        [tool.indexter]
+        embedding_model = "custom-model"
+        ignore_patterns = ["custom/", "patterns/"]
 
-Create repo-specific settings:
+Example:
+    Access global settings via the singleton instance::
 
-    repo_settings = RepoSettings(path=Path("/path/to/repo"))
-    print(repo_settings.collection_name)  # Auto-generated from repo name
+        from indexter.config import settings
 
-Load all registered repositories:
+        print(settings.embedding_model)
+        print(settings.config_dir)
+        print(settings.store.mode)
 
-    repos = await RepoSettings.load()
-    for repo in repos:
-        print(repo.name, repo.path)
+    Create repo-specific settings::
 
-Save/update repository registry:
+        repo_settings = RepoSettings(path=Path("/path/to/repo"))
+        print(repo_settings.collection_name)  # Auto-generated from repo name
 
-    repo1 = RepoSettings(path=Path("/path/to/repo1"))
-    repo2 = RepoSettings(path=Path("/path/to/repo2"))
-    RepoSettings.save([repo1, repo2])  # Persists to repos.json
+    Load all registered repositories::
+
+        repos = await RepoSettings.load()
+        for repo in repos:
+            print(repo.name, repo.path)
+
+    Save/update repository registry::
+
+        repo1 = RepoSettings(path=Path("/path/to/repo1"))
+        repo2 = RepoSettings(path=Path("/path/to/repo2"))
+        await RepoSettings.save([repo1, repo2])  # Persists to repos.json
 """
 
 import json
@@ -413,7 +423,7 @@ class DefaultSettings(BaseSettings):
     max_file_size: int = 1 * 1024 * 1024  # 1 MB
     max_files: int = 1000
     top_k: int = 10
-    upsert_batch_size: int = 100
+    upsert_batch_size: int = 50  # Reduced from 100 to lower memory pressure
 
 
 class Settings(DefaultSettings):

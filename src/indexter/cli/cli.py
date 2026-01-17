@@ -14,6 +14,9 @@ Typical usage:
     $ indexter index repo-name
     $ indexter search "query" repo-name
     $ indexter status
+    $ indexter forget repo-name
+    $ indexter config show
+    $ indexter config path
 """
 
 # NOTE: This file uses 'cast' from typing to help with type checking of anyio.run()
@@ -40,7 +43,8 @@ from rich.table import Table
 
 from indexter import __version__
 from indexter.exceptions import RepoExistsError, RepoNotFoundError
-from indexter.models import IndexResult, Repo, RepoStatus, SearchResponse
+from indexter.models import Repo
+from indexter.store.models import IndexResult, SearchResults
 
 from .config import config_app
 
@@ -159,7 +163,7 @@ def init(
             task_description = "Initializing..." if no_index else "Initializing and indexing..."
             progress.add_task(task_description, total=None)
             repo, result = cast(tuple[Repo, IndexResult | None], anyio.run(_init))
-        console.print(f"[green]✓[/green] Added [bold]{repo.name}[/bold] to indexter")
+        console.print(f"[green]✓[/green] Added [bold]{repo.name}[/bold] to Indexter")
     except RepoExistsError as e:
         console.print(f"[red]✗[/red] {e}")
         raise typer.Exit(1) from e
@@ -202,8 +206,8 @@ def index(
     Performs semantic indexing of the specified git repository, storing code
     snippets as vector embeddings for efficient retrieval.
 
-    By default, only changed files are indexed for efficiency. Use --full to
-    force complete re-indexing of all files.
+    By default, only changed documents are indexed for efficiency. Use --full to
+    force complete re-indexing of all documents.
 
     The command tracks added, updated, and deleted nodes, and reports any
     errors encountered during the indexing process.
@@ -211,7 +215,7 @@ def index(
     Args:
         name: Name of the repository to index. Must be a repository previously
             initialized with 'indexter init'.
-        full: If True, forces full re-indexing of all files in the repository,
+        full: If True, forces full re-indexing of all documents in the repository,
             ignoring incremental change detection. Defaults to False.
 
     Raises:
@@ -220,17 +224,17 @@ def index(
 
     Examples:
         $ indexter index myrepo
-        ✓ myrepo: +15 ~3 -2 (5 files synced) (1 files deleted)
+        ✓ myrepo: +15 ~3 -2 (5 documents synced) (1 documents deleted)
         Indexing complete!
 
         $ indexter index myrepo --full
-        ✓ myrepo: +150 ~0 -0 (50 files synced) (0 files deleted)
+        ✓ myrepo: +150 ~0 -0 (50 documents synced) (0 documents deleted)
         Indexing complete!
     """
 
     async def _index() -> tuple[Repo, IndexResult]:
         """Run all index operations in a single event loop."""
-        repo = await Repo.get(name)
+        repo = await Repo.get_one(name)
         result = await repo.index(full)
         return repo, result
 
@@ -250,10 +254,11 @@ def index(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    if result.files_indexed == 0:
+    if result.documents_indexed == 0:
         console.print(f"  [dim]●[/dim] {repo.name}: up to date")
         console.print(
-            f" [green]✓[/green] No changes detected. {result.files_checked} files checked. Repository is up to date."
+            f" [green]✓[/green] No changes detected. {result.documents_checked} documents checked. "
+            "Repository is up to date."
         )
     else:
         console.print(f"  [green]✓[/green] {repo.name}: {result.summary}")
@@ -264,13 +269,14 @@ def index(
             console.print(f"    - {error}")
         if len(result.errors) > 5:
             console.print(f"    ... and {len(result.errors) - 5} more")
-        console.print("  [yellow]Some files could not be indexed. Please check the errors above.[/yellow]")
+        console.print("  [yellow]Some documents could not be indexed. Please check the errors above.[/yellow]")
         return
 
-    if result.skipped_files:
-        console.print(f"  [yellow]Skipped: {result.skipped_files} files[/yellow]")
+    if result.skipped_documents:
+        console.print(f"  [yellow]Skipped: {result.skipped_documents} documents[/yellow]")
         console.print(
-            "  [yellow]Some files skipped during indexing due to maximum allowed file limit being exceeded.[/yellow]"
+            "  [yellow]Some documents skipped during indexing due to maximum allowed file limit "
+            "being exceeded.[/yellow]"
         )
 
     console.print("[green]Indexing complete![/green]")
@@ -302,20 +308,20 @@ def search(
         ┏━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
         ┃ Score ┃ Content          ┃ Document Path    ┃
         ┡━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
-        │ 0.856 │ def authenticate...│ src/auth/mid...  │
+        │ 0.856 │ def auth         │ src/auth/mid...  │
         └───────┴──────────────────┴──────────────────┘
 
         $ indexter search "error handling" myrepo --limit 5
     """
 
-    async def _search() -> tuple[Repo, SearchResponse]:
+    async def _search() -> tuple[Repo, SearchResults]:
         """Run all search operations in a single event loop."""
-        repo = await Repo.get(name)
+        repo = await Repo.get_one(name)
         results = await repo.search(query, limit=limit)
         return repo, results
 
     try:
-        repo, search_response = cast(tuple[Repo, SearchResponse], anyio.run(_search))
+        repo, search_results = cast(tuple[Repo, SearchResults], anyio.run(_search))
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         raise typer.Exit(1) from e
@@ -323,7 +329,7 @@ def search(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    if not search_response.results:
+    if not search_results.results:
         console.print(f"[yellow]No results found for query:[/yellow] {query}")
         return
 
@@ -332,7 +338,7 @@ def search(
     table.add_column("Content", style="magenta")
     table.add_column("Document Path", style="green")
 
-    for result in search_response.results:
+    for result in search_results.results:
         table.add_row(
             f"{result.score:.4f}",
             result.content.strip().replace("\n", " ")[:50] + "...",
@@ -347,7 +353,7 @@ def status() -> None:
     """Show status of indexed repositories.
 
     Displays a table of all repositories managed by Indexter, including their
-    paths, indexing statistics (nodes, files, stale files), and current status.
+    paths, indexing statistics (number of nodes, documents), and current status.
     This helps track which repositories are indexed and identify those needing
     updates.
 
@@ -357,29 +363,17 @@ def status() -> None:
 
     Examples:
         $ indexter status
-        ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━┓
-        ┃ Name    ┃ Path           ┃ Nodes ┃ Files ┃ Stale Files ┃
-        ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━┩
-        │ myrepo  │ /home/user/... │ 1250  │ 45    │ 2           │
-        │ webapp  │ /home/user/... │ 3420  │ 128   │ 0           │
-        └─────────┴────────────────┴───────┴───────┴─────────────┘
+        ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━┓
+        ┃ Name    ┃ Path           ┃ Nodes ┃ Documents ┃ Stale       ┃
+        ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━┩
+        │ myrepo  │ /home/user/... │ 1250  │ 45        │ True        │
+        │ webapp  │ /home/user/... │ 3420  │ 128       │ False       │
+        └─────────┴────────────────┴───────┴───────────┴─────────────┘
     """
 
-    async def _get_all_statuses() -> list[tuple[Repo, RepoStatus | None, str | None]]:
-        """Get status for all repos in a single event loop."""
-        repos = await Repo.list()
-        results: list[tuple[Repo, RepoStatus | None, str | None]] = []
-        for repo in repos:
-            try:
-                repo_status = await repo.status()
-                results.append((repo, repo_status, None))
-            except Exception as e:
-                results.append((repo, None, str(e)))
-        return results
+    repos = cast(list[Repo], anyio.run(Repo.get_all, True))
 
-    statuses = cast(list[tuple[Repo, RepoStatus | None, str | None]], anyio.run(_get_all_statuses))
-
-    if not statuses:
+    if not repos:
         console.print("[bold]Repositories[/bold]")
         console.print("  No repositories indexed. Run 'indexter index <repo_path>' to index a repository.")
         console.print()
@@ -389,26 +383,17 @@ def status() -> None:
     table.add_column("Name", style="cyan")
     table.add_column("Path")
     table.add_column("Nodes", justify="right")
-    table.add_column("Files", justify="right")
-    table.add_column("Stale Files", justify="right")
+    table.add_column("Documents", justify="right")
+    table.add_column("Stale", justify="right")
 
-    for repo, repo_status, error in statuses:
-        if error:
-            table.add_row(
-                repo.name,
-                str(repo.path),
-                "-",
-                f"[red]Error: {error}[/red]",
-                "-",
-            )
-        elif repo_status:
-            table.add_row(
-                repo.name,
-                str(repo.path),
-                str(repo_status.nodes_indexed),
-                str(repo_status.documents_indexed),
-                str(repo_status.documents_indexed_stale),
-            )
+    for repo in repos:
+        table.add_row(
+            repo.name,
+            str(repo.path),
+            str(repo.metadata.nodes_indexed if repo.metadata else "-"),
+            str(repo.metadata.documents_indexed if repo.metadata else "-"),
+            str(repo.metadata.is_stale if repo.metadata else "-"),
+        )
 
     console.print(table)
     console.print()
@@ -437,7 +422,7 @@ def forget(
         ✓ Repository 'myrepo' is forgotten.
     """
     try:
-        anyio.run(Repo.remove, name)
+        anyio.run(Repo.remove_one, name)
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         raise typer.Exit(1) from e

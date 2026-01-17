@@ -1,11 +1,9 @@
-"""Configuration management CLI commands.
+"""
+Configuration CLI commands.
 
-This module provides CLI commands for managing and viewing Indexter's global
+This module provides CLI commands for viewing Indexter's global
 configuration settings. It includes commands to display the configuration file
 contents and retrieve the configuration file path.
-
-The configuration is managed through Typer CLI commands and displayed using
-Rich for enhanced terminal output formatting.
 """
 
 import typer

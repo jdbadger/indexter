@@ -1,6 +1,3 @@
-"""Exceptions for Indexter."""
-
-
 class RepoNotFoundError(LookupError):
     """Exception raised when a repository is not found."""
 

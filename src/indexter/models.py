@@ -1,132 +1,73 @@
 """
-Core data models and repository management for Indexter.
+Core domain models for Indexter repository management.
 
-This module provides the primary API for interacting with Indexter through both
-the CLI and MCP (Model Context Protocol) server. It defines the data models for
-code indexing and implements the repository management system.
+This module defines the primary models for managing indexed code repositories:
+``Repo`` for repository operations and ``RepoMetadata`` for status information.
 
-Architecture
-------------
-The module is built around a few key concepts:
+The ``Repo`` model serves as the main entry point for all repository operations,
+including initialization, indexing, searching, and removal. It coordinates between
+the walker (file discovery), parser (code analysis), and store (vector database)
+components to provide a unified API.
 
-1. **Repository Management**: The `Repo` class manages Git repositories,
-   handling registration, configuration, and lifecycle operations.
+Architecture:
+    The module follows an async-first design pattern. All I/O operations
+    (file walking, parsing, vector store access) are asynchronous to support
+    efficient processing of large repositories.
 
-2. **Incremental Indexing**: Uses content hashing for efficient change detection,
-   only re-parsing files that have been modified since the last index operation.
+    Repository lifecycle:
+        1. ``Repo.init(path)`` - Register a new repository
+        2. ``repo.index()`` - Parse and embed code into vector store
+        3. ``repo.search(query)`` - Semantic search over indexed code
+        4. ``Repo.remove_one(name)`` - Remove repository and its data
 
-3. **Code Parsing**: Extracts semantic units (functions, classes, methods) from
-   source files and stores them as `Node` objects with rich metadata.
+    Change detection:
+        Incremental indexing uses content hashes (SHA-256 of path + content)
+        to detect new, modified, and deleted files. Only changed files are
+        re-processed on subsequent index operations.
 
-4. **Vector Storage**: Nodes are embedded and stored in a vector database for
-   semantic code search across repositories.
+Classes:
+    RepoMetadata: Status information for an indexed repository including
+        document counts, languages, node types, and staleness indicators.
+    Repo: Main repository model with methods for initialization, indexing,
+        searching, and management operations.
 
-Main Classes
-------------
-Repo:
-    The primary interface for repository operations. Provides class methods for
-    managing repositories (init, get, list, remove) and instance methods for
-    indexing and searching (index, search, status, get_document_hashes).
+Example:
+    Initialize and index a repository::
 
-IndexResult:
-    Tracks statistics from an indexing operation, including file and node counts,
-    errors, and timing information.
+        from pathlib import Path
+        from indexter import Repo
 
-Node:
-    Represents a parsed code construct (function, class, etc.) with its source
-    code content and comprehensive metadata ready for embedding.
+        # Register a new repository
+        repo = await Repo.init(Path("/path/to/my-project"))
 
-NodeMetadata:
-    Contains contextual information about a Node including location, language,
-    type, documentation, and language-specific attributes.
+        # Index all code files
+        result = await repo.index()
+        print(f"Indexed {result.nodes_added} nodes")
 
-Document:
-    Represents a source file with content and metadata, including a SHA-256 hash
-    for change detection during incremental indexing.
+        # Search for code
+        results = await repo.search("database connection handling")
+        for result in results.results:
+            print(f"{result.metadata['document_path']}: {result.score}")
 
-Workflow
---------
-Typical usage follows this pattern:
+    Retrieve existing repositories::
 
-1. Initialize a repository:
-   >>> repo = await Repo.init(Path("/path/to/project"))
+        # Get a specific repository
+        repo = await Repo.get_one("my-project", with_metadata=True)
+        print(f"Stale: {repo.metadata.is_stale}")
 
-2. Index the repository (incremental by default):
-   >>> result = await repo.index()
-   >>> print(f"Indexed {result.nodes_added} nodes from {len(result.files_indexed)} files")
+        # List all repositories
+        repos = await Repo.get_all()
 
-3. Search the indexed code:
-   >>> results = await repo.search("authentication logic", limit=5)
-   >>> for hit in results:
-   ...     print(hit['metadata']['node_name'], hit['score'])
-
-4. Check repository status:
-   >>> status = await repo.status()
-   >>> print(f"{status['documents_indexed_stale']} files need re-indexing")
-
-5. Full re-index when needed:
-   >>> result = await repo.index(full=True)
-
-Change Detection
-----------------
-The indexing system uses SHA-256 content hashing to efficiently detect changes:
-
-- **New files**: Parse and add nodes to the vector store
-- **Modified files**: Delete old nodes, re-parse, and add new nodes
-- **Deleted files**: Remove associated nodes from the vector store
-- **Unchanged files**: Skip processing entirely
-
-This approach minimizes redundant parsing and keeps the index synchronized with
-the repository state while maintaining fast incremental updates.
-
-Configuration
--------------
-Repository behavior is controlled through `RepoSettings`:
-
-- Ignore patterns (similar to .gitignore)
-- Maximum file size limits
-- Maximum number of files to process per index operation
-- Batch sizes for vector store operations
-- Custom embedding models
-
-Settings can be specified globally or per-repository via `indexter.toml` or
-`pyproject.toml` files.
-
-Examples
---------
-Initialize multiple repositories:
-    >>> repo1 = await Repo.init(Path("~/projects/backend"))
-    >>> repo2 = await Repo.init(Path("~/projects/frontend"))
-    >>> repos = await Repo.list()
-    >>> print(f"Managing {len(repos)} repositories")
-
-Search across specific file types:
-    >>> results = await repo.search(
-    ...     query="user authentication",
-    ...     language="python",
-    ...     node_type="function",
-    ...     has_documentation=True
-    ... )
-
-Monitor indexing progress:
-    >>> status = await repo.status()
-    >>> if status['documents_indexed_stale'] > 0:
-    ...     result = await repo.index()
-    ...     print(f"Updated {result.nodes_updated} nodes")
-
-Notes
------
-- All repository operations are asynchronous and require an event loop
-- The vector store is managed transparently; see `store.py` for details
-- File walking respects .gitignore and custom ignore patterns
-- Binary, minified, and oversized files are automatically skipped
+See Also:
+    - ``indexter.config``: Configuration system for global and per-repo settings
+    - ``indexter.walker``: File discovery and filtering
+    - ``indexter.parser``: Tree-sitter based code parsing
+    - ``indexter.store``: Qdrant vector store integration
 """
 
 from __future__ import annotations
 
-import builtins
 import logging
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -134,238 +75,138 @@ from pydantic import BaseModel, Field, computed_field
 
 from .config import RepoSettings
 from .exceptions import RepoExistsError, RepoNotFoundError
-from .parsers import get_parser
+from .parser import Parser
+from .parser.models import Node
 from .store import store
+from .store.models import IndexResult, SearchResults
 from .walker import Walker
+from .walker.models import Document
 
 logger = logging.getLogger(__name__)
 
 
-class NodeMetadata(BaseModel):
-    """
-    Metadata describing a parsed code node's location and context.
-
-    Contains all contextual information about a code node including its location
-    within the source file, the repository it belongs to, and language-specific
-    attributes like documentation and signatures.
-
-    Attributes:
-        hash: Content hash of the parent document for change detection.
-        repo_path: Absolute path to the repository root directory.
-        document_path: Relative path to the source file within the repository.
-        language: Programming language of the node (e.g., 'python', 'javascript').
-        node_type: Type of code construct (e.g., 'function', 'class', 'method').
-        node_name: Name identifier of the node (function/class/variable name).
-        start_byte: Starting byte offset of the node in the document.
-        end_byte: Ending byte offset of the node in the document.
-        start_line: Starting line number (1-indexed) in the document.
-        end_line: Ending line number (1-indexed) in the document.
-        documentation: Docstring, comments, or other documentation text.
-        parent_scope: Enclosing scope or class name (e.g., 'MyClass' for methods).
-        signature: Function/method signature with parameters and return types.
-        extra: Language-specific attributes (e.g., decorators, modifiers, attributes).
-    """
-
-    hash: str
-    repo_path: str
-    document_path: str
-    language: str
-    node_type: str
-    node_name: str
-    start_byte: int
-    end_byte: int
-    start_line: int
-    end_line: int
-    documentation: str | None = None
-    parent_scope: str | None = None
-    signature: str | None = None
-    extra: dict[str, str] = Field(default_factory=dict)
-
-
-class Node(BaseModel):
-    """
-    A parsed code node with content and metadata, ready for embedding.
-
-    Represents a semantic unit of code (function, class, etc.) that has been
-    extracted from source files and prepared for vector embedding and storage.
-    Each node has a unique identifier, the actual code content, and rich metadata.
-
-    Attributes:
-        id: Unique identifier (UUID v4) for the node.
-        content: The actual source code text of the node.
-        metadata: Comprehensive metadata about the node's context and location.
-    """
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    content: str
-    metadata: NodeMetadata
-
-
-class Document(BaseModel):
-    """
-    A source code file with metadata for change detection.
-
-    Represents a file from the repository with its content and metadata,
-    including a content hash for efficient change detection during indexing.
-
-    Attributes:
-        path: Relative path to the file within the repository.
-        size_bytes: File size in bytes.
-        mtime: Modification time as Unix timestamp (seconds since epoch).
-        content: Complete text content of the file.
-        hash: SHA-256 hash of the file content for change detection.
-    """
-
-    path: str
-    size_bytes: int
-    mtime: float
-    content: str
-    hash: str
-
-
-class IndexResult(BaseModel):
-    """
-    Result of a repository indexing/sync operation.
-
-    Tracks statistics and outcomes from parsing and indexing a repository,
-    including file counts, node counts, errors, and timing information.
-
-    Attributes:
-        files_indexed: List of file paths that were successfully indexed.
-        files_deleted: List of file paths that were deleted from the index.
-        files_checked: Total number of files examined during the sync.
-        skipped_files: Number of files skipped due to max_files limit.
-        nodes_added: Count of new code nodes added to the index.
-        nodes_deleted: Count of code nodes removed from the index.
-        nodes_updated: Count of code nodes updated (re-indexed).
-        indexed_at: Timestamp when the indexing operation completed.
-        errors: List of error messages encountered during indexing.
-    """
-
-    files_indexed: list[str] = Field(default_factory=list)
-    files_deleted: list[str] = Field(default_factory=list)
-    files_checked: int = 0
-    skipped_files: int = 0
-    nodes_added: int = 0
-    nodes_deleted: int = 0
-    nodes_updated: int = 0
-    indexed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration: float = 0.0
-    errors: list[str] = Field(default_factory=list)
-
-    @computed_field
-    @property
-    def summary(self) -> str:
-        """Summary of the indexing result."""
-        return (
-            f"Indexed {len(self.files_indexed)} files (+{self.nodes_added} nodes, "
-            f"~{self.nodes_updated} updated, -{self.nodes_deleted} deleted) "
-            f"in {self.duration:.2f}s"
-        )
-
-
-class RepoStatus(BaseModel):
+class RepoMetadata(BaseModel):
     """
     Status information for an indexed repository.
 
     Provides current state of repository indexing including node counts,
     document counts, and staleness indicators.
-
-    Attributes:
-        repository: Name of the repository.
-        path: Absolute path to repository root directory.
-        nodes_indexed: Total number of code nodes in the index.
-        documents_indexed: Number of documents currently indexed.
-        documents_indexed_stale: Number of indexed documents that have been
-            modified or deleted locally and need re-indexing.
     """
 
-    repository: str = Field(description="Repository name")
-    path: str = Field(description="Absolute path to repository root")
-    nodes_indexed: int = Field(description="Total code nodes in index")
-    documents_indexed: int = Field(description="Number of documents indexed")
-    documents_indexed_stale: int = Field(description="Documents needing re-indexing")
+    document_paths: list[str] = Field(description="List of indexed document paths (relative to Repo root)")
+    is_stale: bool = Field(description="Whether the repository index is stale")
+    languages: list[str] = Field(description="Indexed languages")
+    node_types: list[str] = Field(description="Indexed node types")
+    nodes_indexed: int = Field(description="Total number of nodes indexed")
 
+    @computed_field
+    @property
+    def documents_indexed(self) -> int:
+        """Number of indexed documents."""
+        return len(self.document_paths)
 
-class SearchResult(BaseModel):
-    """
-    A single search result from semantic code search.
+    @classmethod
+    async def from_repo(cls, repo: Repo) -> RepoMetadata:
+        """
+        Create RepoMetadata by querying the repository's current status.
 
-    Represents one matching code chunk with its similarity score and metadata.
+        Args:
+            repo: Repo instance to get metadata for.
 
-    Attributes:
-        content: The source code content of the matched node.
-        score: Similarity score (0.0-1.0) indicating relevance to the query.
-        metadata: Node metadata including file path, line numbers, node type, etc.
-    """
+        Returns:
+            RepoMetadata model with current repository statistics.
+        """
+        _document_paths: set[str] = set()
+        _languages: set[str] = set()
+        _node_types: set[str] = set()
 
-    content: str = Field(description="Source code content")
-    score: float = Field(description="Similarity score (0.0-1.0)")
-    metadata: dict = Field(description="Node metadata (file, line numbers, etc)")
+        _local_hashes: dict[str, str] = {}
+        _stored_hashes: dict[str, str] = await store.get_document_hashes(repo.collection_name)
 
+        walker = Walker(repo)
+        async for path, content, metadata in walker.walk():
+            doc = Document(
+                path=path,
+                content=content,
+                metadata=metadata,
+            )
+            _document_paths.add(doc.path)
+            _local_hashes[doc.path] = doc.metadata.hash
+            parser = Parser(doc)
+            if not hasattr(parser, "language"):
+                continue
+            _languages.add(str(parser.language))
+            try:
+                for _, meta in parser.parse():
+                    if getattr(meta, "node_type", None) != "N/A":
+                        _node_types.add(meta.node_type)
+            except Exception as e:
+                logger.warning(f"Failed to parse {doc.path} for metadata extraction: {e}")
 
-class SearchResponse(BaseModel):
-    """
-    Response from repository semantic search.
+        document_paths = list(_document_paths)
+        languages = list(_languages)
+        node_types = list(_node_types)
+        nodes_indexed = await store.count_nodes(repo.collection_name)
+        is_stale = _local_hashes != _stored_hashes
 
-    Contains the list of matched code chunks along with query metadata.
-
-    Attributes:
-        results: List of matching code chunks ordered by relevance.
-        count: Number of results returned.
-        repository: Name of the repository that was searched.
-        query: The original search query text.
-    """
-
-    results: list[SearchResult] = Field(description="Matched code chunks")
-    count: int = Field(description="Number of results returned")
-    repository: str = Field(description="Repository name searched")
-    query: str = Field(description="Original search query")
+        return RepoMetadata(
+            document_paths=document_paths,
+            languages=languages,
+            node_types=node_types,
+            nodes_indexed=nodes_indexed,
+            is_stale=is_stale,
+        )
 
 
 class Repo(BaseModel):
     """
-    A code repository configured and managed by Indexter.
+    A git repository configured and managed by Indexter.
 
     Represents a Git repository that has been added to Indexter for indexing.
-    Provides methods for repository management (add, remove, list) and indexing
-    operations (parse, search, status).
+    Provides methods for repository management (get_one, get_all, remove_one, remove_all)
+    and indexing operations (parse, search, status).
 
     The repository configuration includes paths, ignore patterns, and indexing
     parameters that control how files are processed and stored.
-
-    Attributes:
-        settings: Repository-specific configuration and settings.
     """
 
-    settings: RepoSettings
+    metadata: RepoMetadata | None = Field(default=None, description="Metadata about the repository")
+    settings: RepoSettings = Field(description="Configuration settings for the repository")
+
+    # Properties derived from settings for convenience
 
     @computed_field
     @property
     def collection_name(self) -> str:
         """Name of the VectorStore collection for this repo."""
-        return self.settings.collection_name
+        collection_name = self.settings.collection_name
+        return collection_name
 
     @computed_field
     @property
     def name(self) -> str:
         """Name of the repository."""
-        return self.settings.name
+        name = self.settings.name
+        return name
 
     @computed_field
     @property
     def path(self) -> str:
         """Absolute path to the repository root."""
-        return str(self.settings.path)
+        path = str(self.settings.path)
+        return path
 
     @classmethod
     async def init(cls, path: Path) -> Repo:
         """
         Initialize and register a new repository with Indexter.
 
-        Validates the path is a Git repository, checks for name conflicts,
-        and adds the repository to the configuration. If the repository is
-        already configured at the same path, returns the existing configuration.
+        Validates the path contains a .git directory, checks for name conflicts
+        with existing repositories, and adds the repository to the configuration.
+        If the repository is already configured at the same path, returns the
+        existing Repo instance without modification.
+
+        Repository names are automatically derived from the directory name.
 
         Args:
             path: Path to the git repository root directory.
@@ -374,22 +215,22 @@ class Repo(BaseModel):
             Repo instance for the initialized repository.
 
         Raises:
-            RepoExistsError: If a different repository with the same name already
-                exists. Repository names are derived from the directory name.
-            ValueError: If the path is not a valid git repository (no .git directory).
+            ValueError: If the path does not contain a .git directory.
+            RepoExistsError: If a different repository with the same derived name
+                already exists at a different path.
         """
-        repos = await RepoSettings.load()
+        repo_settings = await RepoSettings.load()
         resolved_path = path.resolve()
 
         # Create new config to get the derived name
-        repo_settings = RepoSettings(path=resolved_path)
+        settings = RepoSettings(path=resolved_path)
 
         # Check if name already exists
-        for existing in repos:
-            if existing.name == repo_settings.name:
+        for existing in repo_settings:
+            if existing.name == settings.name:
                 if existing.path.resolve() == resolved_path:
                     # Same repo, already configured
-                    logger.info(f"Repository already configured: {repo_settings.name}")
+                    logger.info(f"Repository already configured: {settings.name}")
                     return cls(settings=existing)
                 else:
                     # Different repo with same name
@@ -398,14 +239,14 @@ class Repo(BaseModel):
                         f"at {existing.path}. Rename the directory to use a unique name."
                     )
 
-        repos.append(repo_settings)
-        await RepoSettings.save(repos)
+        repo_settings.append(settings)
+        await RepoSettings.save(repo_settings)
 
-        logger.info(f"Added repository: {repo_settings.name} ({resolved_path})")
-        return cls(settings=repo_settings)
+        logger.info(f"Added repository: {settings.name} ({resolved_path})")
+        return cls(settings=settings)
 
     @classmethod
-    async def get(cls, name: str) -> Repo:
+    async def get_one(cls, name: str, with_metadata: bool = False) -> Repo:
         """
         Retrieve a configured repository by name.
 
@@ -416,7 +257,8 @@ class Repo(BaseModel):
             name: Repository name (derived from the directory name containing .git).
 
         Returns:
-            Repo instance for the requested repository.
+            Repo instance for the requested repository. If with_metadata is True,
+            the Repo instance will have its metadata attribute populated.
 
         Raises:
             RepoNotFoundError: If no repository with the given name is configured.
@@ -424,24 +266,30 @@ class Repo(BaseModel):
         repos = await RepoSettings.load()
         for repo_settings in repos:
             if repo_settings.name == name:
-                return cls(settings=repo_settings)
+                repo = cls(settings=repo_settings)
+                if with_metadata:
+                    repo.metadata = await RepoMetadata.from_repo(repo)
+                return repo
         raise RepoNotFoundError(f"Repository not found: {name}")
 
     @classmethod
-    async def list(cls) -> builtins.list[Repo]:
+    async def get_all(cls, with_metadata: bool = False) -> list[Repo]:
         """
-        List all configured repositories.
-
-        Retrieves all repositories that have been registered with Indexter.
+        Retrieve all configured repositories.
 
         Returns:
-            List of Repo instances for all configured repositories.
+            List of Repo instances for all configured repositories. If with_metadata is True,
+            each Repo instance will have its metadata attribute populated.
         """
-        repos = await RepoSettings.load()
-        return [cls(settings=repo_settings) for repo_settings in repos]
+        repo_settings = await RepoSettings.load()
+        repos = [cls(settings=settings) for settings in repo_settings]
+        if with_metadata:
+            for repo in repos:
+                repo.metadata = await RepoMetadata.from_repo(repo)
+        return repos
 
     @classmethod
-    async def remove(cls, name: str) -> bool:
+    async def remove_one(cls, name: str) -> bool:
         """
         Remove a repository and its indexed data.
 
@@ -458,144 +306,67 @@ class Repo(BaseModel):
         Raises:
             RepoNotFoundError: If no repository with the given name exists.
         """
-        repo = await cls.get(name)
+        repo = await cls.get_one(name)
 
         # Delete collection from store
         await store.delete_collection(repo.collection_name)
 
         # Remove from repos.json
-        repo_settings_list = await RepoSettings.load()
-        new_repo_settings_list = [r for r in repo_settings_list if r.name != name]
-        await RepoSettings.save(new_repo_settings_list)
-        if new_repo_settings_list != repo_settings_list:
+        repo_settings = await RepoSettings.load()
+        new_repo_settings = [r for r in repo_settings if r.name != name]
+        await RepoSettings.save(new_repo_settings)
+        if new_repo_settings != repo_settings:
             logger.info(f"Removed repository: {name}")
             return True
         return False
 
-    async def get_document_hashes(self) -> dict[str, str]:
+    @classmethod
+    async def remove_all(cls) -> bool:
         """
-        Compute content hashes for all eligible files in the repository.
+        Remove all configured repositories and their indexed data.
 
-        Walks the repository and computes SHA-256 hashes for all files that
-        pass filtering (size limits, ignore patterns, etc.). Used for change
-        detection during incremental indexing.
+        Deletes all repositories' vector store collections and clears the
+        configuration. This operation is permanent and cannot be undone.
 
         Returns:
-            Dictionary mapping file paths to their SHA-256 content hashes.
+            True if any repositories were removed, False if there were none.
         """
-        document_hashes: dict[str, str] = {}
-        walker = Walker(self)
-        async for doc in walker.walk():
-            doc = Document.model_validate(doc)
-            document_hashes[doc.path] = doc.hash
-        return document_hashes
+        repo_settings = await RepoSettings.load()
+        if not repo_settings:
+            return False
 
-    async def search(
-        self,
-        query: str,
-        file_path: str | None = None,
-        language: str | None = None,
-        node_type: str | None = None,
-        node_name: str | None = None,
-        has_documentation: bool | None = None,
-        limit: int | None = None,
-    ) -> SearchResponse:
-        """
-        Perform semantic search over indexed code nodes in the repository.
+        for settings in repo_settings:
+            collection_name = settings.collection_name
+            await store.delete_collection(collection_name)
+            logger.info(f"Removed repository collection: {collection_name}")
 
-        Searches the repository's vector store using embedding-based similarity.
-        Results can be filtered by multiple metadata criteria to narrow down
-        the search scope.
-
-        Args:
-            query: Natural language or code search query.
-            limit: Maximum number of results to return. Defaults to the repository's top_k setting.
-            file_path: Filter by file path. Use exact match or prefix with
-                trailing '/' for directory filtering.
-            language: Filter by programming language (e.g., 'python', 'javascript').
-            node_type: Filter by code construct type (e.g., 'function', 'class', 'method').
-            node_name: Filter by exact node name (function/class name).
-            has_documentation: Filter by documentation presence. True for nodes
-                with docstrings/comments, False for undocumented nodes.
-
-        Returns:
-            SearchResponse model containing matched code chunks with scores, metadata,
-            and query context. Ordered by relevance (highest score first).
-        """
-        results = await store.search(
-            collection_name=self.collection_name,
-            query=query,
-            file_path=file_path,
-            language=language,
-            node_type=node_type,
-            node_name=node_name,
-            has_documentation=has_documentation,
-            limit=limit or self.settings.top_k,
-        )
-
-        # Transform flat store results into SearchResult models
-        search_results = []
-        for r in results:
-            # Extract content and score, put everything else in metadata
-            search_results.append(
-                SearchResult(
-                    content=r.get("content", ""),
-                    score=r.get("score", 0.0),
-                    metadata={k: v for k, v in r.items() if k not in ("content", "score", "id")},
-                )
-            )
-
-        return SearchResponse(
-            results=search_results,
-            count=len(results),
-            repository=self.name,
-            query=query,
-        )
-
-    async def status(self) -> RepoStatus:
-        """
-        Get indexing status and statistics for the repository.
-
-        Compares the current repository state with the indexed data to identify
-        stale documents (files that have been modified or deleted since last indexing).
-
-        Returns:
-            RepoStatus model with repository name, path, node counts, document counts,
-            and stale document count.
-        """
-        local_hashes = list((await self.get_document_hashes()).values())
-        stored_hashes = list((await store.get_document_hashes(self.collection_name)).values())
-        num_documents = len(stored_hashes)
-        num_documents_stale = len([h for h in stored_hashes if h not in local_hashes])
-        num_nodes = await store.count_nodes(self.collection_name)
-        return RepoStatus(
-            repository=self.name,
-            path=self.path,
-            nodes_indexed=num_nodes,
-            documents_indexed=num_documents,
-            documents_indexed_stale=num_documents_stale,
-        )
+        # Clear repos.json
+        await RepoSettings.save([])
+        logger.info("Removed all repositories")
+        return True
 
     async def index(self, full: bool = False) -> IndexResult:
         """
-        Parse and index all code files in the repository.
+        Parse and index files in the repository.
 
-        Performs intelligent incremental indexing by comparing document content
-        hashes to detect changes. Only processes files that are new, modified,
-        or deleted since the last indexing operation.
+        By default, performs intelligent incremental indexing by comparing document
+        content hashes to detect changes. Only processes files that are new, modified,
+        or deleted since the last indexing operation. When full=True, re-indexes all
+        files by recreating the collection.
 
         The indexing process:
         1. Walks the repository to find eligible source files
         2. Computes content hashes for change detection
         3. Identifies new, modified, and deleted files
-        4. Parses code into semantic nodes (functions, classes, etc.)
-        5. Generates embeddings and stores nodes in the vector store
-        6. Cleans up nodes for deleted files
+        4. Parses code into semantic nodes (functions, classes, methods, etc.)
+        5. Creates placeholder nodes for files with no parseable code
+        6. Generates embeddings and stores nodes in the vector store
+        7. Deletes nodes for removed files
 
         Files are processed according to repository settings:
-        - Respects max_files limit to prevent memory issues
         - Honors ignore patterns from .gitignore and configuration
         - Skips binary, minified, and oversized files
+        - Limits indexing to max_files (additional files skipped with warning)
         - Batches upsert operations for efficiency
 
         Args:
@@ -610,7 +381,7 @@ class Repo(BaseModel):
         """
         start_time = datetime.now(UTC)
 
-        result = IndexResult()
+        result = IndexResult(repo=self.name, repo_path=self.path)
 
         # Load per-repo configuration
         repo_settings = self.settings
@@ -620,121 +391,84 @@ class Repo(BaseModel):
         # On full index, recreate the collection
         if full:
             await store.delete_collection(self.collection_name)
-            logger.info(f"Performing full inedex for repository: {self.name}")
+            logger.info(f"Performing full index for repository: {self.name}")
 
         # Ensure collection exists
         await store.ensure_collection(self.collection_name)
-
-        # Initialize walker
-        walker = Walker(self)
 
         # Get stored document hashes for change detection
         stored_hashes = await store.get_document_hashes(self.collection_name)
         stored_paths = set(stored_hashes.keys())
 
-        # Track what we've walked and what needs processing
+        # Track walked paths for detecting deletions
         walked_paths: set[str] = set()
-        files_to_process: list[dict] = []  # (doc_dict, is_new)
 
-        # Walk the repository and identify changes
-        async for doc in walker.walk():
-            doc = Document.model_validate(doc)
-            result.files_checked += 1
-            walked_paths.add(doc.path)
-
-            stored_hash = stored_hashes.get(doc.path)
-
-            if stored_hash is None:
-                # New file
-                logger.debug(f"New file detected: {doc.path}")
-                files_to_process.append({"doc": doc, "is_new": True})
-            elif stored_hash != doc.hash:
-                # Modified file
-                logger.debug(f"Modified file detected: {doc.path} (stored: {stored_hash[:8]}, current: {doc.hash[:8]})")
-                files_to_process.append({"doc": doc, "is_new": False})
-            # else: unchanged, skip
-
-        # Identify deleted files
-        deleted_paths = list(stored_paths - walked_paths)
-
-        # Respect max_files limit
-        if len(files_to_process) > max_files:
-            result.skipped_files = len(files_to_process) - max_files
-            files_to_process = files_to_process[:max_files]
-            logger.warning(f"Indexing limited to {max_files} files, skipping {result.skipped_files} files")
-
-        # Delete nodes for modified files (before re-adding)
-        if modified_paths := [f["doc"].path for f in files_to_process if not f["is_new"]]:
-            await store.delete_by_document_paths(self.collection_name, modified_paths)
-
-        # Parse and upsert nodes in batches
+        # Parse and upsert nodes in batches - single pass, streaming
         pending_nodes: list[Node] = []
+        files_indexed = 0
 
-        for file_info in files_to_process:
-            doc = file_info["doc"]
-            is_new = file_info["is_new"]
+        walker = Walker(self)
+        async for path, content, metadata in walker.walk():
+            result.documents_checked += 1
+            walked_paths.add(path)
+
+            # Check if file needs indexing
+            stored_hash = stored_hashes.get(path)
+            is_new = stored_hash is None
+            is_modified = stored_hash is not None and stored_hash != metadata.hash
+
+            if not is_new and not is_modified:
+                # Unchanged file, skip
+                continue
+
+            # Respect max_files limit
+            if files_indexed >= max_files:
+                result.skipped_documents += 1
+                if result.skipped_documents == 1:
+                    # Log warning once when limit is first exceeded
+                    logger.warning(f"Indexing limited to {max_files} files, additional files will be skipped")
+                continue
+
+            files_indexed += 1
+
+            if is_modified:
+                # stored_hash is guaranteed to be not None here due to is_modified check
+                if stored_hash is None:
+                    raise RuntimeError(f"Unexpected None hash for modified file: {path}")
+                logger.debug(
+                    f"Modified file detected: {path} (stored: {stored_hash[:8]}, current: {metadata.hash[:8]})"
+                )
+                # Delete old nodes for this file before re-adding
+                await store.delete_by_document_paths(self.collection_name, [path])
+            else:
+                logger.debug(f"New file detected: {path}")
+
+            # Process file immediately
+            doc = Document(path=path, content=content, metadata=metadata)
 
             try:
-                parser = get_parser(doc.path)
-                if parser is None:
-                    logger.debug(f"No parser available for {doc.path}")
-                    continue
-
                 logger.info(f"Parsing {doc.path}")
+                doc_nodes: list[Node] = []
+                parser = Parser(doc)
+                for node_content, node_metadata in parser.parse():
+                    node = Node(content=node_content, metadata=node_metadata)
+                    doc_nodes.append(node)
 
-                # Parse document into nodes
-                file_nodes: list[Node] = []
-                for content, metadata in parser.parse(doc.content):
-                    node = Node(
-                        content=content,
-                        metadata=NodeMetadata(
-                            hash=doc.hash,
-                            repo_path=self.path,
-                            document_path=doc.path,
-                            language=metadata.get("language", "unknown"),
-                            node_type=metadata.get("node_type", "unknown"),
-                            node_name=metadata.get("node_name") or "",
-                            start_byte=metadata.get("start_byte", 0),
-                            end_byte=metadata.get("end_byte", 0),
-                            start_line=metadata.get("start_line", 0),
-                            end_line=metadata.get("end_line", 0),
-                            documentation=metadata.get("documentation"),
-                            parent_scope=metadata.get("parent_scope"),
-                            signature=metadata.get("signature"),
-                            extra=metadata.get("extra", {}),
-                        ),
-                    )
-                    file_nodes.append(node)
-
-                if not file_nodes:
+                if not doc_nodes:
                     logger.debug(f"No nodes extracted from {doc.path}")
-                    placeholder_node = Node(
-                        content="",  # empty content for placeholder
-                        metadata=NodeMetadata(
-                            hash=doc.hash,
-                            repo_path=self.path,
-                            document_path=doc.path,
-                            language="unknown",
-                            node_type="__document_marker__",  # identify placeholders
-                            node_name="",
-                            start_byte=0,
-                            end_byte=0,
-                            start_line=0,
-                            end_line=0,
-                        ),
-                    )
-                    file_nodes = [placeholder_node]
+                    placeholder_node = Node.placeholder(self.name, self.path, doc.path, doc.metadata.hash)
+                    doc_nodes = [placeholder_node]
 
-                if file_nodes:
-                    pending_nodes.extend(file_nodes)
+                if doc_nodes:
+                    pending_nodes.extend(doc_nodes)
 
                     # Only count as indexed if it's not just a placeholder
-                    if file_nodes[0].metadata.node_type != "__document_marker__":
-                        result.files_indexed.append(doc.path)
+                    if doc_nodes[0].metadata.node_type != "__PLACEHOLDER__":
+                        result.documents_indexed.append(doc.path)
                         if is_new:
-                            result.nodes_added += len(file_nodes)
+                            result.nodes_added += len(doc_nodes)
                         else:
-                            result.nodes_updated += len(file_nodes)
+                            result.nodes_updated += len(doc_nodes)
 
                     # Batch upsert when we have enough nodes
                     if len(pending_nodes) >= upsert_batch_size:
@@ -750,12 +484,11 @@ class Repo(BaseModel):
         if pending_nodes:
             await store.upsert_nodes(self.collection_name, pending_nodes)
 
-        # Delete nodes for removed files
+        # Identify and delete nodes for removed files
+        deleted_paths = list(stored_paths - walked_paths)
         if deleted_paths:
             await store.delete_by_document_paths(self.collection_name, deleted_paths)
-            result.files_deleted = deleted_paths
-            # We don't know exact node count deleted, but track file count
-            result.nodes_deleted = len(deleted_paths)  # Approximation
+            result.documents_deleted = deleted_paths
 
         end_time = datetime.now(UTC)
 
@@ -766,3 +499,55 @@ class Repo(BaseModel):
         logger.debug(f"Indexing complete for {self.name}\n{result.summary}")
 
         return result
+
+    async def search(
+        self,
+        query: str,
+        document_path: str | None = None,
+        language: str | None = None,
+        node_type: str | None = None,
+        node_name: str | None = None,
+        parent_scope: str | None = None,
+        has_documentation: bool | None = None,
+        limit: int | None = None,
+    ) -> SearchResults:
+        """
+        Perform semantic search over indexed code nodes in the repository.
+
+        Searches the repository's vector store using embedding-based similarity.
+        Results can be filtered by multiple metadata criteria to narrow down
+        the search scope.
+
+        Args:
+            query: Natural language or code search query.
+            limit: Maximum number of results to return. Defaults to the repository's top_k setting.
+            document_path: Filter by document path. Use exact match or prefix with
+                trailing '/' for directory filtering.
+            language: Filter by programming language (e.g., 'python', 'javascript').
+            node_type: Filter by code construct type (e.g., 'function', 'class', 'method').
+            node_name: Filter by exact node name (function/class name).
+            parent_scope: Filter by the enclosing scope or class name (e.g., 'MyClass' for methods).
+            has_documentation: Filter by documentation presence. True for nodes
+                with docstrings/comments, False for undocumented nodes.
+        Returns:
+            SearchResults model containing matched code chunks with scores, metadata,
+            and query context. Ordered by relevance (highest score first).
+        """
+
+        search_results = await store.search(
+            collection_name=self.collection_name,
+            query=query,
+            limit=limit or self.settings.top_k,
+            document_path=document_path,
+            language=language,
+            node_type=node_type,
+            node_name=node_name,
+            parent_scope=parent_scope,
+            has_documentation=has_documentation,
+        )
+
+        # assign repo info to results
+        search_results.repo = self.name
+        search_results.repo_path = self.path
+
+        return search_results
