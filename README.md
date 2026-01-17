@@ -1,5 +1,6 @@
 <div align="center">
-  <img src="./indexter.svg" alt="Indexter Logo">
+  <img src="./indexter-dark.svg#gh-light-mode-only" alt="Indexter Logo">
+  <img src="./indexter-light.svg#gh-dark-mode-only" alt="Indexter Logo">
 </div>
 
 <p align="center">
