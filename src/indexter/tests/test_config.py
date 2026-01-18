@@ -121,8 +121,7 @@ class TestStoreModeEnum:
 
     def test_should_have_expected_values(self):
         """Test StoreMode enum has expected values."""
-        assert StoreMode.local == "local"
-        assert StoreMode.remote == "remote"
+        assert StoreMode.server == "server"
         assert StoreMode.memory == "memory"
 
 
@@ -165,50 +164,56 @@ class TestStoreSettings:
     def test_should_have_correct_defaults(self):
         """Test StoreSettings has correct default values."""
         store = StoreSettings()
-        assert store.mode == StoreMode.local
+        assert store.mode == StoreMode.server
+        assert store.image == "qdrant/qdrant:latest"
         assert store.host == "localhost"
         assert store.port == 6333
         assert store.grpc_port == 6334
         assert store.prefer_grpc is False
         assert store.api_key is None
+        assert store.timeout == 120
 
     def test_should_accept_custom_values(self):
         """Test StoreSettings accepts custom values."""
         store = StoreSettings(
-            mode=StoreMode.remote,
+            mode=StoreMode.server,
             host="vector.example.com",
             port=8000,
             grpc_port=8001,
             prefer_grpc=True,
             api_key="secret123",
+            timeout=300,
         )
-        assert store.mode == StoreMode.remote
+        assert store.mode == StoreMode.server
         assert store.host == "vector.example.com"
         assert store.port == 8000
         assert store.grpc_port == 8001
         assert store.prefer_grpc is True
         assert store.api_key == "secret123"
+        assert store.timeout == 300
 
     def test_should_load_from_environment_variables(self):
         """Test StoreSettings loads from environment variables."""
         with patch.dict(
             os.environ,
             {
-                "INDEXTER_STORE_MODE": "remote",
+                "INDEXTER_STORE_MODE": "server",
                 "INDEXTER_STORE_HOST": "qdrant.example.com",
                 "INDEXTER_STORE_PORT": "7000",
                 "INDEXTER_STORE_GRPC_PORT": "7001",
                 "INDEXTER_STORE_PREFER_GRPC": "true",
                 "INDEXTER_STORE_API_KEY": "mykey",
+                "INDEXTER_STORE_TIMEOUT": "180",
             },
         ):
             store = StoreSettings()
-            assert store.mode == StoreMode.remote
+            assert store.mode == StoreMode.server
             assert store.host == "qdrant.example.com"
             assert store.port == 7000
             assert store.grpc_port == 7001
             assert store.prefer_grpc is True
             assert store.api_key == "mykey"
+            assert store.timeout == 180
 
 
 class TestSettings:
@@ -226,7 +231,7 @@ class TestSettings:
         assert settings_obj.max_file_size == 1 * 1024 * 1024
         assert settings_obj.max_files == 1000
         assert settings_obj.top_k == 10
-        assert settings_obj.upsert_batch_size == 50  # Reduced from 100 for lower memory pressure
+        assert settings_obj.upsert_batch_size == 100
         assert settings_obj.config_dir == config_dir
         assert settings_obj.data_dir == data_dir
 
@@ -290,7 +295,7 @@ class TestSettings:
         ignore_patterns = [".git/", "*.pyc"]
 
         [store]
-        mode = "remote"
+        mode = "server"
         host = "custom.host"
 
         [mcp]
@@ -307,7 +312,7 @@ class TestSettings:
         assert settings_obj.top_k == 5
         assert settings_obj.upsert_batch_size == 50
         assert settings_obj.ignore_patterns == [".git/", "*.pyc"]
-        assert settings_obj.store.mode == StoreMode.remote
+        assert settings_obj.store.mode == StoreMode.server
         assert settings_obj.store.host == "custom.host"
         assert settings_obj.mcp.transport == MCPTransport.http
         assert settings_obj.mcp.port == 9999
@@ -334,7 +339,7 @@ class TestSettings:
         # Should log warning but not crash
         assert any("Validation error" in record.message for record in caplog.records)
         # Should still have default values for store
-        assert settings_obj.store.mode == StoreMode.local
+        assert settings_obj.store.mode == StoreMode.server
 
     def test_should_handle_parse_error_in_from_toml(self, tmp_path, caplog):
         """Test Settings.from_toml handles parse errors gracefully."""
@@ -373,35 +378,35 @@ class TestSettings:
         assert "store" in parsed
         assert "mcp" in parsed
 
-    def test_should_include_remote_store_settings_in_toml(self, tmp_path):
-        """Test Settings.to_toml includes remote settings when store mode is remote."""
+    def test_should_include_server_store_settings_in_toml(self, tmp_path):
+        """Test Settings.to_toml includes server settings when store mode is server."""
         config_dir = tmp_path / "config"
         data_dir = tmp_path / "data"
 
         settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
-        settings_obj.store.mode = StoreMode.remote
-        settings_obj.store.host = "remote.example.com"
+        settings_obj.store.mode = StoreMode.server
+        settings_obj.store.host = "qdrant.example.com"
 
         toml_str = settings_obj.to_toml()
         parsed = tomllib.loads(toml_str)
 
-        assert parsed["store"]["mode"] == "remote"
-        assert parsed["store"]["host"] == "remote.example.com"
+        assert parsed["store"]["mode"] == "server"
+        assert parsed["store"]["host"] == "qdrant.example.com"
         assert "port" in parsed["store"]
         assert "grpc_port" in parsed["store"]
 
-    def test_should_exclude_remote_settings_for_local_mode(self, tmp_path):
-        """Test Settings.to_toml excludes remote settings when store mode is local."""
+    def test_should_exclude_server_settings_for_memory_mode(self, tmp_path):
+        """Test Settings.to_toml excludes server settings when store mode is memory."""
         config_dir = tmp_path / "config"
         data_dir = tmp_path / "data"
 
         settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
-        settings_obj.store.mode = StoreMode.local
+        settings_obj.store.mode = StoreMode.memory
 
         toml_str = settings_obj.to_toml()
         parsed = tomllib.loads(toml_str)
 
-        assert parsed["store"]["mode"] == "local"
+        assert parsed["store"]["mode"] == "memory"
         assert "host" not in parsed["store"]
         assert "port" not in parsed["store"]
 
@@ -443,13 +448,13 @@ class TestSettings:
         data_dir = tmp_path / "data"
 
         settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
-        settings_obj.store.mode = StoreMode.remote
+        settings_obj.store.mode = StoreMode.server
         settings_obj.store.api_key = "secret123"
 
         toml_str = settings_obj.to_toml()
         parsed = tomllib.loads(toml_str)
 
-        assert parsed["store"]["mode"] == "remote"
+        assert parsed["store"]["mode"] == "server"
         assert parsed["store"]["api_key"] == "secret123"
 
 

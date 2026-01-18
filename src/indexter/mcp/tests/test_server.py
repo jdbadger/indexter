@@ -10,7 +10,7 @@ This test suite provides comprehensive coverage of the server module including:
 """
 
 import inspect
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastmcp import Context, FastMCP
@@ -75,26 +75,30 @@ class TestLifespanManager:
         """Test lifespan manager initializes store client on startup."""
         # Arrange
         mock_server = Mock()
+        mock_store_instance = Mock()
+        mock_store_instance.client = Mock()
+        mock_store_instance.close = AsyncMock()
 
-        with patch("indexter.store.store") as mock_store:
-            mock_client = Mock()
-            mock_store.client = mock_client
-
+        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
             # Act
             async with lifespan(mock_server):
                 # Assert - client property should be accessed during startup
-                _ = mock_store.client
+                _ = mock_store_instance.client
                 assert True  # If we get here, lifespan worked
 
     async def test_should_handle_startup_errors_gracefully(self):
         """Test lifespan manager handles startup errors."""
         # Arrange
         mock_server = Mock()
+        mock_store_instance = Mock()
+        mock_store_instance.close = AsyncMock()
 
-        with patch("indexter.store.store") as mock_store:
-            # Configure mock to raise error on client access
-            type(mock_store).client = property(lambda self: (_ for _ in ()).throw(RuntimeError("Connection failed")))
+        # Configure mock to raise error on client access
+        type(mock_store_instance).client = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("Connection failed"))
+        )
 
+        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
             # Act & Assert
             with pytest.raises(RuntimeError, match="Connection failed"):
                 async with lifespan(mock_server):
@@ -105,10 +109,11 @@ class TestLifespanManager:
         # Arrange
         mock_server = Mock()
         yielded = False
+        mock_store_instance = Mock()
+        mock_store_instance.client = Mock()
+        mock_store_instance.close = AsyncMock()
 
-        with patch("indexter.store.store") as mock_store:
-            mock_store.client = Mock()
-
+        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
             # Act
             async with lifespan(mock_server):
                 yielded = True
@@ -571,15 +576,17 @@ class TestLifespanIntegration:
         # Arrange
         mock_server = Mock()
         initialization_order = []
+        mock_store_instance = Mock()
+        mock_store_instance.close = AsyncMock()
 
-        with patch("indexter.store.store") as mock_store:
-            # Track when client is accessed
-            def client_side_effect():
-                initialization_order.append("client_accessed")
-                return Mock()
+        # Track when client is accessed
+        def client_side_effect():
+            initialization_order.append("client_accessed")
+            return Mock()
 
-            type(mock_store).client = property(lambda self: client_side_effect())
+        type(mock_store_instance).client = property(lambda self: client_side_effect())
 
+        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
             # Act
             async with lifespan(mock_server):
                 initialization_order.append("in_context")
@@ -594,10 +601,11 @@ class TestLifespanIntegration:
         # Arrange
         mock_server = Mock()
         operations_performed = []
+        mock_store_instance = Mock()
+        mock_store_instance.client = Mock()
+        mock_store_instance.close = AsyncMock()
 
-        with patch("indexter.store.store") as mock_store:
-            mock_store.client = Mock()
-
+        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
             # Act
             async with lifespan(mock_server):
                 operations_performed.append("operation_1")

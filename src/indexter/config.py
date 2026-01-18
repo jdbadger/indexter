@@ -23,7 +23,7 @@ Directory Structure:
         - repos.json: Repository registry
 
     - Data: $XDG_DATA_HOME/indexter (~/.local/share/indexter)
-        - Vector store data (when using local mode)
+        - qdrant/: Qdrant vector store data (bind-mounted to Docker container)
 
 Settings Classes:
     DefaultSettings: Base class with default values for indexing parameters
@@ -31,12 +31,13 @@ Settings Classes:
 
     Settings: Global application settings singleton
         - XDG directory paths
-        - Store settings (local/remote/memory mode)
+        - Store settings (Docker image, connection parameters)
         - MCP server settings (stdio/http transport)
 
     StoreSettings: Vector store connection configuration
-        - Mode selection (local, remote, memory)
-        - Remote connection parameters (host, port, API key)
+        - Docker image for Qdrant container
+        - Connection parameters (host, port, API key)
+        - Mode for testing (memory mode)
 
     MCPSettings: Model Context Protocol server configuration
         - Transport mode (stdio, http)
@@ -55,11 +56,16 @@ Configuration File Format:
         max_file_size = 1048576
         max_files = 1000
         top_k = 10
-        upsert_batch_size = 50
+        upsert_batch_size = 100
         ignore_patterns = [".git/", "__pycache__/", "*.pyc"]
 
         [store]
-        mode = "local"  # or "remote" or "memory"
+        image = "qdrant/qdrant:latest"
+        mode = "server"  # or "memory" for testing
+        host = "localhost"
+        port = 6333
+        grpc_port = 6334
+        timeout = 120  # seconds, increase for slow networks or large batches
 
         [mcp]
         transport = "stdio"  # or "http"
@@ -82,7 +88,7 @@ Example:
 
         print(settings.embedding_model)
         print(settings.config_dir)
-        print(settings.store.mode)
+        print(settings.store.image)
 
     Create repo-specific settings::
 
@@ -355,13 +361,11 @@ class StoreMode(StrEnum):
     Defines how the application connects to the vector store backend.
 
     Attributes:
-        local: Local file-based storage using Qdrant in serverless mode.
-        remote: Remote Qdrant server (Docker container or cloud instance).
+        server: Qdrant server (Docker container or cloud instance).
         memory: In-memory storage for testing and development.
     """
 
-    local = "local"  # Local file-based storage (serverless)
-    remote = "remote"  # Remote Vector Store server (Docker/cloud)
+    server = "server"  # Qdrant server (Docker/cloud)
     memory = "memory"  # In-memory storage (for testing)
 
 
@@ -370,34 +374,43 @@ class StoreSettings(BaseSettings):
     Vector Store settings.
 
     Configuration for connecting to the Qdrant vector store, supporting
-    local, remote, and in-memory modes.
+    server and in-memory modes. Server mode connects to a Qdrant server
+    running in Docker or the cloud.
 
     Attributes:
-        mode: Connection mode (local, remote, or memory).
-        host: Hostname for remote mode connections.
-        port: HTTP API port for remote mode (default: 6333).
-        grpc_port: gRPC port for remote mode (default: 6334).
-        prefer_grpc: Whether to prefer gRPC over HTTP for remote connections.
-        api_key: Optional API key for authenticated remote connections.
+        mode: Connection mode (server or memory).
+        image: Docker image for the Qdrant container.
+        host: Hostname for server mode connections.
+        port: HTTP API port for server mode (default: 6333).
+        grpc_port: gRPC port for server mode (default: 6334).
+        prefer_grpc: Whether to prefer gRPC over HTTP for server connections.
+        api_key: Optional API key for authenticated server connections.
+        timeout: Timeout in seconds for API operations (default: 120).
+            Increase this if experiencing DEADLINE_EXCEEDED errors during
+            indexing, especially on first run when embedding models are loaded.
 
     Environment Variables:
         INDEXTER_STORE_MODE: Override store mode.
+        INDEXTER_STORE_IMAGE: Override Docker image.
         INDEXTER_STORE_HOST: Override remote host.
         INDEXTER_STORE_PORT: Override HTTP port.
         INDEXTER_STORE_GRPC_PORT: Override gRPC port.
         INDEXTER_STORE_PREFER_GRPC: Override gRPC preference.
         INDEXTER_STORE_API_KEY: Set API key for authentication.
+        INDEXTER_STORE_TIMEOUT: Override timeout for API operations.
     """
 
     model_config = SettingsConfigDict(env_prefix="INDEXTER_STORE_")
 
     # Connection Settings
-    mode: StoreMode = StoreMode.local
+    mode: StoreMode = StoreMode.server
+    image: str = "qdrant/qdrant:latest"
     host: str = "localhost"
     port: int = 6333
     grpc_port: int = 6334
     prefer_grpc: bool = False
     api_key: str | None = None
+    timeout: int = 120  # 120 seconds to handle embedding model loading and large batches
 
 
 class DefaultSettings(BaseSettings):
@@ -423,7 +436,7 @@ class DefaultSettings(BaseSettings):
     max_file_size: int = 1 * 1024 * 1024  # 1 MB
     max_files: int = 1000
     top_k: int = 10
-    upsert_batch_size: int = 50  # Reduced from 100 to lower memory pressure
+    upsert_batch_size: int = 100
 
 
 class Settings(DefaultSettings):
@@ -582,29 +595,32 @@ class Settings(DefaultSettings):
 
         # store
         store = tomlkit.table()
-        store.add(tomlkit.comment("# Vector Store connection mode: 'local', 'remote', or 'memory'"))
+        store.add(tomlkit.comment("# Docker image for the Qdrant container"))
+        store.add("image", self.store.image)
+        store.add(tomlkit.nl())
+        store.add(tomlkit.comment("# Vector Store connection mode: 'server' or 'memory'"))
         store.add("mode", self.store.mode.value)
         store.add(tomlkit.nl())
-        # Only include remote settings when mode is remote
-        if self.store.mode == StoreMode.remote:
+        # Only include server settings when mode is server
+        if self.store.mode == StoreMode.server:
             # host
-            store.add(tomlkit.comment("# Hostname of the remote Vector Store server"))
+            store.add(tomlkit.comment("# Hostname of the Qdrant server"))
             store.add("host", self.store.host)
             store.add(tomlkit.nl())
             # port
-            store.add(tomlkit.comment("# Port of the remote Vector Store server"))
+            store.add(tomlkit.comment("# Port of the Qdrant server"))
             store.add("port", self.store.port)
             store.add(tomlkit.nl())
             # grpc_port
-            store.add(tomlkit.comment("# gRPC port of the remote Vector Store server"))
+            store.add(tomlkit.comment("# gRPC port of the Qdrant server"))
             store.add("grpc_port", self.store.grpc_port)
             store.add(tomlkit.nl())
             # prefer_grpc
-            store.add(tomlkit.comment("# Whether to prefer gRPC over REST for remote connections"))
+            store.add(tomlkit.comment("# Whether to prefer gRPC over REST for connections"))
             store.add("prefer_grpc", self.store.prefer_grpc)
             store.add(tomlkit.nl())
             # api_key
-            store.add(tomlkit.comment("# API key for authenticating with the remote Vector Store server"))
+            store.add(tomlkit.comment("# API key for authenticating with the Qdrant server"))
             if self.store.api_key:
                 store.add("api_key", self.store.api_key)
             else:

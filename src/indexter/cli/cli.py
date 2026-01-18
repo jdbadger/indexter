@@ -10,7 +10,7 @@ The CLI is built using Typer for command-line parsing and Rich for enhanced
 terminal output with colors, tables, and progress indicators.
 
 Typical usage:
-    $ indexter init /path/to/repo
+    $ indexter init --path ~/code/repo-name
     $ indexter index repo-name
     $ indexter search "query" repo-name
     $ indexter status
@@ -44,9 +44,11 @@ from rich.table import Table
 from indexter import __version__
 from indexter.exceptions import RepoExistsError, RepoNotFoundError
 from indexter.models import Repo
+from indexter.store import VectorStore
 from indexter.store.models import IndexResult, SearchResults
 
 from .config import config_app
+from .store import store_app
 
 app = typer.Typer(
     name="indexter",
@@ -55,6 +57,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 app.add_typer(config_app, name="config")
+app.add_typer(store_app, name="store")
 
 
 console = Console()
@@ -146,13 +149,14 @@ def init(
 
     async def _init() -> tuple[Repo, IndexResult | None]:
         """Run all init operations in a single event loop."""
-        resolved_path = Path(path).resolve()
-        repo = await Repo.init(resolved_path)
-        if no_index:
-            return repo, None
-        # Call index after init
-        result = await repo.index()
-        return repo, result
+        async with VectorStore() as store:
+            resolved_path = Path(path).resolve()
+            repo = await Repo.init(resolved_path)
+            if no_index:
+                return repo, None
+            # Call index after init
+            result = await repo.index(store)
+            return repo, result
 
     try:
         with Progress(
@@ -234,9 +238,10 @@ def index(
 
     async def _index() -> tuple[Repo, IndexResult]:
         """Run all index operations in a single event loop."""
-        repo = await Repo.get_one(name)
-        result = await repo.index(full)
-        return repo, result
+        async with VectorStore() as store:
+            repo = await Repo.get_one(name)
+            result = await repo.index(store, full)
+            return repo, result
 
     try:
         with Progress(
@@ -316,9 +321,10 @@ def search(
 
     async def _search() -> tuple[Repo, SearchResults]:
         """Run all search operations in a single event loop."""
-        repo = await Repo.get_one(name)
-        results = await repo.search(query, limit=limit)
-        return repo, results
+        async with VectorStore() as store:
+            repo = await Repo.get_one(name)
+            results = await repo.search(query, store, limit=limit)
+            return repo, results
 
     try:
         repo, search_results = cast(tuple[Repo, SearchResults], anyio.run(_search))
@@ -371,7 +377,12 @@ def status() -> None:
         └─────────┴────────────────┴───────┴───────────┴─────────────┘
     """
 
-    repos = cast(list[Repo], anyio.run(Repo.get_all, True))
+    async def _status() -> list[Repo]:
+        """Run all status operations in a single event loop."""
+        async with VectorStore() as store:
+            return await Repo.get_all(store, with_metadata=True)
+
+    repos = cast(list[Repo], anyio.run(_status))
 
     if not repos:
         console.print("[bold]Repositories[/bold]")
@@ -421,8 +432,14 @@ def forget(
         $ indexter forget myrepo
         ✓ Repository 'myrepo' is forgotten.
     """
+
+    async def _forget() -> None:
+        """Run all forget operations in a single event loop."""
+        async with VectorStore() as store:
+            await Repo.remove_one(name, store)
+
     try:
-        anyio.run(Repo.remove_one, name)
+        anyio.run(_forget)
     except RepoNotFoundError as e:
         console.print(f"[red]✗[/red] Repository not found: {name}")
         raise typer.Exit(1) from e

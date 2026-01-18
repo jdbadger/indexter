@@ -27,7 +27,7 @@ release bump:
     
     # Commit and tag
     git add pyproject.toml uv.lock
-    git commit -m "Bump version to ${NEW_VERSION}"
+    git commit -m "release: v${NEW_VERSION}"
     git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
     
     echo "✓ Version bumped to ${NEW_VERSION}"

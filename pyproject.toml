@@ -1,6 +1,6 @@
 [project]
 name = "indexter"
-version = "0.1.0"
+version = "0.1.1"
 description = "CLI tool and MCP server for enhanced codebase context via RAG"
 readme = "README.md"
 license = "MIT"
@@ -36,11 +36,13 @@ dependencies = [
 
 [project.optional-dependencies]
 full = [
+    "docker>=7.0.0",
     "fastmcp>=0.4.1",
     "rich>=13.9.0",
     "typer>=0.12.0",
 ]
 cli = [
+    "docker>=7.0.0",
     "rich>=13.9.0",
     "typer>=0.12.0",
 ]
@@ -51,6 +53,7 @@ core = []
 
 [dependency-groups]
 dev = [
+    "docker>=7.0.0",
     "fastmcp>=0.4.1",
     "rich>=13.9.0",
     "typer>=0.12.0",
@@ -93,6 +96,9 @@ source-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
 addopts = ["--pyargs"]
 asyncio_mode = "auto"
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
+markers = [
+    "integration: marks tests as integration tests (require Docker)",
+]
 
 [tool.ruff]
 indent-width = 4

@@ -1,6 +1,9 @@
 <div align="center">
-  <img src="./indexter-dark.svg#gh-light-mode-only" alt="Indexter Logo">
-  <img src="./indexter-light.svg#gh-dark-mode-only" alt="Indexter Logo">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter-light.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter-dark.svg">
+    <img src="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter.png" alt="Indexter Logo">
+  </picture>
 </div>
 
 <p align="center">
@@ -84,6 +87,7 @@ Indexter uses tree-sitter for semantic parsing. Each parser extracts meaningful 
 
 - Python 3.11, 3.12, or 3.13
 - [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/)
+- [Docker](https://docs.docker.com/get-docker/) (for Qdrant vector database)
 
 ## Installation
 
@@ -121,6 +125,9 @@ uv sync --all-extras
 ## Quickstart
 
 ```bash
+# Initialize the Qdrant vector store (pulls Docker image and starts container)
+indexter store init
+
 # Initialize and index a repository (indexes automatically by default)
 indexter init --path /path/to/your/repo/root
 
@@ -190,14 +197,20 @@ max_files = 1000
 top_k = 10
 
 # Number of documents to upsert in a single batch operation
-upsert_batch_size = 50
+upsert_batch_size = 100
 
 [store]
-# Vector Store connection mode: 'local', 'remote', or 'memory'
-mode = "local"
+# Vector Store connection mode: 'server' or 'memory'
+mode = "server"
 
-# Remote mode settings (only used when mode = "remote"):
-# host = "localhost"          # Hostname of the remote Vector Store server
+# Docker image for the Qdrant container (used by 'indexter store init')
+image = "qdrant/qdrant:latest"
+
+# Timeout in seconds for API operations (increase if experiencing timeouts)
+timeout = 120
+
+# Server mode settings (used when mode = "server"):
+# host = "localhost"          # Hostname of the Qdrant server
 # port = 6333                 # HTTP API port
 # grpc_port = 6334            # gRPC port
 # prefer_grpc = false         # Whether to prefer gRPC over HTTP
@@ -213,9 +226,8 @@ transport = "stdio"
 ```
 
 **Store Modes:**
-- `local`: File-based Qdrant in `$XDG_DATA_HOME/indexter` (default, no server required)
+- `server`: Docker-managed Qdrant container (default, managed via `indexter store` commands)
 - `memory`: In-RAM, ephemeral — useful for testing
-- `remote`: External Qdrant server — configure `host`, `port`, `grpc_port`, `prefer_grpc`, and `api_key`
 
 **MCP Transports:**
 - `stdio`: Standard input/output streams (default for MCP server integrations)
@@ -230,13 +242,15 @@ Settings can also be overridden via environment variables:
 | `INDEXTER_MAX_FILE_SIZE` | `1048576` | Maximum file size in bytes |
 | `INDEXTER_MAX_FILES` | `1000` | Maximum files per repository |
 | `INDEXTER_TOP_K` | `10` | Number of search results |
-| `INDEXTER_UPSERT_BATCH_SIZE` | `50` | Batch size for vector operations |
-| `INDEXTER_STORE_MODE` | `local` | Storage mode: `local`, `memory`, or `remote` |
-| `INDEXTER_STORE_HOST` | `localhost` | Remote Qdrant host |
-| `INDEXTER_STORE_PORT` | `6333` | Remote Qdrant HTTP API port |
-| `INDEXTER_STORE_GRPC_PORT` | `6334` | Remote Qdrant gRPC port |
+| `INDEXTER_UPSERT_BATCH_SIZE` | `100` | Batch size for vector operations |
+| `INDEXTER_STORE_MODE` | `server` | Storage mode: `server` or `memory` |
+| `INDEXTER_STORE_IMAGE` | `qdrant/qdrant:latest` | Docker image for Qdrant container |
+| `INDEXTER_STORE_HOST` | `localhost` | Qdrant server host |
+| `INDEXTER_STORE_PORT` | `6333` | Qdrant HTTP API port |
+| `INDEXTER_STORE_GRPC_PORT` | `6334` | Qdrant gRPC port |
 | `INDEXTER_STORE_PREFER_GRPC` | `false` | Prefer gRPC over HTTP |
-| `INDEXTER_STORE_API_KEY` | `None` | Remote Qdrant API key |
+| `INDEXTER_STORE_API_KEY` | `None` | Qdrant API key |
+| `INDEXTER_STORE_TIMEOUT` | `120` | API operation timeout (seconds) |
 | `INDEXTER_MCP_TRANSPORT` | `stdio` | MCP transport: `stdio` or `http` |
 | `INDEXTER_MCP_HOST` | `localhost` | MCP HTTP server host |
 | `INDEXTER_MCP_PORT` | `8765` | MCP HTTP server port |
@@ -270,7 +284,7 @@ ignore_patterns = [
 # top_k = 10
 
 # Number of documents to batch when upserting to vector store. Default: 50
-# upsert_batch_size = 50
+# upsert_batch_size = 100
 ```
 
 ## CLI Usage
@@ -289,12 +303,45 @@ Commands:
   config                View Indexter global settings
     show                Show global settings with syntax highlighting
     path                Print path to the settings config file
+  store                 Manage the Qdrant vector store container
+    init                Initialize the store (pull image and start container)
+    start               Start the store container
+    status              Show store container status
+    stop                Stop the store container
+    remove              Remove the store container
+      --volumes, -v     Also remove data volumes
 
 Options:
   --verbose, -v         Enable verbose output
   --version             Show version
   --help                Show help
 ```
+
+### Store Management
+
+Indexter uses Qdrant as its vector database, running in a Docker container. The `indexter store` commands manage this container lifecycle:
+
+```bash
+# Initialize the store (pulls image, creates and starts container)
+indexter store init
+
+# Check container status
+indexter store status
+
+# Stop the container (data is preserved)
+indexter store stop
+
+# Start a stopped container
+indexter store start
+
+# Remove the container (data is preserved in ~/.local/share/indexter/qdrant)
+indexter store remove
+
+# Remove the container and all stored data
+indexter store remove --volumes
+```
+
+The store data is persisted in `~/.local/share/indexter/qdrant` via a bind mount, so your indexed data survives container restarts and removals (unless `--volumes` is used).
 
 ### Examples
 
@@ -413,35 +460,37 @@ If installed with uv:
 
 ## Programmatic Usage
 
-For custom integrations, use the `Repo` class directly:
+For custom integrations, use the `Repo` class with a `VectorStore` context manager:
 
 ```python
 import asyncio
 from pathlib import Path
 from indexter import Repo
+from indexter.store import VectorStore
 
 async def main():
-    # Initialize a new repository (name derived from directory)
-    repo = await Repo.init(Path("/path/to/your/repo"))
+    async with VectorStore() as store:
+        # Initialize a new repository (name derived from directory)
+        repo = await Repo.init(Path("/path/to/your/repo"), store)
 
-    # Index the repository
-    result = await repo.index()
-    print(f"Indexed {result.nodes_added} nodes")
+        # Index the repository
+        result = await repo.index(store)
+        print(f"Indexed {result.nodes_added} nodes")
 
-    # Search indexed code
-    results = await repo.search("authentication handler", limit=5)
-    for r in results.results:
-        print(f"{r.score:.3f}: {r.metadata['node_name']}")
+        # Search indexed code
+        results = await repo.search("authentication handler", store, limit=5)
+        for r in results.results:
+            print(f"{r.score:.3f}: {r.metadata['node_name']}")
 
-    # Retrieve an existing repository with status metadata
-    repo = await Repo.get_one("my-repo", with_metadata=True)
-    print(f"Stale: {repo.metadata.is_stale}")
+        # Retrieve an existing repository with status metadata
+        repo = await Repo.get_one("my-repo", store, with_metadata=True)
+        print(f"Stale: {repo.metadata.is_stale}")
 
-    # List all configured repositories
-    all_repos = await Repo.get_all()
+        # List all configured repositories
+        all_repos = await Repo.get_all(store)
 
-    # Remove a repository and its indexed data
-    await Repo.remove_one("my-repo")
+        # Remove a repository and its indexed data
+        await Repo.remove_one("my-repo", store)
 
 asyncio.run(main())
 ```

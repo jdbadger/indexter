@@ -8,10 +8,11 @@ from fastmcp import Context
 
 from indexter.exceptions import RepoNotFoundError
 from indexter.models import Repo
+from indexter.store import VectorStore
 from indexter.store.models import SearchResults
 
 
-async def list_repos(ctx: Context) -> list[Repo]:
+async def list_repos(ctx: Context, store: VectorStore) -> list[Repo]:
     await ctx.info("Fetching list of configured repositories")
     repos = await Repo.get_all()
     if not repos:
@@ -21,19 +22,20 @@ async def list_repos(ctx: Context) -> list[Repo]:
     return repos
 
 
-async def get_repo(ctx: Context, name: str) -> Repo:
+async def get_repo(ctx: Context, name: str, store: VectorStore) -> Repo:
     """
     Get metadata for a specific Indexter-configured repository.
 
     Args:
         ctx: FastMCP context for logging and progress reporting.
         name: The repository name.
+        store: VectorStore instance for querying metadata.
     Returns:
         Repo model containing metadata for the specified repository.
     """
     try:
         await ctx.info(f"Fetching repository '{name}'")
-        repo = await Repo.get_one(name, with_metadata=True)
+        repo = await Repo.get_one(name, store, with_metadata=True)
         await ctx.info(f"Fetched repository '{name}'")
         return repo
     except RepoNotFoundError as e:
@@ -48,6 +50,7 @@ async def get_repo(ctx: Context, name: str) -> Repo:
 
 async def search_repo(
     ctx: Context,
+    store: VectorStore,
     name: str,
     query: str,
     document_path: str | None = None,
@@ -66,6 +69,7 @@ async def search_repo(
 
     Args:
         ctx: FastMCP context for logging and progress reporting.
+        store: VectorStore instance for indexing and searching.
         name: The repository name.
         query: Natural language search query.
         document_path: Filter by document path (exact match or prefix with trailing /).
@@ -83,7 +87,7 @@ async def search_repo(
     """
     try:
         await ctx.info(f"Searching repository '{name}' for: {query}")
-        repo = await Repo.get_one(name, with_metadata=True)
+        repo = await Repo.get_one(name, store, with_metadata=True)
     except RepoNotFoundError as e:
         await ctx.error(f"Repository '{name}' not found")
         raise ValueError(  # noqa: E501
@@ -94,7 +98,7 @@ async def search_repo(
         # Ensure the index is up to date before searching
         await ctx.report_progress(0, 3, "Updating repository index...")
         await ctx.debug(f"Ensuring index is up to date for '{name}'")
-        index_result = await repo.index()
+        index_result = await repo.index(store)
 
         if index_result.nodes_added > 0 or index_result.nodes_updated > 0:
             await ctx.info(f"Updated index: +{index_result.nodes_added} nodes, ~{index_result.nodes_updated} updated")
@@ -124,6 +128,7 @@ async def search_repo(
         await ctx.report_progress(1, 3, "Searching code...")
         results = await repo.search(
             query=query,
+            store=store,
             document_path=document_path,
             language=language,
             node_type=node_type,

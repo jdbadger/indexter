@@ -6,8 +6,8 @@ and retrieval of code embeddings using Qdrant. It supports hybrid search
 combining dense and sparse vectors with Reciprocal Rank Fusion (RRF).
 
 The ``VectorStore`` class is the primary interface for all vector operations,
-including collection management, node storage, and semantic search. A singleton
-instance ``store`` is provided for convenient access throughout the application.
+including collection management, node storage, and semantic search. It should
+be used as an async context manager to ensure proper resource cleanup.
 
 Architecture:
     The store uses Qdrant's async client with FastEmbed for embedding generation.
@@ -16,9 +16,11 @@ Architecture:
 
     Storage modes:
 
-    - **local**: File-based storage in XDG data directory (default)
-    - **remote**: Connect to external Qdrant server (Docker/cloud)
+    - **remote**: Connect to Qdrant server running in Docker (default)
     - **memory**: In-memory storage for testing
+
+    The Qdrant container is managed via the CLI: ``indexter store init``.
+    Data is persisted at ``~/.local/share/indexter/qdrant`` (XDG_DATA_HOME).
 
     Hybrid search:
         Search combines two embedding strategies using RRF fusion:
@@ -56,41 +58,51 @@ Classes:
         Statistics from an indexing operation (nodes added, updated, etc.).
 
 Example:
-    Using the singleton store instance::
+    Using VectorStore as a context manager::
 
-        from indexter.store import store
+        from indexter.store import VectorStore
 
-        # Ensure collection exists
-        await store.ensure_collection("indexter_my-project")
+        async with VectorStore() as store:
+            # Ensure collection exists
+            await store.ensure_collection("indexter_my-project")
 
-        # Upsert nodes (embeddings generated automatically)
-        nodes = [Node(content="def hello(): pass", metadata=...)]
-        count = await store.upsert_nodes("indexter_my-project", nodes)
+            # Upsert nodes (embeddings generated automatically)
+            nodes = [Node(content="def hello(): pass", metadata=...)]
+            count = await store.upsert_nodes("indexter_my-project", nodes)
 
-        # Search with filters
-        results = await store.search(
-            collection_name="indexter_my-project",
-            query="function that handles authentication",
-            language="python",
-            node_type="function",
-            limit=10,
-        )
+            # Search with filters
+            results = await store.search(
+                collection_name="indexter_my-project",
+                query="function that handles authentication",
+                language="python",
+                node_type="function",
+                limit=10,
+            )
 
-        for result in results.results:
-            print(f"{result.score:.3f}: {result.metadata['node_name']}")
+            for result in results.results:
+                print(f"{result.score:.3f}: {result.metadata['node_name']}")
 
     Change detection for incremental indexing::
 
-        # Get stored hashes for comparison with local files
-        hashes = await store.get_document_hashes("indexter_my-project")
-        # Returns: {"src/main.py": "abc123...", "src/utils.py": "def456..."}
+        async with VectorStore() as store:
+            # Get stored hashes for comparison with local files
+            hashes = await store.get_document_hashes("indexter_my-project")
+            # Returns: {"src/main.py": "abc123...", "src/utils.py": "def456..."}
 
 Configuration:
     Store behavior is controlled via ``settings.store``:
 
-    - ``mode``: Storage mode (local, remote, memory)
-    - ``host``, ``port``: Remote server connection
+    - ``image``: Docker image for Qdrant (default: qdrant/qdrant:latest)
+    - ``host``, ``port``: Connection settings (default: localhost:6333)
+    - ``grpc_port``: gRPC port (default: 6334)
+    - ``prefer_grpc``: Whether to use gRPC over HTTP
     - ``api_key``: Authentication for cloud instances
+    - ``mode``: Storage mode (server or memory for testing)
+    - ``timeout``: API operation timeout in seconds (default: 120)
+
+    When ``prefer_grpc`` is enabled, the client is configured with keepalive
+    settings to detect stale connections and automatic retry policies to
+    recover from transient failures (e.g., server restarts).
 
     Embedding models are configured globally:
 
@@ -111,6 +123,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -138,31 +151,82 @@ class VectorStore:
         self._vector_name: str | None = None
         self._sparse_vector_name: str | None = None
 
+    async def __aenter__(self) -> VectorStore:
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit async context manager and close client connection."""
+        await self.close()
+
+    async def close(self) -> None:
+        """Close the client connection and reset state.
+
+        This should be called when the event loop is about to change (e.g.,
+        between CLI commands that each use their own anyio.run() call) to
+        prevent gRPC connection issues.
+        """
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+            self._embedding_model_name = None
+            self._sparse_embedding_model_name = None
+            self._initialized_collections = set()
+            self._vector_name = None
+            self._sparse_vector_name = None
+            logger.debug("Closed Qdrant client connection")
+
     @property
     def client(self) -> AsyncQdrantClient:
         """Get or create the async Qdrant client."""
         if self._client is None:
             mode = settings.store.mode
 
-            if mode == StoreMode.local:
-                # Local file-based storage (serverless)
-                store_path = settings.data_dir / "store"
-                store_path.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Using local Qdrant storage at {store_path}")
-                self._client = AsyncQdrantClient(path=str(store_path))
-            elif mode == StoreMode.memory:
+            if mode == StoreMode.memory:
                 # In-memory storage (for testing)
                 logger.info("Using in-memory Qdrant storage")
-                self._client = AsyncQdrantClient(location=":memory:")
+                self._client = AsyncQdrantClient(
+                    location=":memory:",
+                    timeout=settings.store.timeout,
+                )
             else:
-                # Remote Qdrant server
+                # Qdrant server (default)
                 logger.info(f"Connecting to Qdrant (async) at {settings.store.host}:{settings.store.port}")
+
+                if settings.store.prefer_grpc:
+                    # gRPC retry policy to handle transient failures
+                    grpc_service_config = json.dumps(
+                        {
+                            "retryPolicy": {
+                                "maxAttempts": 3,
+                                "initialBackoff": "0.1s",
+                                "maxBackoff": "1s",
+                                "backoffMultiplier": 2,
+                                "retryableStatusCodes": ["UNAVAILABLE"],
+                            }
+                        }
+                    )
+                    # gRPC keepalive options to detect stale connections and trigger reconnection
+                    # This helps recover from server restarts without "Socket Closed" errors
+                    grpc_options = {
+                        "grpc.keepalive_time_ms": 10000,  # Send keepalive ping every 10 seconds
+                        "grpc.keepalive_timeout_ms": 5000,  # Wait 5 seconds for ping ack
+                        "grpc.keepalive_permit_without_calls": True,  # Send pings even when idle
+                        "grpc.http2.max_pings_without_data": 0,  # Allow unlimited pings
+                        "grpc.enable_retries": 1,  # Enable automatic retries
+                        "grpc.service_config": grpc_service_config,
+                    }
+                else:
+                    grpc_options = None
+
                 self._client = AsyncQdrantClient(
                     host=settings.store.host,
                     port=settings.store.port,
                     grpc_port=settings.store.grpc_port,
                     prefer_grpc=settings.store.prefer_grpc,
                     api_key=settings.store.api_key,
+                    timeout=settings.store.timeout,
+                    grpc_options=grpc_options,
                 )
 
             # Set the embedding models for fastembed

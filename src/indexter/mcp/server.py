@@ -13,6 +13,7 @@ from pydantic import Field
 
 from indexter.config import settings
 from indexter.models import Repo
+from indexter.store import VectorStore
 from indexter.store.models import SearchResults
 
 from .prompts import get_search_workflow
@@ -20,19 +21,38 @@ from .tools import get_repo, list_repos, search_repo
 
 __all__ = ["server", "run_server"]
 
+# Module-level store instance, initialized during lifespan
+_store: VectorStore | None = None
+
+
+def get_store() -> VectorStore:
+    """Get the current VectorStore instance.
+
+    Returns:
+        The VectorStore instance initialized during server startup.
+
+    Raises:
+        RuntimeError: If called before server startup completes.
+    """
+    if _store is None:
+        raise RuntimeError("VectorStore not initialized. Server lifespan has not started.")
+    return _store
+
 
 @asynccontextmanager
 async def lifespan(server):
     """Lifespan context manager for startup/shutdown resource management."""
-    # Startup: warm up the vector store connection
-    from indexter.store import store
+    global _store
 
-    _ = store.client  # Initialize connection eagerly
+    # Startup: create and warm up the vector store connection
+    _store = VectorStore()
+    _ = _store.client  # Initialize connection eagerly
 
     yield  # Server runs
 
-    # Shutdown: cleanup resources (if needed in future)
-    # Note: Qdrant client doesn't require explicit cleanup currently
+    # Shutdown: cleanup resources
+    await _store.close()
+    _store = None
 
 
 # Create the MCP server
@@ -53,7 +73,7 @@ async def list_repositories(ctx: Context) -> list[Repo]:
     indexing status (i.e., number of nodes indexed, number of documents indexed,
     number of stale documents in the index).
     """
-    return await list_repos(ctx)
+    return await list_repos(ctx, get_store())
 
 
 REPO_NAME_DESC = (
@@ -75,7 +95,7 @@ async def get_repository(
     Returns:
         Repo model containing metadata for the specified repository.
     """
-    return await get_repo(ctx, name)
+    return await get_repo(ctx, name, get_store())
 
 
 SEARCH_REPO_NAME_DESC = "Name of the repository to search. Use list_repositories to see available repositories."
@@ -164,6 +184,7 @@ async def search_repository(
     """
     return await search_repo(
         ctx=ctx,
+        store=get_store(),
         name=name,
         query=query,
         document_path=document_path,

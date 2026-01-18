@@ -13,6 +13,19 @@ from indexter.store.models import IndexResult, SearchResults
 from indexter.walker.models import Document, DocumentMetadata
 
 
+def create_mock_store():
+    """Create a mock VectorStore instance with common async methods."""
+    mock_store = Mock()
+    mock_store.get_document_hashes = AsyncMock(return_value={})
+    mock_store.count_nodes = AsyncMock(return_value=0)
+    mock_store.ensure_collection = AsyncMock()
+    mock_store.delete_collection = AsyncMock()
+    mock_store.upsert_nodes = AsyncMock()
+    mock_store.delete_by_document_paths = AsyncMock()
+    mock_store.search = AsyncMock()
+    return mock_store
+
+
 # Helper function to create DocumentMetadata with all required fields
 def create_doc_metadata(
     repo="test-repo",
@@ -71,15 +84,16 @@ class TestRepoMetadata:
             return
             yield  # Make it a generator
 
-        with patch("indexter.models.Walker") as mock_walker_class, patch("indexter.models.store") as mock_store:
+        with patch("indexter.models.Walker") as mock_walker_class:
             mock_walker_instance = Mock()
             mock_walker_instance.walk = empty_walk
             mock_walker_class.return_value = mock_walker_instance
 
+            mock_store = create_mock_store()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.count_nodes = AsyncMock(return_value=0)
 
-            metadata = await RepoMetadata.from_repo(repo)
+            metadata = await RepoMetadata.from_repo(repo, mock_store)
 
             assert metadata.document_paths == []
             assert metadata.languages == []
@@ -120,7 +134,6 @@ class TestRepoMetadata:
         with (
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
-            patch("indexter.models.store") as mock_store,
         ):
             mock_walker_instance = Mock()
             mock_walker_instance.walk = mock_walk
@@ -169,10 +182,11 @@ class TestRepoMetadata:
 
             mock_parser_class.side_effect = [mock_parser1, mock_parser2]
 
+            mock_store = create_mock_store()
             mock_store.get_document_hashes = AsyncMock(return_value={"src/main.py": "hash1", "src/utils.py": "hash2"})
             mock_store.count_nodes = AsyncMock(return_value=2)
 
-            metadata = await RepoMetadata.from_repo(repo)
+            metadata = await RepoMetadata.from_repo(repo, mock_store)
 
             assert set(metadata.document_paths) == {"src/main.py", "src/utils.py"}
             assert metadata.languages == ["python"]
@@ -206,7 +220,6 @@ class TestRepoMetadata:
         with (
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
-            patch("indexter.models.store") as mock_store,
         ):
             mock_walker_instance = Mock()
             mock_walker_instance.walk = mock_walk
@@ -218,10 +231,11 @@ class TestRepoMetadata:
             mock_parser_class.return_value = mock_parser
 
             # Stored hash is different from local hash
+            mock_store = create_mock_store()
             mock_store.get_document_hashes = AsyncMock(return_value={"src/changed.py": "old_hash"})
             mock_store.count_nodes = AsyncMock(return_value=1)
 
-            metadata = await RepoMetadata.from_repo(repo)
+            metadata = await RepoMetadata.from_repo(repo, mock_store)
 
             assert metadata.is_stale is True
 
@@ -251,7 +265,6 @@ class TestRepoMetadata:
         with (
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
-            patch("indexter.models.store") as mock_store,
         ):
             mock_walker_instance = Mock()
             mock_walker_instance.walk = mock_walk
@@ -262,11 +275,12 @@ class TestRepoMetadata:
             mock_parser.parse.side_effect = Exception("Parse error")
             mock_parser_class.return_value = mock_parser
 
+            mock_store = create_mock_store()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.count_nodes = AsyncMock(return_value=0)
 
             with caplog.at_level("WARNING"):
-                metadata = await RepoMetadata.from_repo(repo)
+                metadata = await RepoMetadata.from_repo(repo, mock_store)
 
             assert "Failed to parse" in caplog.text
             assert metadata.document_paths == ["src/bad.py"]
@@ -298,7 +312,6 @@ class TestRepoMetadata:
         with (
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
-            patch("indexter.models.store") as mock_store,
         ):
             mock_walker_instance = Mock()
             mock_walker_instance.walk = mock_walk
@@ -308,13 +321,160 @@ class TestRepoMetadata:
             mock_parser = Mock(spec=[])  # Empty spec - no language attribute
             mock_parser_class.return_value = mock_parser
 
+            mock_store = create_mock_store()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.count_nodes = AsyncMock(return_value=0)
 
-            metadata = await RepoMetadata.from_repo(repo)
+            metadata = await RepoMetadata.from_repo(repo, mock_store)
 
             assert metadata.languages == []
             assert metadata.node_types == []
+
+    def test_should_return_empty_message_for_no_documents(self):
+        """Test document_tree returns '(no documents)' when document_paths is empty."""
+        metadata = RepoMetadata(
+            document_paths=[],
+            languages=[],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        assert metadata.document_tree == "(no documents)"
+
+    def test_should_render_single_file_at_root(self):
+        """Test document_tree renders a single file with simple connector."""
+        metadata = RepoMetadata(
+            document_paths=["README.md"],
+            languages=["markdown"],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        expected = "└── README.md"
+        assert metadata.document_tree == expected
+
+    def test_should_render_multiple_files_at_root(self):
+        """Test document_tree renders multiple files at root level."""
+        metadata = RepoMetadata(
+            document_paths=["README.md", "setup.py", "main.py"],
+            languages=["python"],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        expected = "├── README.md\n├── main.py\n└── setup.py"
+        assert metadata.document_tree == expected
+
+    def test_should_render_nested_directory_structure(self):
+        """Test document_tree renders nested directories with proper hierarchy."""
+        metadata = RepoMetadata(
+            document_paths=[
+                "src/main.py",
+                "src/utils.py",
+                "tests/test_main.py",
+            ],
+            languages=["python"],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        expected = "├── src/\n│   ├── main.py\n│   └── utils.py\n└── tests/\n    └── test_main.py"
+        assert metadata.document_tree == expected
+
+    def test_should_add_trailing_slash_to_directories(self):
+        """Test document_tree adds trailing / to directories."""
+        metadata = RepoMetadata(
+            document_paths=[
+                "src/core/models.py",
+                "src/core/utils.py",
+            ],
+            languages=["python"],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        expected = "└── src/\n    └── core/\n        ├── models.py\n        └── utils.py"
+        assert metadata.document_tree == expected
+
+    def test_should_render_complex_project_structure(self):
+        """Test document_tree renders a complex project structure correctly."""
+        metadata = RepoMetadata(
+            document_paths=[
+                "README.md",
+                "pyproject.toml",
+                "src/indexter/__init__.py",
+                "src/indexter/config.py",
+                "src/indexter/models.py",
+                "src/indexter/cli/cli.py",
+                "src/indexter/mcp/server.py",
+                "tests/test_config.py",
+                "tests/test_models.py",
+            ],
+            languages=["python"],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        expected = (
+            "├── README.md\n"
+            "├── pyproject.toml\n"
+            "├── src/\n"
+            "│   └── indexter/\n"
+            "│       ├── __init__.py\n"
+            "│       ├── cli/\n"
+            "│       │   └── cli.py\n"
+            "│       ├── config.py\n"
+            "│       ├── mcp/\n"
+            "│       │   └── server.py\n"
+            "│       └── models.py\n"
+            "└── tests/\n"
+            "    ├── test_config.py\n"
+            "    └── test_models.py"
+        )
+        assert metadata.document_tree == expected
+
+    def test_should_handle_mixed_depth_paths(self):
+        """Test document_tree handles paths at different nesting levels."""
+        metadata = RepoMetadata(
+            document_paths=[
+                "root.py",
+                "a/b.py",
+                "a/c/d.py",
+                "a/c/e/f.py",
+            ],
+            languages=["python"],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        expected = (
+            "├── a/\n│   ├── b.py\n│   └── c/\n│       ├── d.py\n│       └── e/\n│           └── f.py\n└── root.py"
+        )
+        assert metadata.document_tree == expected
+
+    def test_should_sort_paths_alphabetically(self):
+        """Test document_tree sorts paths alphabetically."""
+        metadata = RepoMetadata(
+            document_paths=[
+                "z.py",
+                "a.py",
+                "m.py",
+            ],
+            languages=["python"],
+            node_types=[],
+            nodes_indexed=0,
+            is_stale=False,
+        )
+
+        expected = "├── a.py\n├── m.py\n└── z.py"
+        assert metadata.document_tree == expected
 
 
 class TestRepoInit:
@@ -489,7 +649,8 @@ class TestRepoGetMethods:
             mock_metadata = Mock(spec=RepoMetadata)
             mock_metadata_class.from_repo = AsyncMock(return_value=mock_metadata)
 
-            repo = await Repo.get_one("meta-repo", with_metadata=True)
+            mock_store = create_mock_store()
+            repo = await Repo.get_one("meta-repo", mock_store, with_metadata=True)
 
             assert repo.metadata == mock_metadata
             mock_metadata_class.from_repo.assert_called_once()
@@ -543,7 +704,8 @@ class TestRepoGetMethods:
             mock_metadata2 = Mock(spec=RepoMetadata)
             mock_metadata_class.from_repo = AsyncMock(side_effect=[mock_metadata1, mock_metadata2])
 
-            repos = await Repo.get_all(with_metadata=True)
+            mock_store = create_mock_store()
+            repos = await Repo.get_all(mock_store, with_metadata=True)
 
             assert len(repos) == 2
             assert repos[0].metadata == mock_metadata1
@@ -570,10 +732,7 @@ class TestRepoRemoveMethods:
         mock_settings.name = "remove-me"
         mock_settings.collection_name = "indexter_remove-me"
 
-        with (
-            patch("indexter.models.RepoSettings") as mock_repo_settings_class,
-            patch("indexter.models.store") as mock_store,
-        ):
+        with patch("indexter.models.RepoSettings") as mock_repo_settings_class:
             mock_repo_settings_class.load = AsyncMock(
                 side_effect=[
                     [mock_settings],  # First call in get_one
@@ -581,10 +740,11 @@ class TestRepoRemoveMethods:
                 ]
             )
             mock_repo_settings_class.save = AsyncMock()
+            mock_store = create_mock_store()
             mock_store.delete_collection = AsyncMock()
 
             with caplog.at_level("INFO"):
-                result = await Repo.remove_one("remove-me")
+                result = await Repo.remove_one("remove-me", mock_store)
 
             assert result is True
             assert "Removed repository" in caplog.text
@@ -597,8 +757,9 @@ class TestRepoRemoveMethods:
         with patch("indexter.models.RepoSettings") as mock_repo_settings_class:
             mock_repo_settings_class.load = AsyncMock(return_value=[])
 
+            mock_store = create_mock_store()
             with pytest.raises(RepoNotFoundError):
-                await Repo.remove_one("nonexistent")
+                await Repo.remove_one("nonexistent", mock_store)
 
     @pytest.mark.asyncio
     async def test_should_return_false_when_repo_already_removed(self):
@@ -607,10 +768,7 @@ class TestRepoRemoveMethods:
         mock_settings.name = "already-gone"
         mock_settings.collection_name = "indexter_already-gone"
 
-        with (
-            patch("indexter.models.RepoSettings") as mock_repo_settings_class,
-            patch("indexter.models.store") as mock_store,
-        ):
+        with patch("indexter.models.RepoSettings") as mock_repo_settings_class:
             # First call returns the repo, second call returns empty list (race condition)
             mock_repo_settings_class.load = AsyncMock(
                 side_effect=[
@@ -619,9 +777,10 @@ class TestRepoRemoveMethods:
                 ]
             )
             mock_repo_settings_class.save = AsyncMock()
+            mock_store = create_mock_store()
             mock_store.delete_collection = AsyncMock()
 
-            result = await Repo.remove_one("already-gone")
+            result = await Repo.remove_one("already-gone", mock_store)
 
             assert result is False
 
@@ -634,16 +793,14 @@ class TestRepoRemoveMethods:
         mock_settings2 = Mock(spec=RepoSettings)
         mock_settings2.collection_name = "indexter_repo2"
 
-        with (
-            patch("indexter.models.RepoSettings") as mock_repo_settings_class,
-            patch("indexter.models.store") as mock_store,
-        ):
+        with patch("indexter.models.RepoSettings") as mock_repo_settings_class:
             mock_repo_settings_class.load = AsyncMock(return_value=[mock_settings1, mock_settings2])
             mock_repo_settings_class.save = AsyncMock()
+            mock_store = create_mock_store()
             mock_store.delete_collection = AsyncMock()
 
             with caplog.at_level("INFO"):
-                result = await Repo.remove_all()
+                result = await Repo.remove_all(mock_store)
 
             assert result is True
             assert "Removed all repositories" in caplog.text
@@ -656,7 +813,8 @@ class TestRepoRemoveMethods:
         with patch("indexter.models.RepoSettings") as mock_repo_settings_class:
             mock_repo_settings_class.load = AsyncMock(return_value=[])
 
-            result = await Repo.remove_all()
+            mock_store = create_mock_store()
+            result = await Repo.remove_all(mock_store)
 
             assert result is False
 
@@ -688,7 +846,8 @@ class TestRepoIndex:
             return
             yield  # Make it a generator
 
-        with patch("indexter.models.store") as mock_store, patch("indexter.models.Walker") as mock_walker_class:
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_store = create_mock_store()
             mock_store.delete_collection = AsyncMock()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
@@ -699,7 +858,7 @@ class TestRepoIndex:
             mock_walker_class.return_value = mock_walker_instance
 
             with caplog.at_level("INFO"):
-                result = await mock_repo.index(full=True)
+                result = await mock_repo.index(mock_store, full=True)
 
             assert "full index" in caplog.text.lower()
             mock_store.delete_collection.assert_called_once_with("indexter_index-repo")
@@ -718,10 +877,10 @@ class TestRepoIndex:
             yield doc.path, doc.content, doc.metadata
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
         ):
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})  # No existing files
             mock_store.upsert_nodes = AsyncMock()
@@ -747,7 +906,7 @@ class TestRepoIndex:
             mock_parser.parse.return_value = [("def new_func(): pass", node_metadata)]
             mock_parser_class.return_value = mock_parser
 
-            result = await mock_repo.index()
+            result = await mock_repo.index(mock_store)
 
             assert result.documents_checked == 1
             assert result.nodes_added == 1
@@ -768,10 +927,10 @@ class TestRepoIndex:
             yield doc.path, doc.content, doc.metadata
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
         ):
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             # File exists with different hash
             mock_store.get_document_hashes = AsyncMock(return_value={"src/modified.py": "oldhash"})
@@ -798,7 +957,7 @@ class TestRepoIndex:
             mock_parser.parse.return_value = [("def updated_func(): pass", node_metadata)]
             mock_parser_class.return_value = mock_parser
 
-            result = await mock_repo.index()
+            result = await mock_repo.index(mock_store)
 
             assert result.documents_checked == 1
             assert result.nodes_added == 0
@@ -813,7 +972,8 @@ class TestRepoIndex:
             return
             yield  # Make it a generator
 
-        with patch("indexter.models.store") as mock_store, patch("indexter.models.Walker") as mock_walker_class:
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             # File exists in store but not on disk
             mock_store.get_document_hashes = AsyncMock(return_value={"src/deleted.py": "hash"})
@@ -824,7 +984,7 @@ class TestRepoIndex:
             mock_walker_instance.walk = mock_walk
             mock_walker_class.return_value = mock_walker_instance
 
-            result = await mock_repo.index()
+            result = await mock_repo.index(mock_store)
 
             assert result.documents_deleted == ["src/deleted.py"]
             mock_store.delete_by_document_paths.assert_called_once_with("indexter_index-repo", ["src/deleted.py"])
@@ -842,10 +1002,10 @@ class TestRepoIndex:
             yield doc.path, doc.content, doc.metadata
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
         ):
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             # Same hash - file unchanged
             mock_store.get_document_hashes = AsyncMock(return_value={"src/unchanged.py": "samehash"})
@@ -855,7 +1015,7 @@ class TestRepoIndex:
             mock_walker_instance.walk = mock_walk
             mock_walker_class.return_value = mock_walker_instance
 
-            result = await mock_repo.index()
+            result = await mock_repo.index(mock_store)
 
             assert result.documents_checked == 1
             assert result.nodes_added == 0
@@ -883,10 +1043,10 @@ class TestRepoIndex:
                 yield doc.path, doc.content, doc.metadata
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
         ):
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.upsert_nodes = AsyncMock()
@@ -913,7 +1073,7 @@ class TestRepoIndex:
             mock_parser_class.return_value = mock_parser
 
             with caplog.at_level("WARNING"):
-                result = await mock_repo.index()
+                result = await mock_repo.index(mock_store)
 
             assert "limited to" in caplog.text.lower()
             assert result.skipped_documents == 1
@@ -946,10 +1106,10 @@ class TestRepoIndex:
             yield doc3.path, doc3.content, doc3.metadata
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
         ):
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.upsert_nodes = AsyncMock()
@@ -979,7 +1139,7 @@ class TestRepoIndex:
             parsers = [create_parser(doc1), create_parser(doc2), create_parser(doc3)]
             mock_parser_class.side_effect = parsers
 
-            await mock_repo.index()
+            await mock_repo.index(mock_store)
 
             # Should call upsert twice: once for first 2 nodes, once for remaining 1
             assert mock_store.upsert_nodes.call_count == 2
@@ -997,10 +1157,10 @@ class TestRepoIndex:
             yield doc.path, doc.content, doc.metadata
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
         ):
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.upsert_nodes = AsyncMock()
@@ -1014,7 +1174,7 @@ class TestRepoIndex:
             mock_parser_class.return_value = mock_parser
 
             with caplog.at_level("WARNING"):
-                result = await mock_repo.index()
+                result = await mock_repo.index(mock_store)
 
             assert len(result.errors) == 1
             assert "Failed to parse" in result.errors[0]
@@ -1033,11 +1193,11 @@ class TestRepoIndex:
             yield doc.path, doc.content, doc.metadata
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
             patch("indexter.models.Node") as mock_node_class,
         ):
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.upsert_nodes = AsyncMock()
@@ -1057,7 +1217,7 @@ class TestRepoIndex:
             placeholder_node.metadata.node_type = "__PLACEHOLDER__"
             mock_node_class.placeholder.return_value = placeholder_node
 
-            result = await mock_repo.index()
+            result = await mock_repo.index(mock_store)
 
             mock_node_class.placeholder.assert_called_once()
             mock_store.upsert_nodes.assert_called_once()
@@ -1073,7 +1233,6 @@ class TestRepoIndex:
             yield  # Make it a generator
 
         with (
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.datetime") as mock_datetime,
         ):
@@ -1083,6 +1242,7 @@ class TestRepoIndex:
             mock_datetime.now.side_effect = [start_time, end_time]
             mock_datetime.UTC = UTC
 
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
 
@@ -1090,7 +1250,7 @@ class TestRepoIndex:
             mock_walker_instance.walk = empty_walk
             mock_walker_class.return_value = mock_walker_instance
 
-            result = await mock_repo.index()
+            result = await mock_repo.index(mock_store)
 
             assert result.indexed_at == end_time
             assert result.duration == 5.0
@@ -1119,58 +1279,59 @@ class TestRepoSearch:
         """Test search uses repository's top_k as default limit."""
         mock_results = Mock(spec=SearchResults)
 
-        with patch("indexter.models.store") as mock_store:
-            mock_store.search = AsyncMock(return_value=mock_results)
+        mock_store = create_mock_store()
+        mock_store.search = AsyncMock(return_value=mock_results)
 
-            await mock_repo.search("test query")
+        await mock_repo.search("test query", mock_store)
 
-            mock_store.search.assert_called_once()
-            call_kwargs = mock_store.search.call_args[1]
-            assert call_kwargs["limit"] == 10
-            assert call_kwargs["query"] == "test query"
+        mock_store.search.assert_called_once()
+        call_kwargs = mock_store.search.call_args[1]
+        assert call_kwargs["limit"] == 10
+        assert call_kwargs["query"] == "test query"
 
     @pytest.mark.asyncio
     async def test_should_search_with_custom_limit(self, mock_repo):
         """Test search accepts custom limit parameter."""
         mock_results = Mock(spec=SearchResults)
 
-        with patch("indexter.models.store") as mock_store:
-            mock_store.search = AsyncMock(return_value=mock_results)
+        mock_store = create_mock_store()
+        mock_store.search = AsyncMock(return_value=mock_results)
 
-            await mock_repo.search("test query", limit=5)
+        await mock_repo.search("test query", mock_store, limit=5)
 
-            call_kwargs = mock_store.search.call_args[1]
-            assert call_kwargs["limit"] == 5
+        call_kwargs = mock_store.search.call_args[1]
+        assert call_kwargs["limit"] == 5
 
     @pytest.mark.asyncio
     async def test_should_search_with_all_filters(self, mock_repo):
         """Test search passes all filter parameters to store."""
         mock_results = Mock(spec=SearchResults)
 
-        with patch("indexter.models.store") as mock_store:
-            mock_store.search = AsyncMock(return_value=mock_results)
+        mock_store = create_mock_store()
+        mock_store.search = AsyncMock(return_value=mock_results)
 
-            await mock_repo.search(
-                query="find functions",
-                document_path="src/main.py",
-                language="python",
-                node_type="function",
-                node_name="my_func",
-                parent_scope="MyClass",
-                has_documentation=True,
-                limit=20,
-            )
+        await mock_repo.search(
+            query="find functions",
+            store=mock_store,
+            document_path="src/main.py",
+            language="python",
+            node_type="function",
+            node_name="my_func",
+            parent_scope="MyClass",
+            has_documentation=True,
+            limit=20,
+        )
 
-            call_kwargs = mock_store.search.call_args[1]
-            assert call_kwargs["collection_name"] == "indexter_search-repo"
-            assert call_kwargs["query"] == "find functions"
-            assert call_kwargs["limit"] == 20
-            assert call_kwargs["document_path"] == "src/main.py"
-            assert call_kwargs["language"] == "python"
-            assert call_kwargs["node_type"] == "function"
-            assert call_kwargs["node_name"] == "my_func"
-            assert call_kwargs["parent_scope"] == "MyClass"
-            assert call_kwargs["has_documentation"] is True
+        call_kwargs = mock_store.search.call_args[1]
+        assert call_kwargs["collection_name"] == "indexter_search-repo"
+        assert call_kwargs["query"] == "find functions"
+        assert call_kwargs["limit"] == 20
+        assert call_kwargs["document_path"] == "src/main.py"
+        assert call_kwargs["language"] == "python"
+        assert call_kwargs["node_type"] == "function"
+        assert call_kwargs["node_name"] == "my_func"
+        assert call_kwargs["parent_scope"] == "MyClass"
+        assert call_kwargs["has_documentation"] is True
 
     @pytest.mark.asyncio
     async def test_should_assign_repo_info_to_results(self, mock_repo):
@@ -1179,13 +1340,13 @@ class TestRepoSearch:
         mock_results.repo = None
         mock_results.repo_path = None
 
-        with patch("indexter.models.store") as mock_store:
-            mock_store.search = AsyncMock(return_value=mock_results)
+        mock_store = create_mock_store()
+        mock_store.search = AsyncMock(return_value=mock_results)
 
-            result = await mock_repo.search("test")
+        result = await mock_repo.search("test", mock_store)
 
-            assert result.repo == "search-repo"
-            assert result.repo_path == str(mock_repo.settings.path)
+        assert result.repo == "search-repo"
+        assert result.repo_path == str(mock_repo.settings.path)
 
 
 class TestRepoIntegration:
@@ -1202,7 +1363,6 @@ class TestRepoIntegration:
         # Mock all dependencies
         with (
             patch("indexter.models.RepoSettings") as mock_repo_settings_class,
-            patch("indexter.models.store") as mock_store,
             patch("indexter.models.Walker") as mock_walker_class,
             patch("indexter.models.Parser") as mock_parser_class,
         ):
@@ -1253,19 +1413,20 @@ class TestRepoIntegration:
             mock_parser.parse.return_value = [("def main(): pass", node_metadata)]
             mock_parser_class.return_value = mock_parser
 
+            mock_store = create_mock_store()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
             mock_store.upsert_nodes = AsyncMock()
 
             # Index
-            index_result = await repo.index()
+            index_result = await repo.index(mock_store)
             assert index_result.nodes_added == 1
 
             # Search
             mock_search_results = Mock(spec=SearchResults)
             mock_store.search = AsyncMock(return_value=mock_search_results)
 
-            search_results = await repo.search("main function")
+            search_results = await repo.search("main function", mock_store)
             assert search_results.repo == "workflow-repo"
 
     @pytest.mark.asyncio
@@ -1321,7 +1482,8 @@ class TestRepoIntegration:
             return
             yield  # Make it a generator
 
-        with patch("indexter.models.store") as mock_store, patch("indexter.models.Walker") as mock_walker_class:
+        with patch("indexter.models.Walker") as mock_walker_class:
+            mock_store = create_mock_store()
             mock_store.delete_collection = AsyncMock()
             mock_store.ensure_collection = AsyncMock()
             mock_store.get_document_hashes = AsyncMock(return_value={})
@@ -1331,7 +1493,7 @@ class TestRepoIntegration:
             mock_walker_class.return_value = mock_walker_instance
 
             # Full index should delete collection first
-            await repo.index(full=True)
+            await repo.index(mock_store, full=True)
 
             mock_store.delete_collection.assert_called_once_with("indexter_reindex-repo")
             mock_store.ensure_collection.assert_called_once()

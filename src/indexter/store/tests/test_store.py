@@ -1,7 +1,7 @@
 """Comprehensive tests for the VectorStore class."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from qdrant_client import models
@@ -68,6 +68,7 @@ class TestVectorStoreClient:
         mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"sparse-vector": {}}
 
         mock_settings.store.mode = StoreMode.memory
+        mock_settings.store.timeout = 120
         mock_settings.embedding_model = "test-model"
         mock_settings.sparse_embedding_model = "sparse-model"
 
@@ -75,7 +76,7 @@ class TestVectorStoreClient:
         client = store.client
 
         assert client is not None
-        mock_client_class.assert_called_once_with(location=":memory:")
+        mock_client_class.assert_called_once_with(location=":memory:", timeout=120)
         mock_client_instance.set_model.assert_called_once_with("test-model")
         mock_client_instance.set_sparse_model.assert_called_once_with("sparse-model")
         assert store._embedding_model_name == "test-model"
@@ -85,40 +86,20 @@ class TestVectorStoreClient:
 
     @patch("indexter.store.store.settings")
     @patch("indexter.store.store.AsyncQdrantClient")
-    def test_should_create_local_client_with_path(self, mock_client_class, mock_settings):
-        """Test client property creates local file-based client."""
-        mock_client_instance = Mock()
-        mock_client_class.return_value = mock_client_instance
-        mock_client_instance.get_fastembed_vector_params.return_value = {"dense": {}}
-        mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"sparse": {}}
-
-        mock_settings.store.mode = StoreMode.local
-        mock_settings.embedding_model = "model"
-        mock_settings.sparse_embedding_model = "sparse"
-        mock_settings.data_dir = MagicMock()
-        mock_settings.data_dir.__truediv__ = Mock(return_value=Mock(mkdir=Mock()))
-
-        store = VectorStore()
-        client = store.client
-
-        assert client is not None
-        assert mock_client_class.call_args[1]["path"] is not None
-
-    @patch("indexter.store.store.settings")
-    @patch("indexter.store.store.AsyncQdrantClient")
-    def test_should_create_remote_client_with_connection_params(self, mock_client_class, mock_settings):
-        """Test client property creates remote server client."""
+    def test_should_create_server_client_with_connection_params(self, mock_client_class, mock_settings):
+        """Test client property creates server client with gRPC options when prefer_grpc is True."""
         mock_client_instance = Mock()
         mock_client_class.return_value = mock_client_instance
         mock_client_instance.get_fastembed_vector_params.return_value = {"vec": {}}
         mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"sp": {}}
 
-        mock_settings.store.mode = StoreMode.remote
-        mock_settings.store.host = "remote-host"
+        mock_settings.store.mode = StoreMode.server
+        mock_settings.store.host = "qdrant-host"
         mock_settings.store.port = 6333
         mock_settings.store.grpc_port = 6334
         mock_settings.store.prefer_grpc = True
         mock_settings.store.api_key = "secret-key"
+        mock_settings.store.timeout = 120
         mock_settings.embedding_model = "embed"
         mock_settings.sparse_embedding_model = "sparse"
 
@@ -126,13 +107,46 @@ class TestVectorStoreClient:
         client = store.client
 
         assert client is not None
-        mock_client_class.assert_called_once_with(
-            host="remote-host",
-            port=6333,
-            grpc_port=6334,
-            prefer_grpc=True,
-            api_key="secret-key",
-        )
+        # Verify client was created with correct params including grpc_options
+        call_kwargs = mock_client_class.call_args.kwargs
+        assert call_kwargs["host"] == "qdrant-host"
+        assert call_kwargs["port"] == 6333
+        assert call_kwargs["grpc_port"] == 6334
+        assert call_kwargs["prefer_grpc"] is True
+        assert call_kwargs["api_key"] == "secret-key"
+        assert call_kwargs["timeout"] == 120
+        # gRPC options should be set when prefer_grpc is True
+        assert call_kwargs["grpc_options"] is not None
+        assert "grpc.keepalive_time_ms" in call_kwargs["grpc_options"]
+        assert "grpc.enable_retries" in call_kwargs["grpc_options"]
+
+    @patch("indexter.store.store.settings")
+    @patch("indexter.store.store.AsyncQdrantClient")
+    def test_should_create_server_client_without_grpc_options_when_http(self, mock_client_class, mock_settings):
+        """Test client property creates server client without gRPC options when prefer_grpc is False."""
+        mock_client_instance = Mock()
+        mock_client_class.return_value = mock_client_instance
+        mock_client_instance.get_fastembed_vector_params.return_value = {"vec": {}}
+        mock_client_instance.get_fastembed_sparse_vector_params.return_value = {"sp": {}}
+
+        mock_settings.store.mode = StoreMode.server
+        mock_settings.store.host = "qdrant-host"
+        mock_settings.store.port = 6333
+        mock_settings.store.grpc_port = 6334
+        mock_settings.store.prefer_grpc = False  # HTTP mode
+        mock_settings.store.api_key = None
+        mock_settings.store.timeout = 120
+        mock_settings.embedding_model = "embed"
+        mock_settings.sparse_embedding_model = "sparse"
+
+        store = VectorStore()
+        client = store.client
+
+        assert client is not None
+        # Verify grpc_options is None when prefer_grpc is False
+        call_kwargs = mock_client_class.call_args.kwargs
+        assert call_kwargs["prefer_grpc"] is False
+        assert call_kwargs["grpc_options"] is None
 
     @patch("indexter.store.store.settings")
     @patch("indexter.store.store.AsyncQdrantClient")

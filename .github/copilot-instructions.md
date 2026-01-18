@@ -27,7 +27,7 @@ Indexter is a CLI tool and MCP (Model Context Protocol) server that indexes loca
 - **Build Backend**: uv_build
 - **Linter/Formatter**: Ruff 0.14+
 - **Type Checker**: ty
-- **Testing**: pytest, pytest-asyncio, pytest-cov, pytest-testmon
+- **Testing**: pytest, pytest-asyncio, pytest-cov, pytest-testmon, pytest-xdist, inline-snapshot, dirty-equals
 - **Vector Store**: Qdrant (via qdrant-client with FastEmbed)
 - **Parsing**: tree-sitter with language pack
 - **MCP**: FastMCP
@@ -45,22 +45,30 @@ indexter/
 │   ├── config.py          # Configuration system (XDG-compliant, hierarchical)
 │   ├── models.py          # Core Repo model with async index/search/status
 │   ├── exceptions.py      # Custom exceptions: RepoNotFoundError, RepoExistsError
+│   ├── tests/             # Core module tests
 │   ├── cli/               # CLI module (Typer-based)
+│   │   ├── __init__.py    # Exports: app
 │   │   ├── cli.py         # CLI commands
+│   │   ├── config.py      # CLI configuration
+│   │   ├── store.py       # CLI store utilities
 │   │   └── tests/         # CLI tests
 │   ├── mcp/               # MCP server module (FastMCP-based)
-│   │   ├── server.py      # MCP server definition and tools
+│   │   ├── server.py      # MCP server definition
 │   │   ├── tools.py       # Tool implementations
+│   │   ├── prompts.py     # MCP prompts
 │   │   └── tests/         # MCP tests
 │   ├── parser/            # Tree-sitter parsing
 │   │   ├── parser.py      # Parser factory
 │   │   ├── models.py      # NodeMetadata model
-│   │   └── parsers/       # Language-specific parsers
+│   │   ├── parsers/       # Language-specific parsers
+│   │   └── tests/         # Parser tests
 │   ├── store/             # Vector store (Qdrant)
 │   │   ├── store.py       # VectorStore class
+│   │   ├── models.py      # Store models
 │   │   └── tests/         # Store tests
 │   └── walker/            # File system walker
 │       ├── walker.py      # Walker class
+│       ├── models.py      # Walker models
 │       └── tests/         # Walker tests
 └── .github/
     ├── workflows/
@@ -68,6 +76,19 @@ indexter/
     │   └── publish.yml    # Publish to PyPI on release
     └── instructions/      # Copilot context instructions
 ```
+
+## Optional Dependencies
+
+The project uses optional dependencies for different use cases:
+
+| Extra | Description |
+|-------|-------------|
+| `full` | All features (CLI + MCP) |
+| `cli` | CLI only (typer, rich, docker) |
+| `mcp` | MCP server only (fastmcp) |
+| `core` | Core library only (no extras) |
+
+Install with: `uv sync --extra cli` or `pip install indexter[full]`
 
 ## Build & Development Workflow
 
@@ -117,6 +138,9 @@ uv run --group test pytest -k "test_search"
 
 # Run with verbose output
 uv run --group test pytest -v
+
+# Run tests in parallel
+uv run --group test pytest -n auto
 ```
 
 ## CI Requirements
@@ -132,8 +156,9 @@ Always run the full test suite with coverage before submitting changes.
 
 The project uses pre-commit hooks that run on `git commit`:
 - JSON/TOML/YAML validation
+- Large file check
 - uv lock sync
-- Ruff format and lint
+- Ruff format and lint (with auto-fix)
 - pytest with testmon (incremental)
 - ty type checking
 
@@ -157,14 +182,19 @@ def sample_repo(tmp_path):
 ```
 See [.github/instructions/python-tests.instructions.md](.github/instructions/python-tests.instructions.md) for detailed test writing guidelines (AAA pattern, fixtures, mocking, parameterized tests). This file is automatically applied when working with `**/*.py` files.
 
+Additional test utilities available:
+- `inline-snapshot` for snapshot testing
+- `dirty-equals` for flexible assertions
+- `pytest-xdist` for parallel test execution
+
 ### Configuration
 Settings are loaded hierarchically: defaults → global config → repo config → env vars.
 Access via `from indexter.config import settings`.
 
 ## Entry Points
 
-- **CLI**: `indexter` → `src/indexter/cli/cli.py:app`
-- **MCP Server**: `indexter-mcp` → `src/indexter/mcp/server.py:server.run`
+- **CLI**: `indexter` → `src/indexter/cli:app`
+- **MCP Server**: `indexter-mcp` → `src/indexter/mcp/server:server.run`
 - **Programmatic**: `from indexter import Repo`
 
 ## Common Issues & Solutions

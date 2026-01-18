@@ -27,7 +27,7 @@ embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 max_file_size = 1048576
 
 [store]
-mode = "local"
+mode = "server"
 """
         config_file.write_text(config_content)
 
@@ -62,7 +62,7 @@ mode = "local"
         """Test config show uses syntax highlighting for TOML content."""
         config_file = tmp_path / "config.toml"
         config_content = """[store]
-mode = "remote"
+mode = "server"
 url = "http://localhost:6333"
 """
         config_file.write_text(config_content)
@@ -103,7 +103,7 @@ ignore_patterns = [
 ]
 
 [store]
-mode = "local"
+mode = "server"
 
 [mcp]
 transport = "stdio"
@@ -328,7 +328,7 @@ ignore_patterns = [
 ]
 
 [store]
-mode = "local"
+mode = "server"
 path = "~/.local/share/indexter"
 
 [store.qdrant]
@@ -369,7 +369,7 @@ port = 8000
                 """
 embedding_model = "test"
 [store]
-mode = "local"
+mode = "server"
 [mcp]
 transport = "stdio"
 """,

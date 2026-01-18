@@ -28,10 +28,3 @@ jobs:
       
       - name: Run tests with coverage
         run: uv run --group test pytest --cov=indexter --cov-report=term-missing --cov-fail-under=95
-      
-      - name: Upload coverage reports to Codecov
-        if: matrix.python-version == '3.13'
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false

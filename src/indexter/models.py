@@ -77,7 +77,7 @@ from .config import RepoSettings
 from .exceptions import RepoExistsError, RepoNotFoundError
 from .parser import Parser
 from .parser.models import Node
-from .store import store
+from .store import VectorStore
 from .store.models import IndexResult, SearchResults
 from .walker import Walker
 from .walker.models import Document
@@ -105,13 +105,48 @@ class RepoMetadata(BaseModel):
         """Number of indexed documents."""
         return len(self.document_paths)
 
+    @computed_field
+    @property
+    def document_tree(self) -> str:
+        """Hierarchical ASCII tree representation of indexed documents."""
+        if not self.document_paths:
+            return "(no documents)"
+
+        # Build nested tree structure from paths
+        tree: dict[str, dict] = {}
+        for path in sorted(self.document_paths):
+            parts = path.split("/")
+            current = tree
+            for part in parts:
+                current = current.setdefault(part, {})
+
+        # Render tree with ASCII box-drawing characters
+        lines: list[str] = []
+
+        def render(node: dict[str, dict], prefix: str = "") -> None:
+            """Recursively render tree nodes with proper connectors."""
+            items = list(node.items())
+            for i, (name, children) in enumerate(items):
+                is_last = i == len(items) - 1
+                connector = "└── " if is_last else "├── "
+                # Add trailing / for directories (nodes with children)
+                display_name = f"{name}/" if children else name
+                lines.append(f"{prefix}{connector}{display_name}")
+                if children:
+                    extension = "    " if is_last else "│   "
+                    render(children, prefix + extension)
+
+        render(tree)
+        return "\n".join(lines)
+
     @classmethod
-    async def from_repo(cls, repo: Repo) -> RepoMetadata:
+    async def from_repo(cls, repo: Repo, store: VectorStore) -> RepoMetadata:
         """
         Create RepoMetadata by querying the repository's current status.
 
         Args:
             repo: Repo instance to get metadata for.
+            store: VectorStore instance for querying indexed data.
 
         Returns:
             RepoMetadata model with current repository statistics.
@@ -246,7 +281,7 @@ class Repo(BaseModel):
         return cls(settings=settings)
 
     @classmethod
-    async def get_one(cls, name: str, with_metadata: bool = False) -> Repo:
+    async def get_one(cls, name: str, store: VectorStore | None = None, with_metadata: bool = False) -> Repo:
         """
         Retrieve a configured repository by name.
 
@@ -255,6 +290,8 @@ class Repo(BaseModel):
 
         Args:
             name: Repository name (derived from the directory name containing .git).
+            store: VectorStore instance for querying metadata. Required if with_metadata is True.
+            with_metadata: If True, populate the metadata attribute. Requires store parameter.
 
         Returns:
             Repo instance for the requested repository. If with_metadata is True,
@@ -262,34 +299,46 @@ class Repo(BaseModel):
 
         Raises:
             RepoNotFoundError: If no repository with the given name is configured.
+            ValueError: If with_metadata is True but store is not provided.
         """
+        if with_metadata and store is None:
+            raise ValueError("store parameter is required when with_metadata is True")
         repos = await RepoSettings.load()
         for repo_settings in repos:
             if repo_settings.name == name:
                 repo = cls(settings=repo_settings)
-                if with_metadata:
-                    repo.metadata = await RepoMetadata.from_repo(repo)
+                if with_metadata and store is not None:
+                    repo.metadata = await RepoMetadata.from_repo(repo, store)
                 return repo
         raise RepoNotFoundError(f"Repository not found: {name}")
 
     @classmethod
-    async def get_all(cls, with_metadata: bool = False) -> list[Repo]:
+    async def get_all(cls, store: VectorStore | None = None, with_metadata: bool = False) -> list[Repo]:
         """
         Retrieve all configured repositories.
+
+        Args:
+            store: VectorStore instance for querying metadata. Required if with_metadata is True.
+            with_metadata: If True, populate the metadata attribute. Requires store parameter.
 
         Returns:
             List of Repo instances for all configured repositories. If with_metadata is True,
             each Repo instance will have its metadata attribute populated.
+
+        Raises:
+            ValueError: If with_metadata is True but store is not provided.
         """
+        if with_metadata and store is None:
+            raise ValueError("store parameter is required when with_metadata is True")
         repo_settings = await RepoSettings.load()
         repos = [cls(settings=settings) for settings in repo_settings]
-        if with_metadata:
+        if with_metadata and store is not None:
             for repo in repos:
-                repo.metadata = await RepoMetadata.from_repo(repo)
+                repo.metadata = await RepoMetadata.from_repo(repo, store)
         return repos
 
     @classmethod
-    async def remove_one(cls, name: str) -> bool:
+    async def remove_one(cls, name: str, store: VectorStore) -> bool:
         """
         Remove a repository and its indexed data.
 
@@ -298,6 +347,7 @@ class Repo(BaseModel):
 
         Args:
             name: Name of the repository to remove.
+            store: VectorStore instance for deleting the collection.
 
         Returns:
             True if the repository was successfully removed, False if it was
@@ -321,12 +371,15 @@ class Repo(BaseModel):
         return False
 
     @classmethod
-    async def remove_all(cls) -> bool:
+    async def remove_all(cls, store: VectorStore) -> bool:
         """
         Remove all configured repositories and their indexed data.
 
         Deletes all repositories' vector store collections and clears the
         configuration. This operation is permanent and cannot be undone.
+
+        Args:
+            store: VectorStore instance for deleting collections.
 
         Returns:
             True if any repositories were removed, False if there were none.
@@ -345,7 +398,7 @@ class Repo(BaseModel):
         logger.info("Removed all repositories")
         return True
 
-    async def index(self, full: bool = False) -> IndexResult:
+    async def index(self, store: VectorStore, full: bool = False) -> IndexResult:
         """
         Parse and index files in the repository.
 
@@ -370,6 +423,7 @@ class Repo(BaseModel):
         - Batches upsert operations for efficiency
 
         Args:
+            store: VectorStore instance for storing embeddings.
             full: If True, performs a full re-index by deleting the existing
                 collection and re-parsing all files. If False (default),
                 performs incremental indexing based on content hashes.
@@ -446,6 +500,7 @@ class Repo(BaseModel):
             # Process file immediately
             doc = Document(path=path, content=content, metadata=metadata)
 
+            # Parse the file into nodes
             try:
                 logger.info(f"Parsing {doc.path}")
                 doc_nodes: list[Node] = []
@@ -453,32 +508,31 @@ class Repo(BaseModel):
                 for node_content, node_metadata in parser.parse():
                     node = Node(content=node_content, metadata=node_metadata)
                     doc_nodes.append(node)
-
-                if not doc_nodes:
-                    logger.debug(f"No nodes extracted from {doc.path}")
-                    placeholder_node = Node.placeholder(self.name, self.path, doc.path, doc.metadata.hash)
-                    doc_nodes = [placeholder_node]
-
-                if doc_nodes:
-                    pending_nodes.extend(doc_nodes)
-
-                    # Only count as indexed if it's not just a placeholder
-                    if doc_nodes[0].metadata.node_type != "__PLACEHOLDER__":
-                        result.documents_indexed.append(doc.path)
-                        if is_new:
-                            result.nodes_added += len(doc_nodes)
-                        else:
-                            result.nodes_updated += len(doc_nodes)
-
-                    # Batch upsert when we have enough nodes
-                    if len(pending_nodes) >= upsert_batch_size:
-                        await store.upsert_nodes(self.collection_name, pending_nodes)
-                        pending_nodes = []
-
             except Exception as e:
                 error_msg = f"Failed to parse {doc.path}: {e}"
                 logger.warning(error_msg)
                 result.errors.append(error_msg)
+                continue
+
+            if not doc_nodes:
+                logger.debug(f"No nodes extracted from {doc.path}")
+                placeholder_node = Node.placeholder(self.name, self.path, doc.path, doc.metadata.hash)
+                doc_nodes = [placeholder_node]
+
+            pending_nodes.extend(doc_nodes)
+
+            # Only count as indexed if it's not just a placeholder
+            if doc_nodes[0].metadata.node_type != "__PLACEHOLDER__":
+                result.documents_indexed.append(doc.path)
+                if is_new:
+                    result.nodes_added += len(doc_nodes)
+                else:
+                    result.nodes_updated += len(doc_nodes)
+
+            # Batch upsert when we have enough nodes
+            if len(pending_nodes) >= upsert_batch_size:
+                await store.upsert_nodes(self.collection_name, pending_nodes)
+                pending_nodes = []
 
         # Upsert any remaining nodes
         if pending_nodes:
@@ -503,6 +557,7 @@ class Repo(BaseModel):
     async def search(
         self,
         query: str,
+        store: VectorStore,
         document_path: str | None = None,
         language: str | None = None,
         node_type: str | None = None,
@@ -520,7 +575,7 @@ class Repo(BaseModel):
 
         Args:
             query: Natural language or code search query.
-            limit: Maximum number of results to return. Defaults to the repository's top_k setting.
+            store: VectorStore instance for searching.
             document_path: Filter by document path. Use exact match or prefix with
                 trailing '/' for directory filtering.
             language: Filter by programming language (e.g., 'python', 'javascript').
@@ -529,6 +584,8 @@ class Repo(BaseModel):
             parent_scope: Filter by the enclosing scope or class name (e.g., 'MyClass' for methods).
             has_documentation: Filter by documentation presence. True for nodes
                 with docstrings/comments, False for undocumented nodes.
+            limit: Maximum number of results to return. Defaults to the repository's top_k setting.
+
         Returns:
             SearchResults model containing matched code chunks with scores, metadata,
             and query context. Ordered by relevance (highest score first).
