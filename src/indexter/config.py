@@ -213,11 +213,11 @@ LOCK_FILES = [
 
 # Data files (complementing walker's binary detection)
 DATA_FILE_PATTERNS = [
-    ".csv",
-    ".sqlite",
-    ".db",
-    ".log",
-    ".tsv",
+    "*.csv",
+    "*.sqlite",
+    "*.db",
+    "*.log",
+    "*.tsv",
     "*.parquet",
     "*.arrow",
     "*.h5",
