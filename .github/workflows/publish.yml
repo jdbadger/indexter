@@ -14,6 +14,8 @@ jobs:
       
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
       
       - name: Set up Python
         run: uv python install 3.13
@@ -49,6 +51,8 @@ jobs:
       
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
       
       - name: Publish to TestPyPI
         run: uv publish --publish-url https://test.pypi.org/legacy/
@@ -72,6 +76,8 @@ jobs:
       
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
       
       - name: Publish to PyPI
         run: uv publish
