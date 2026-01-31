@@ -2,7 +2,7 @@
 
 from importlib.metadata import version
 
-from .models import Repo
+from .repo import Repo
 
 __all__ = ["Repo"]
 

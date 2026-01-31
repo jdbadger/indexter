@@ -13,7 +13,7 @@ Configuration Hierarchy:
     1. **Default values**: Hard-coded defaults in DefaultSettings
     2. **Global config**: ~/.config/indexter/indexter.toml (XDG_CONFIG_HOME)
     3. **Repo config**: <repo>/indexter.toml or <repo>/pyproject.toml [tool.indexter]
-    4. **Environment variables**: INDEXTER_* (e.g., INDEXTER_EMBEDDING_MODEL)
+    4. **Environment variables**: INDEXTER_* (e.g., INDEXTER_STORE_EMBEDDING_MODEL)
 
 Directory Structure:
     The module follows XDG Base Directory Specification:
@@ -27,36 +27,39 @@ Directory Structure:
 
 Settings Classes:
     DefaultSettings: Base class with default values for indexing parameters
-        (embedding models, ignore patterns, file limits, batch sizes).
+        (ignore patterns, file limits, batch sizes).
 
     Settings: Global application settings singleton
         - XDG directory paths
-        - Store settings (Docker image, connection parameters)
+        - Store settings (Docker image, connection parameters, embedding models)
         - MCP server settings (stdio/http transport)
+        - Watch settings (background file watching)
 
     StoreSettings: Vector store connection configuration
         - Docker image for Qdrant container
         - Connection parameters (host, port, API key)
+        - Embedding models (dense and sparse)
         - Mode for testing (memory mode)
 
     MCPSettings: Model Context Protocol server configuration
         - Transport mode (stdio, http)
         - HTTP server host and port
 
+    WatchSettings: Background file watcher configuration
+        - Enable/disable, debounce, polling interval
+
     RepoSettings: Per-repository settings
         - Inherits defaults from global settings
-        - Can override any default setting
+        - Can override DefaultSettings fields only
         - Automatically loads from indexter.toml or pyproject.toml
 
 Configuration File Format:
     Global config (indexter.toml)::
 
-        embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
-        sparse_embedding_model = "Qdrant/bm25"
         max_file_size = 1048576
         max_files = 1000
         top_k = 10
-        upsert_batch_size = 100
+        upsert_batch_size = 32
         ignore_patterns = [".git/", "__pycache__/", "*.pyc"]
 
         [store]
@@ -65,28 +68,33 @@ Configuration File Format:
         host = "localhost"
         port = 6333
         grpc_port = 6334
-        timeout = 120  # seconds, increase for slow networks or large batches
+        embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+        sparse_embedding_model = "Qdrant/bm25"
 
         [mcp]
         transport = "stdio"  # or "http"
 
+        [watch]
+        enabled = false
+        debounce_ms = 2000
+
     Repo config (indexter.toml or pyproject.toml)::
 
-        # indexter.toml
-        embedding_model = "custom-model"
+        # indexter.toml — only DefaultSettings fields can be overridden
         ignore_patterns = ["custom/", "patterns/"]
+        max_files = 5000
 
         # OR in pyproject.toml
         [tool.indexter]
-        embedding_model = "custom-model"
         ignore_patterns = ["custom/", "patterns/"]
+        max_files = 5000
 
 Example:
     Access global settings via the singleton instance::
 
         from indexter.config import settings
 
-        print(settings.embedding_model)
+        print(settings.store.embedding_model)
         print(settings.config_dir)
         print(settings.store.image)
 
@@ -97,7 +105,7 @@ Example:
 
     Load all registered repositories::
 
-        repos = await RepoSettings.load()
+        repos = RepoSettings.load()
         for repo in repos:
             print(repo.name, repo.path)
 
@@ -105,7 +113,7 @@ Example:
 
         repo1 = RepoSettings(path=Path("/path/to/repo1"))
         repo2 = RepoSettings(path=Path("/path/to/repo2"))
-        await RepoSettings.save([repo1, repo2])  # Persists to repos.json
+        RepoSettings.save([repo1, repo2])  # Persists to repos.json
 """
 
 import json
@@ -261,6 +269,32 @@ def ensure_dirs(dirs: list[Path]) -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
+def get_cache_dir() -> Path:
+    """
+    Get the XDG cache directory for indexter.
+
+    Follows the XDG Base Directory Specification for user-specific
+    non-essential data files. Falls back to ~/.cache if XDG_CACHE_HOME
+    is not set.
+
+    Returns:
+        Path to the indexter cache directory.
+
+    Examples:
+        With XDG_CACHE_HOME=/custom/cache:
+            /custom/cache/indexter
+
+        Without XDG_CACHE_HOME:
+            ~/.cache/indexter
+    """
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        base = Path(xdg_cache)
+    else:
+        base = Path.home() / ".cache"
+    return base / "indexter"
+
+
 def get_config_dir() -> Path:
     """
     Get the XDG config directory for indexter.
@@ -354,6 +388,30 @@ class MCPSettings(BaseSettings):
     port: int = 8765
 
 
+class WatchSettings(BaseSettings):
+    """File watcher settings.
+
+    Configuration for the background file watcher that automatically
+    re-indexes repositories when source files change.
+
+    Attributes:
+        enabled: Whether to enable the file watcher.
+        debounce_ms: Milliseconds to wait after a change before re-indexing.
+        poll_delay_ms: Polling interval for environments without native FS events (e.g. WSL).
+
+    Environment Variables:
+        INDEXTER_WATCH_ENABLED: Enable/disable the file watcher.
+        INDEXTER_WATCH_DEBOUNCE_MS: Override debounce interval.
+        INDEXTER_WATCH_POLL_DELAY_MS: Override polling interval.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="INDEXTER_WATCH_")
+
+    enabled: bool = False
+    debounce_ms: int = 2000
+    poll_delay_ms: int = 5000
+
+
 class StoreMode(StrEnum):
     """
     Vector store connection mode.
@@ -385,9 +443,9 @@ class StoreSettings(BaseSettings):
         grpc_port: gRPC port for server mode (default: 6334).
         prefer_grpc: Whether to prefer gRPC over HTTP for server connections.
         api_key: Optional API key for authenticated server connections.
-        timeout: Timeout in seconds for API operations (default: 120).
-            Increase this if experiencing DEADLINE_EXCEEDED errors during
-            indexing, especially on first run when embedding models are loaded.
+        local_inference_batch_size: Batch size for embedding operations when using local inference (memory mode).
+        embedding_model: model for generating vector embeddings (default: sentence-transformers/all-MiniLM-L6-v2).
+        sparse_embedding_model: Sparse embedding model for text search (default: Qdrant/bm25).
 
     Environment Variables:
         INDEXTER_STORE_MODE: Override store mode.
@@ -397,7 +455,9 @@ class StoreSettings(BaseSettings):
         INDEXTER_STORE_GRPC_PORT: Override gRPC port.
         INDEXTER_STORE_PREFER_GRPC: Override gRPC preference.
         INDEXTER_STORE_API_KEY: Set API key for authentication.
-        INDEXTER_STORE_TIMEOUT: Override timeout for API operations.
+        INDEXTER_STORE_LOCAL_INFERENCE_BATCH_SIZE: Override batch size for local inference (memory mode).
+        INDEXTER_STORE_EMBEDDING_MODEL: Override embedding model for vector generation.
+        INDEXTER_STORE_SPARSE_EMBEDDING_MODEL: Override sparse embedding model for text search.
     """
 
     model_config = SettingsConfigDict(env_prefix="INDEXTER_STORE_")
@@ -410,7 +470,9 @@ class StoreSettings(BaseSettings):
     grpc_port: int = 6334
     prefer_grpc: bool = False
     api_key: str | None = None
-    timeout: int = 120  # 120 seconds to handle embedding model loading and large batches
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    sparse_embedding_model: str = "Qdrant/bm25"
+    local_inference_batch_size: int = 32  # Limit batch size for embedding operations
 
 
 class DefaultSettings(BaseSettings):
@@ -421,22 +483,18 @@ class DefaultSettings(BaseSettings):
     per-repository settings.
 
     Attributes:
-        embedding_model: HuggingFace model for generating vector embeddings.
-        sparse_embedding_model: Sparse embedding model for text search.
         ignore_patterns: File patterns to exclude from indexing.
         max_file_size: Maximum file size in bytes to process (default: 1 MB).
         max_files: Maximum number of files to index per repository.
         top_k: Number of similar documents to retrieve for queries.
-        upsert_batch_size: Number of documents to batch for vector store operations.
+        upsert_batch_size: Number of documents to batch for vector store operations (default: 32).
     """
 
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    sparse_embedding_model: str = "Qdrant/bm25"
     ignore_patterns: list[str] = Field(default_factory=lambda: DEFAULT_IGNORE_PATTERNS.copy())
     max_file_size: int = 1 * 1024 * 1024  # 1 MB
     max_files: int = 1000
     top_k: int = 10
-    upsert_batch_size: int = 100
+    upsert_batch_size: int = 32
 
 
 class Settings(DefaultSettings):
@@ -465,11 +523,13 @@ class Settings(DefaultSettings):
     )
 
     # XDG-compliant directories
+    cache_dir: Path = Field(default_factory=get_cache_dir)
     config_dir: Path = Field(default_factory=get_config_dir)
     data_dir: Path = Field(default_factory=get_data_dir)
 
     store: StoreSettings = Field(default_factory=StoreSettings)
     mcp: MCPSettings = Field(default_factory=MCPSettings)
+    watch: WatchSettings = Field(default_factory=WatchSettings)
 
     @property
     def config_file(self) -> Path:
@@ -503,7 +563,7 @@ class Settings(DefaultSettings):
             __context: Pydantic validation context (unused).
         """
         super().model_post_init(__context)
-        ensure_dirs([self.config_dir, self.data_dir])
+        ensure_dirs([self.cache_dir, self.config_dir, self.data_dir])
         if self.config_file.exists():
             self.from_toml()
         else:
@@ -525,8 +585,6 @@ class Settings(DefaultSettings):
                 toml_data = tomllib.load(f)
             if ignore_patterns := toml_data.get("ignore_patterns"):
                 self.ignore_patterns = ignore_patterns
-            if embedding_model := toml_data.get("embedding_model"):
-                self.embedding_model = embedding_model
             if max_file_size := toml_data.get("max_file_size"):
                 self.max_file_size = max_file_size
             if max_files := toml_data.get("max_files"):
@@ -539,6 +597,8 @@ class Settings(DefaultSettings):
                 self.store = StoreSettings(**store)
             if mcp := toml_data.get("mcp"):
                 self.mcp = MCPSettings(**mcp)
+            if watch := toml_data.get("watch"):
+                self.watch = WatchSettings(**watch)
             logger.debug(f"Loaded settings from {self.config_file}")
         except ValidationError as e:
             logger.warning(f"Validation error in {self.config_file}: {e}")
@@ -554,16 +614,6 @@ class Settings(DefaultSettings):
         """
         doc = tomlkit.document()
         doc.add(tomlkit.comment("indexter global configuration"))
-        doc.add(tomlkit.nl())
-
-        # embedding_model
-        doc.add(tomlkit.comment("# Embedding model to use for generating vector embeddings"))
-        doc.add("embedding_model", tomlkit.string(self.embedding_model))
-        doc.add(tomlkit.nl())
-
-        # sparse_embedding_model
-        doc.add(tomlkit.comment("# Sparse embedding model for text search"))
-        doc.add("sparse_embedding_model", tomlkit.string(self.sparse_embedding_model))
         doc.add(tomlkit.nl())
 
         # ignore_patterns
@@ -626,6 +676,18 @@ class Settings(DefaultSettings):
             else:
                 store.add(tomlkit.comment('# api_key = "" (default)'))
             store.add(tomlkit.nl())
+            # local_inference_batch_size
+            store.add(tomlkit.comment("# Batch size for embedding operations when using local inference (memory mode)"))
+            store.add("local_inference_batch_size", self.store.local_inference_batch_size)
+            store.add(tomlkit.nl())
+            # embedding_model
+            store.add(tomlkit.comment("# Model for generating vector embeddings"))
+            store.add("embedding_model", self.store.embedding_model)
+            store.add(tomlkit.nl())
+            # sparse_embedding_model
+            store.add(tomlkit.comment("# Sparse embedding model for text search"))
+            store.add("sparse_embedding_model", self.store.sparse_embedding_model)
+            store.add(tomlkit.nl())
         doc.add("store", store)
 
         # mcp
@@ -643,11 +705,21 @@ class Settings(DefaultSettings):
             mcp.add("port", self.mcp.port)
             mcp.add(tomlkit.nl())
         doc.add("mcp", mcp)
+        doc.add(tomlkit.nl())
+
+        # watch
+        watch = tomlkit.table()
+        watch.add(tomlkit.comment("# Enable background file watching for automatic re-indexing"))
+        watch.add("enabled", self.watch.enabled)
+        watch.add(tomlkit.nl())
+        watch.add(tomlkit.comment("# Milliseconds to wait after a change before re-indexing"))
+        watch.add("debounce_ms", self.watch.debounce_ms)
+        watch.add(tomlkit.nl())
+        watch.add(tomlkit.comment("# Polling interval (ms) for environments without native FS events"))
+        watch.add("poll_delay_ms", self.watch.poll_delay_ms)
+        doc.add("watch", watch)
 
         return tomlkit.dumps(doc)
-
-
-settings = Settings()
 
 
 class RepoSettings(DefaultSettings):
@@ -732,7 +804,6 @@ class RepoSettings(DefaultSettings):
         elif Path(pyproject_path).exists():
             self.from_pyproject()
         else:
-            self.embedding_model = settings.embedding_model
             self.ignore_patterns = settings.ignore_patterns
             self.max_file_size = settings.max_file_size
             self.max_files = settings.max_files
@@ -754,7 +825,6 @@ class RepoSettings(DefaultSettings):
         try:
             content = Path(toml_path).read_bytes()
             toml_data = tomllib.loads(content.decode("utf-8"))
-            self.embedding_model = toml_data.get("embedding_model", settings.embedding_model)
             self.ignore_patterns = list(set(toml_data.get("ignore_patterns", []) + settings.ignore_patterns))
             self.max_file_size = toml_data.get("max_file_size", settings.max_file_size)
             self.max_files = toml_data.get("max_files", settings.max_files)
@@ -785,7 +855,6 @@ class RepoSettings(DefaultSettings):
             tool_indexter = data.get("tool", {}).get("indexter")
             if tool_indexter is None:
                 return None
-            self.embedding_model = tool_indexter.get("embedding_model", settings.embedding_model)
             self.ignore_patterns = list(set(tool_indexter.get("ignore_patterns", []) + settings.ignore_patterns))
             self.max_file_size = tool_indexter.get("max_file_size", settings.max_file_size)
             self.max_files = tool_indexter.get("max_files", settings.max_files)
@@ -799,7 +868,7 @@ class RepoSettings(DefaultSettings):
         return self
 
     @classmethod
-    async def load(cls) -> list["RepoSettings"]:
+    def load(cls) -> list["RepoSettings"]:
         """
         Load all registered repository settings from repos.json.
 
@@ -834,7 +903,7 @@ class RepoSettings(DefaultSettings):
             return []
 
     @classmethod
-    async def save(cls, repos: list["RepoSettings"]) -> None:
+    def save(cls, repos: list["RepoSettings"]) -> None:
         """
         Save repository settings to the repository registry file atomically.
 
@@ -858,3 +927,9 @@ class RepoSettings(DefaultSettings):
             logger.debug(f"Saved repos config to {repos_config_file} (atomic write)")
         except Exception as e:
             logger.error(f"Failed to save repos config: {e}")
+
+
+# Global settings singleton – must be defined after Settings and RepoSettings
+# so that both classes are available.  RepoSettings methods reference ``settings``
+# at *call time* (not import time), which avoids circular-import issues.
+settings = Settings()

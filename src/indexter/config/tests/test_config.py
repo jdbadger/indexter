@@ -18,7 +18,9 @@ from indexter.config import (
     Settings,
     StoreMode,
     StoreSettings,
+    WatchSettings,
     ensure_dirs,
+    get_cache_dir,
     get_config_dir,
     get_data_dir,
     settings,
@@ -89,6 +91,24 @@ class TestGetConfigDir:
             assert result == expected
 
 
+class TestGetCacheDir:
+    """Test get_cache_dir function."""
+
+    def test_should_use_xdg_cache_home(self):
+        """Test get_cache_dir uses XDG_CACHE_HOME when set."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": "/custom/cache"}):
+            result = get_cache_dir()
+            assert result == Path("/custom/cache/indexter")
+
+    def test_should_default_to_home_cache(self):
+        """Test get_cache_dir defaults to ~/.cache/indexter."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("XDG_CACHE_HOME", None)
+            result = get_cache_dir()
+            expected = Path.home() / ".cache" / "indexter"
+            assert result == expected
+
+
 class TestGetDataDir:
     """Test get_data_dir function."""
 
@@ -114,6 +134,39 @@ class TestMCPTransportEnum:
         """Test MCPTransport enum has expected values."""
         assert MCPTransport.stdio == "stdio"
         assert MCPTransport.http == "http"
+
+
+class TestWatchSettings:
+    """Test WatchSettings configuration."""
+
+    def test_should_have_correct_defaults(self):
+        """Test WatchSettings has correct default values."""
+        watch = WatchSettings()
+        assert watch.enabled is False
+        assert watch.debounce_ms == 2000
+        assert watch.poll_delay_ms == 5000
+
+    def test_should_accept_custom_values(self):
+        """Test WatchSettings accepts custom values."""
+        watch = WatchSettings(enabled=True, debounce_ms=500, poll_delay_ms=10000)
+        assert watch.enabled is True
+        assert watch.debounce_ms == 500
+        assert watch.poll_delay_ms == 10000
+
+    def test_should_load_from_environment_variables(self):
+        """Test WatchSettings loads from environment variables."""
+        with patch.dict(
+            os.environ,
+            {
+                "INDEXTER_WATCH_ENABLED": "true",
+                "INDEXTER_WATCH_DEBOUNCE_MS": "3000",
+                "INDEXTER_WATCH_POLL_DELAY_MS": "8000",
+            },
+        ):
+            watch = WatchSettings()
+            assert watch.enabled is True
+            assert watch.debounce_ms == 3000
+            assert watch.poll_delay_ms == 8000
 
 
 class TestStoreModeEnum:
@@ -171,7 +224,8 @@ class TestStoreSettings:
         assert store.grpc_port == 6334
         assert store.prefer_grpc is False
         assert store.api_key is None
-        assert store.timeout == 120
+        assert store.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+        assert store.sparse_embedding_model == "Qdrant/bm25"
 
     def test_should_accept_custom_values(self):
         """Test StoreSettings accepts custom values."""
@@ -182,7 +236,6 @@ class TestStoreSettings:
             grpc_port=8001,
             prefer_grpc=True,
             api_key="secret123",
-            timeout=300,
         )
         assert store.mode == StoreMode.server
         assert store.host == "vector.example.com"
@@ -190,7 +243,6 @@ class TestStoreSettings:
         assert store.grpc_port == 8001
         assert store.prefer_grpc is True
         assert store.api_key == "secret123"
-        assert store.timeout == 300
 
     def test_should_load_from_environment_variables(self):
         """Test StoreSettings loads from environment variables."""
@@ -203,7 +255,6 @@ class TestStoreSettings:
                 "INDEXTER_STORE_GRPC_PORT": "7001",
                 "INDEXTER_STORE_PREFER_GRPC": "true",
                 "INDEXTER_STORE_API_KEY": "mykey",
-                "INDEXTER_STORE_TIMEOUT": "180",
             },
         ):
             store = StoreSettings()
@@ -213,7 +264,6 @@ class TestStoreSettings:
             assert store.grpc_port == 7001
             assert store.prefer_grpc is True
             assert store.api_key == "mykey"
-            assert store.timeout == 180
 
 
 class TestSettings:
@@ -226,14 +276,14 @@ class TestSettings:
 
         settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
 
-        assert settings_obj.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
         assert settings_obj.ignore_patterns == DEFAULT_IGNORE_PATTERNS
         assert settings_obj.max_file_size == 1 * 1024 * 1024
         assert settings_obj.max_files == 1000
         assert settings_obj.top_k == 10
-        assert settings_obj.upsert_batch_size == 100
+        assert settings_obj.upsert_batch_size == 32
         assert settings_obj.config_dir == config_dir
         assert settings_obj.data_dir == data_dir
+        assert settings_obj.store.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
 
     def test_should_return_correct_config_file_path(self, tmp_path):
         """Test Settings.config_file property returns correct path."""
@@ -287,7 +337,6 @@ class TestSettings:
 
         config_file = config_dir / CONFIG_FILENAME
         config_content = """
-        embedding_model = "custom/model"
         max_file_size = 2097152
         max_files = 500
         top_k = 5
@@ -297,6 +346,7 @@ class TestSettings:
         [store]
         mode = "server"
         host = "custom.host"
+        embedding_model = "custom/model"
 
         [mcp]
         transport = "http"
@@ -306,7 +356,7 @@ class TestSettings:
 
         settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
 
-        assert settings_obj.embedding_model == "custom/model"
+        assert settings_obj.store.embedding_model == "custom/model"
         assert settings_obj.max_file_size == 2097152
         assert settings_obj.max_files == 500
         assert settings_obj.top_k == 5
@@ -316,6 +366,26 @@ class TestSettings:
         assert settings_obj.store.host == "custom.host"
         assert settings_obj.mcp.transport == MCPTransport.http
         assert settings_obj.mcp.port == 9999
+
+    def test_should_load_prefer_grpc_from_config_file(self, tmp_path):
+        """Test Settings loads prefer_grpc from config file correctly."""
+        config_dir = tmp_path / "config"
+        data_dir = tmp_path / "data"
+        config_dir.mkdir(parents=True)
+
+        config_file = config_dir / CONFIG_FILENAME
+        config_content = """
+        [store]
+        prefer_grpc = true
+        grpc_port = 6334
+        """
+        config_file.write_text(config_content)
+
+        settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
+
+        # verify prefer_grpc is loaded from TOML, not using the default value
+        assert settings_obj.store.prefer_grpc is True
+        assert settings_obj.store.grpc_port == 6334
 
     def test_should_handle_validation_error_in_from_toml(self, tmp_path, caplog):
         """Test Settings.from_toml handles validation errors gracefully."""
@@ -368,14 +438,14 @@ class TestSettings:
 
         # Should be valid TOML
         parsed = tomllib.loads(toml_str)
-        assert "embedding_model" in parsed
-        assert "sparse_embedding_model" in parsed
         assert "ignore_patterns" in parsed
         assert "max_file_size" in parsed
         assert "max_files" in parsed
         assert "top_k" in parsed
         assert "upsert_batch_size" in parsed
         assert "store" in parsed
+        assert "embedding_model" in parsed["store"]
+        assert "sparse_embedding_model" in parsed["store"]
         assert "mcp" in parsed
 
     def test_should_include_server_store_settings_in_toml(self, tmp_path):
@@ -457,6 +527,63 @@ class TestSettings:
         assert parsed["store"]["mode"] == "server"
         assert parsed["store"]["api_key"] == "secret123"
 
+    def test_should_include_watch_section_in_toml(self, tmp_path):
+        """Test Settings.to_toml includes [watch] section."""
+        config_dir = tmp_path / "config"
+        data_dir = tmp_path / "data"
+
+        settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
+        toml_str = settings_obj.to_toml()
+        parsed = tomllib.loads(toml_str)
+
+        assert "watch" in parsed
+        assert parsed["watch"]["enabled"] is False
+        assert parsed["watch"]["debounce_ms"] == 2000
+        assert parsed["watch"]["poll_delay_ms"] == 5000
+
+    def test_should_include_custom_watch_settings_in_toml(self, tmp_path):
+        """Test Settings.to_toml includes custom watch values."""
+        config_dir = tmp_path / "config"
+        data_dir = tmp_path / "data"
+
+        settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
+        settings_obj.watch.enabled = True
+        settings_obj.watch.debounce_ms = 500
+        settings_obj.watch.poll_delay_ms = 10000
+
+        toml_str = settings_obj.to_toml()
+        parsed = tomllib.loads(toml_str)
+
+        assert parsed["watch"]["enabled"] is True
+        assert parsed["watch"]["debounce_ms"] == 500
+        assert parsed["watch"]["poll_delay_ms"] == 10000
+
+    def test_should_load_watch_from_toml(self, tmp_path):
+        """Test Settings.from_toml loads [watch] section."""
+        config_dir = tmp_path / "config"
+        data_dir = tmp_path / "data"
+
+        # Create settings, write custom watch values, reload
+        settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
+        settings_obj.watch.enabled = True
+        settings_obj.watch.debounce_ms = 750
+        settings_obj.config_file.write_text(settings_obj.to_toml())
+
+        # Create a new settings that loads from the file
+        settings_obj2 = Settings(config_dir=config_dir, data_dir=data_dir)
+        assert settings_obj2.watch.enabled is True
+        assert settings_obj2.watch.debounce_ms == 750
+
+    def test_should_have_default_watch_field(self, tmp_path):
+        """Test Settings includes watch field with defaults."""
+        config_dir = tmp_path / "config"
+        data_dir = tmp_path / "data"
+
+        settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
+        assert settings_obj.watch.enabled is False
+        assert settings_obj.watch.debounce_ms == 2000
+        assert settings_obj.watch.poll_delay_ms == 5000
+
 
 class TestRepoSettings:
     """Test RepoSettings configuration."""
@@ -503,10 +630,12 @@ class TestRepoSettings:
 
     def test_should_inherit_global_defaults(self, tmp_path):
         """Test RepoSettings inherits defaults from global settings when no config exists."""
-        with patch("indexter.config.settings") as mock_settings:
-            mock_settings.embedding_model = "test/model"
+        with patch("indexter.config.config.settings") as mock_settings:
             mock_settings.ignore_patterns = [".test/"]
             mock_settings.max_file_size = 999
+            mock_settings.max_files = 500
+            mock_settings.top_k = 5
+            mock_settings.upsert_batch_size = 50
 
             git_repo = tmp_path / "test-repo"
             git_repo.mkdir()
@@ -514,7 +643,6 @@ class TestRepoSettings:
 
             repo_settings = RepoSettings(path=git_repo)
 
-            assert repo_settings.embedding_model == "test/model"
             assert repo_settings.ignore_patterns == [".test/"]
             assert repo_settings.max_file_size == 999
 
@@ -526,7 +654,6 @@ class TestRepoSettings:
 
         config_file = git_repo / CONFIG_FILENAME
         config_content = """
-        embedding_model = "repo/specific/model"
         max_files = 250
         ignore_patterns = ["custom/", "*.tmp"]
         """
@@ -534,7 +661,6 @@ class TestRepoSettings:
 
         repo_settings = RepoSettings(path=git_repo)
 
-        assert repo_settings.embedding_model == "repo/specific/model"
         assert repo_settings.max_files == 250
         assert "custom/" in repo_settings.ignore_patterns
         assert "*.tmp" in repo_settings.ignore_patterns
@@ -552,7 +678,6 @@ class TestRepoSettings:
         name = "my-project"
 
         [tool.indexter]
-        embedding_model = "pyproject/model"
         ignore_patterns = ["custom/", "*.tmp"]
         max_files = 300
         top_k = 15
@@ -561,7 +686,6 @@ class TestRepoSettings:
 
         repo_settings = RepoSettings(path=git_repo)
 
-        assert repo_settings.embedding_model == "pyproject/model"
         assert repo_settings.max_files == 300
         assert repo_settings.top_k == 15
         assert "custom/" in repo_settings.ignore_patterns
@@ -574,11 +698,11 @@ class TestRepoSettings:
         git_repo.mkdir()
         (git_repo / ".git").mkdir()
 
-        (git_repo / CONFIG_FILENAME).write_text('embedding_model = "from-indexter-toml"')
-        (git_repo / "pyproject.toml").write_text('[tool.indexter]\nembedding_model = "from-pyproject"')
+        (git_repo / CONFIG_FILENAME).write_text("max_files = 111")
+        (git_repo / "pyproject.toml").write_text("[tool.indexter]\nmax_files = 222")
 
         repo_settings = RepoSettings(path=git_repo)
-        assert repo_settings.embedding_model == "from-indexter-toml"
+        assert repo_settings.max_files == 111
 
     def test_should_handle_errors_in_from_toml(self, tmp_path, caplog):
         """Test RepoSettings.from_toml handles errors gracefully."""
@@ -623,7 +747,7 @@ class TestRepoSettings:
         pyproject_file.write_text(pyproject_content)
 
         repo_settings = RepoSettings(path=git_repo)
-        assert repo_settings.embedding_model == settings.embedding_model
+        assert repo_settings.max_file_size == settings.max_file_size
 
     def test_should_log_debug_message_from_toml(self, tmp_path, caplog):
         """Test RepoSettings.from_toml logs debug message when loading config."""
@@ -708,7 +832,7 @@ class TestRepoSettings:
 
         config_file = git_repo / CONFIG_FILENAME
         config_content = """
-        embedding_model = "test/model"
+        max_files = 500
         ignore_patterns = []
         """
         config_file.write_text(config_content)
@@ -719,10 +843,10 @@ class TestRepoSettings:
     @pytest.mark.asyncio
     async def test_should_return_empty_list_when_repos_json_missing(self, tmp_path):
         """Test RepoSettings.load returns empty list when repos.json doesn't exist."""
-        with patch("indexter.config.settings") as mock_settings:
+        with patch("indexter.config.config.settings") as mock_settings:
             mock_settings.repos_config_file = tmp_path / "repos.json"
 
-            repos = await RepoSettings.load()
+            repos = RepoSettings.load()
             assert repos == []
 
     @pytest.mark.asyncio
@@ -747,15 +871,14 @@ class TestRepoSettings:
 
         mock_settings = MagicMock()
         mock_settings.repos_config_file = repos_file
-        mock_settings.embedding_model = "test/model"
         mock_settings.ignore_patterns = [".test/"]
         mock_settings.max_file_size = 1024
         mock_settings.max_files = 100
         mock_settings.top_k = 5
         mock_settings.upsert_batch_size = 50
 
-        with patch("indexter.config.settings", mock_settings):
-            repos = await RepoSettings.load()
+        with patch("indexter.config.config.settings", mock_settings):
+            repos = RepoSettings.load()
 
             assert len(repos) == 2
             assert repos[0].path == repo1
@@ -770,9 +893,9 @@ class TestRepoSettings:
         mock_settings = MagicMock()
         mock_settings.repos_config_file = repos_file
 
-        with patch("indexter.config.settings", mock_settings):
+        with patch("indexter.config.config.settings", mock_settings):
             with caplog.at_level("ERROR"):
-                repos = await RepoSettings.load()
+                repos = RepoSettings.load()
 
             assert repos == []
             assert any(
@@ -780,7 +903,7 @@ class TestRepoSettings:
                 for record in caplog.records
             )
 
-    async def test_should_save_repositories_to_repos_json(self, tmp_path):
+    def test_should_save_repositories_to_repos_json(self, tmp_path):
         """Test RepoSettings.save saves repositories to repos.json."""
         repo1 = tmp_path / "repo1"
         repo1.mkdir()
@@ -794,40 +917,39 @@ class TestRepoSettings:
 
         mock_settings = MagicMock()
         mock_settings.repos_config_file = repos_file
-        mock_settings.embedding_model = "test/model"
         mock_settings.ignore_patterns = [".test/"]
         mock_settings.max_file_size = 1024
         mock_settings.max_files = 100
         mock_settings.top_k = 5
         mock_settings.upsert_batch_size = 50
 
-        with patch("indexter.config.settings", mock_settings):
+        with patch("indexter.config.config.settings", mock_settings):
             repo_settings1 = RepoSettings(path=repo1)
             repo_settings2 = RepoSettings(path=repo2)
 
             with patch.object(RepoSettings, "model_dump") as mock_dump:
                 mock_dump.side_effect = [
-                    {"path": str(repo1), "embedding_model": "test"},
-                    {"path": str(repo2), "embedding_model": "test"},
+                    {"path": str(repo1)},
+                    {"path": str(repo2)},
                 ]
 
-                await RepoSettings.save([repo_settings1, repo_settings2])
+                RepoSettings.save([repo_settings1, repo_settings2])
 
             assert repos_file.exists()
             data = json.loads(repos_file.read_text())
             assert "repos" in data
             assert len(data["repos"]) == 2
 
-    async def test_should_handle_save_errors_gracefully(self, tmp_path, caplog):
+    def test_should_handle_save_errors_gracefully(self, tmp_path, caplog):
         """Test RepoSettings.save handles errors gracefully."""
         repos_file = tmp_path / "nonexistent" / "repos.json"
 
         mock_settings = MagicMock()
         mock_settings.repos_config_file = repos_file
 
-        with patch("indexter.config.settings", mock_settings):
+        with patch("indexter.config.config.settings", mock_settings):
             with caplog.at_level("ERROR"):
-                await RepoSettings.save([])
+                RepoSettings.save([])
 
             assert any("Failed to save repos config" in record.message for record in caplog.records)
 

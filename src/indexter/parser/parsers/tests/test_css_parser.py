@@ -3,8 +3,8 @@ from unittest.mock import Mock
 import pytest
 from tree_sitter import Node
 
+from indexter.models import Document, DocumentMetadata
 from indexter.parser.parsers.css import CssParser
-from indexter.walker.models import Document, DocumentMetadata
 
 
 @pytest.fixture
@@ -29,7 +29,6 @@ body {
     metadata = DocumentMetadata(
         repo="test-repo",
         repo_path="/path/to/repo",
-        hash="abc123",
         ext=".css",
         size_bytes=len(content),
         mtime=1234567890.0,
@@ -631,7 +630,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -665,7 +663,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -695,7 +692,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -724,7 +720,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -746,7 +741,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -770,7 +764,6 @@ body {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -794,7 +787,6 @@ body {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -820,7 +812,6 @@ nav > ul li:first-child {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -847,7 +838,6 @@ nav > ul li:first-child {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -872,7 +862,6 @@ nav > ul li:first-child {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -890,7 +879,6 @@ nav > ul li:first-child {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=0,
             mtime=1234567890.0,
@@ -907,7 +895,6 @@ nav > ul li:first-child {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -925,7 +912,6 @@ nav > ul li:first-child {
         metadata = DocumentMetadata(
             repo="my-repo",
             repo_path="/custom/path",
-            hash="hash123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -939,7 +925,6 @@ nav > ul li:first-child {
         assert node_metadata.repo == "my-repo"
         assert node_metadata.repo_path == "/custom/path"
         assert node_metadata.document_path == "custom/styles.css"
-        assert node_metadata.hash == "hash123"
 
     def test_should_parse_complete_stylesheet(self, css_parser):
         content = """@charset "UTF-8";
@@ -987,7 +972,6 @@ body {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1045,7 +1029,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1069,7 +1052,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1088,7 +1070,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1108,7 +1089,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1135,7 +1115,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1153,7 +1132,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1187,7 +1165,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1209,7 +1186,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".css",
             size_bytes=len(content),
             mtime=1234567890.0,

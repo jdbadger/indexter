@@ -82,9 +82,9 @@ class JavaScriptParser(BaseLanguageParser):
         # Get the name
         name_nodes = match.get("name", [])
         source_nodes = match.get("source", [])
-        if name_nodes:
+        if name_nodes and name_nodes[0].text is not None:
             node_name = name_nodes[0].text.decode()
-        elif source_nodes:
+        elif source_nodes and source_nodes[0].text is not None:
             # For imports, use the source string (strip quotes)
             node_name = source_nodes[0].text.decode().strip("'\"")
         elif node.type == "export_statement":

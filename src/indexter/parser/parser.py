@@ -30,14 +30,14 @@ Supported Languages:
 
     - **Python** (.py): functions, classes, methods, decorators, docstrings
     - **JavaScript** (.js, .jsx): functions, classes, arrow functions, JSDoc
-    - **TypeScript** (.ts, .tsx): functions, classes, interfaces, type aliases
-    - **Rust** (.rs): functions, structs, impls, traits, macros
-    - **HTML** (.html): elements, scripts, styles
-    - **CSS** (.css): rules, selectors, media queries
-    - **Markdown** (.md, .mkd, .markdown): headings, code blocks
-    - **JSON** (.json): objects, arrays, key-value pairs
-    - **YAML** (.yaml, .yml): mappings, sequences, anchors
-    - **TOML** (.toml): tables, key-value pairs
+    - **TypeScript** (.ts, .tsx): functions, classes, interfaces, type aliases, TSDoc
+    - **Rust** (.rs): functions, structs, enums, traits, impl blocks, doc comments
+    - **HTML** (.html): tables, lists, headers (h1–h6)
+    - **CSS** (.css): rule sets, media queries, keyframes, imports, at-rules
+    - **Markdown** (.md, .mkd, .markdown): ATX headings with section content
+    - **JSON** (.json): objects, arrays
+    - **YAML** (.yaml, .yml): block mappings, block sequences
+    - **TOML** (.toml): tables, array tables, top-level pairs
 
     Files with unrecognized extensions use ChunkParser for basic chunking.
 
@@ -48,6 +48,7 @@ Node Extraction:
     - ``node_type``: Type of construct (function, class, method, etc.)
     - ``node_name``: Identifier name (function name, class name, etc.)
     - ``start_line``, ``end_line``: Location in source file
+    - ``start_byte``, ``end_byte``: Byte offsets in source file
     - ``documentation``: Docstrings, comments, JSDoc, etc.
     - ``signature``: Function/method signature with parameters
     - ``parent_scope``: Enclosing class or module name
@@ -57,7 +58,7 @@ Example:
     Basic usage with a document::
 
         from indexter.parser import Parser
-        from indexter.walker.models import Document, DocumentMetadata
+        from indexter.models import Document, DocumentMetadata
 
         doc = Document(
             path="src/utils.py",
@@ -80,14 +81,6 @@ Example:
         if ".py" in Parser.EXT_TO_LANGUAGE_PARSER:
             print("Python has full Tree-sitter support")
 
-    Accessing the underlying parser::
-
-        parser = Parser(doc)
-        if hasattr(parser._parser, 'language'):
-            print(f"Using {parser._parser.language} parser")
-        else:
-            print("Using fallback ChunkParser")
-
 Tree-sitter Integration:
     Language parsers use Tree-sitter for robust, syntax-aware parsing:
 
@@ -100,9 +93,9 @@ Tree-sitter Integration:
     comments, and language-specific syntax correctly.
 
 See Also:
-    - ``indexter.parser.models``: Node and NodeMetadata models
+    - ``indexter.models``: Document, Node, and NodeMetadata models
     - ``indexter.parser.parsers.base``: BaseParser and BaseLanguageParser
-    - ``indexter.walker.models.Document``: Input document model
+    - ``indexter.parser.parsers.chunk``: ChunkParser fallback
 """
 
 from __future__ import annotations
@@ -114,7 +107,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from indexter.models import Document
 
-from .models import NodeMetadata
+from indexter.models import NodeMetadata
+
 from .parsers.base import BaseParser
 from .parsers.chunk import ChunkParser
 from .parsers.css import CssParser

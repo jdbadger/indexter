@@ -3,8 +3,8 @@ from unittest.mock import Mock
 import pytest
 from tree_sitter import Node
 
+from indexter.models import Document, DocumentMetadata
 from indexter.parser.parsers.javascript import JavaScriptParser
-from indexter.walker.models import Document, DocumentMetadata
 
 
 @pytest.fixture
@@ -30,7 +30,6 @@ class SimpleClass {
     metadata = DocumentMetadata(
         repo="test-repo",
         repo_path="/path/to/repo",
-        hash="abc123",
         ext=".js",
         size_bytes=len(content),
         mtime=1234567890.0,
@@ -993,7 +992,6 @@ function add(a, b) {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1023,7 +1021,6 @@ class Calculator {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1052,7 +1049,6 @@ const greet = name => `Hello, ${name}!`;
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1077,7 +1073,6 @@ async function fetchData() {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1103,7 +1098,6 @@ function* idGenerator() {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1126,7 +1120,6 @@ const myVariable = 42;  // Should be skipped
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1150,7 +1143,6 @@ import './styles.css';
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1176,7 +1168,6 @@ export const MY_CONST = 42;
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1204,7 +1195,6 @@ function add(a, b) {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1230,7 +1220,6 @@ const arrowFunc = (x, y) => x * y;
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1256,7 +1245,6 @@ function outer() {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1300,7 +1288,6 @@ class Calculator {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1335,7 +1322,6 @@ class Calculator {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=0,
             mtime=1234567890.0,
@@ -1357,7 +1343,6 @@ class Calculator {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1378,7 +1363,6 @@ function test() {
         metadata = DocumentMetadata(
             repo="my-repo",
             repo_path="/home/user/projects/my-repo",
-            hash="abc123def456",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1392,7 +1376,6 @@ function test() {
         assert node_metadata.repo == "my-repo"
         assert node_metadata.repo_path == "/home/user/projects/my-repo"
         assert node_metadata.document_path == "src/test.js"
-        assert node_metadata.hash == "abc123def456"
 
     def test_should_handle_unicode_content(self, javascript_parser):
         content = """
@@ -1403,7 +1386,6 @@ function greet() {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content.encode("utf-8")),
             mtime=1234567890.0,
@@ -1433,7 +1415,6 @@ const REGULAR_CONST = 2;
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1458,7 +1439,6 @@ function myFunc() {  // Line 3
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1485,7 +1465,6 @@ function incomplete(
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1507,7 +1486,6 @@ function {long_name}() {{
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1526,7 +1504,6 @@ function {long_name}() {{
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1564,7 +1541,6 @@ export default () => {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/test",
-            hash="hash123",
             ext=".js",
             size_bytes=len(content),
             mtime=1234567890.0,

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Generator
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -10,10 +10,10 @@ from tree_sitter import Language, Node, Parser, Query, QueryCursor
 from tree_sitter_language_pack import SupportedLanguage, get_language
 from tree_sitter_language_pack import get_parser as get_ts_parser
 
-from indexter.parser.models import NodeMetadata
+from indexter.models import NodeMetadata
 
 
-class LanguageEnum(str, Enum):
+class LanguageEnum(StrEnum):
     """Supported languages."""
 
     CSS = "css"
@@ -147,8 +147,8 @@ class BaseLanguageParser(BaseParser):
                     "repo": document.metadata.repo,
                     "repo_path": document.metadata.repo_path,
                     "document_path": document.path,
-                    "hash": document.metadata.hash,
+                    "document_hash": document.hash,
                     "language": self.language,
                     **node_info,
                 }
-                yield content_str, NodeMetadata(**data)  # type: ignore[arg-type]
+                yield content_str, NodeMetadata(**data)  # type: ignore[arg-type, ty:invalid-argument-type]

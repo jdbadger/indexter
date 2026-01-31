@@ -32,7 +32,7 @@ class ChunkParser(BaseParser):
                     repo=document.metadata.repo,
                     repo_path=document.metadata.repo_path,
                     document_path=document.path,
-                    hash=document.metadata.hash,
+                    document_hash=document.hash,
                     language=LanguageEnum.NA,
                     node_type="chunk",
                     node_name=None,

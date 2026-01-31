@@ -1,220 +1,239 @@
+"""FastMCP 3.0 server for Indexter.
+
+Exposes repository indexing and semantic code search as MCP tools.
+The Qdrant Docker container and QdrantClient are managed in the server
+lifespan so a single synchronous client is shared across all tool calls.
 """
-Indexter MCP Server.
 
-A FastMCP server exposing repository indexing and semantic search capabilities.
-"""
+from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from typing import Annotated
+import asyncio
+import logging
+from pathlib import Path
 
-import mcp.types
 from fastmcp import Context, FastMCP
-from pydantic import Field
+from fastmcp.server.lifespan import lifespan
+from qdrant_client import QdrantClient
 
 from indexter.config import settings
-from indexter.models import Repo
-from indexter.store import VectorStore
-from indexter.store.models import SearchResults
+from indexter.config.config import StoreMode
+from indexter.container import (
+    check_container_health,
+    start_qdrant_container,
+    stop_qdrant_container,
+)
+from indexter.repo import Repo
+from indexter.watcher import watch_repos
 
-from .prompts import get_search_workflow
-from .tools import get_repo, list_repos, search_repo
-
-__all__ = ["server", "run_server"]
-
-# Module-level store instance, initialized during lifespan
-_store: VectorStore | None = None
-
-
-def get_store() -> VectorStore:
-    """Get the current VectorStore instance.
-
-    Returns:
-        The VectorStore instance initialized during server startup.
-
-    Raises:
-        RuntimeError: If called before server startup completes.
-    """
-    if _store is None:
-        raise RuntimeError("VectorStore not initialized. Server lifespan has not started.")
-    return _store
+logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(server):
-    """Lifespan context manager for startup/shutdown resource management."""
-    global _store
-
-    # Startup: create and warm up the vector store connection
-    _store = VectorStore()
-    _ = _store.client  # Initialize connection eagerly
-
-    yield  # Server runs
-
-    # Shutdown: cleanup resources
-    await _store.close()
-    _store = None
+# ---------------------------------------------------------------------------
+# Lifespan: manage Qdrant container + client
+# ---------------------------------------------------------------------------
 
 
-# Create the MCP server
+@lifespan
+async def app_lifespan(server):
+    """Start Qdrant container on startup, tear down on shutdown."""
+    store = settings.store
+
+    if store.mode != StoreMode.server:
+        raise RuntimeError(
+            f"Store mode must be 'server' for the MCP server, got '{store.mode}'. "
+            "Memory mode is only supported in tests."
+        )
+
+    container = start_qdrant_container(settings)
+
+    try:
+        check_container_health(settings)
+
+        client = QdrantClient(
+            host=store.host,
+            port=store.port,
+            grpc_port=store.grpc_port,
+            prefer_grpc=store.prefer_grpc,
+            api_key=store.api_key,
+        )
+
+        watcher_task = None
+        stop_event = None
+
+        if settings.watch.enabled:
+            stop_event = asyncio.Event()
+            watcher_task = asyncio.create_task(watch_repos(client, stop_event, settings.watch))
+            logger.info("File watcher started")
+
+        try:
+            yield {"client": client, "stop_event": stop_event}
+        finally:
+            if watcher_task is not None and stop_event is not None:
+                stop_event.set()
+                watcher_task.cancel()
+                try:
+                    await asyncio.wait_for(watcher_task, timeout=5)
+                except (asyncio.CancelledError, TimeoutError):
+                    pass
+                logger.info("File watcher stopped")
+            client.close()
+    finally:
+        stop_qdrant_container(container)
+
+
+# ---------------------------------------------------------------------------
+# Server
+# ---------------------------------------------------------------------------
+
 server = FastMCP(
-    "indexter",
-    instructions="Repository indexing and semantic code search for AI agents",
-    lifespan=lifespan,
-    icons=[mcp.types.Icon(src="🔍")],
+    name="indexter",
+    instructions=(
+        "Indexter indexes local git repositories using tree-sitter semantic "
+        "parsing and provides hybrid search (dense + sparse + RRF) via Qdrant. "
+        "Use init_repo to register a repository, index_repo to build or update "
+        "the index, search_repo to find code, list_repos to see registered "
+        "repositories, and remove_repo to unregister one."
+    ),
+    lifespan=app_lifespan,
 )
 
 
-@server.tool(icons=[mcp.types.Icon(src="📋")])
-async def list_repositories(ctx: Context) -> list[Repo]:
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
+
+@server.tool
+def list_repos(ctx: Context) -> list[dict]:
+    """List all registered repositories with metadata and index staleness.
+
+    Returns a list of objects, each containing the repository name, path,
+    whether its index is stale, and aggregate metadata (document count,
+    node count, languages, node types, document tree).
     """
-    List all Indexter-configured repositories.
+    repos = Repo.get_all()
+    results = []
+    for repo in repos:
+        results.append(
+            {
+                "name": repo.name,
+                "path": repo.path,
+                "is_stale": repo.is_stale,
+                "metadata": repo.metadata.model_dump(),
+            }
+        )
+    return results
 
-    Returns a list of repository objects with name, path, and
-    indexing status (i.e., number of nodes indexed, number of documents indexed,
-    number of stale documents in the index).
-    """
-    return await list_repos(ctx, get_store())
 
+@server.tool
+def init_repo(path: str) -> dict:
+    """Register a new git repository with Indexter.
 
-REPO_NAME_DESC = (
-    "Name of the repository to retrieve metadata for. Use list_repositories to see available repository names."
-)
-
-
-@server.tool(icons=[mcp.types.Icon(src="📄")])
-async def get_repository(
-    ctx: Context,
-    name: Annotated[str, Field(description=REPO_NAME_DESC)],
-) -> Repo:
-    """
-    Get metadata for a specific Indexter-configured repository.
+    The repository must contain a .git directory. The name is derived
+    from the directory name.
 
     Args:
-        ctx: FastMCP context for logging and progress reporting.
-        name: The repository name.
+        path: Absolute path to the git repository root.
+
     Returns:
-        Repo model containing metadata for the specified repository.
+        A dict with the repo name, path, and current metadata.
     """
-    return await get_repo(ctx, name, get_store())
+    repo = Repo.init(Path(path))
+    return {
+        "name": repo.name,
+        "path": repo.path,
+        "metadata": repo.metadata.model_dump(),
+    }
 
 
-SEARCH_REPO_NAME_DESC = "Name of the repository to search. Use list_repositories to see available repositories."
+@server.tool
+def index_repo(name: str, ctx: Context, full: bool = False) -> dict:
+    """Index (or re-index) a registered repository.
 
-SEARCH_QUERY_DESC = (
-    "Natural language search query describing what code you're looking for. "
-    "Examples: 'authentication middleware', 'database connection setup', "
-    "'error handling utilities'."
-)
-
-DOCUMENT_PATH_DESC = (
-    "Filter results to a specific file or directory. "
-    "Use exact file path (e.g., 'src/auth/handlers.py') or directory prefix "
-    "with trailing slash (e.g., 'src/auth/') to match all files in that directory."
-)
-
-LANGUAGE_DESC = (
-    "Filter by programming language. "
-    "Common values: 'python', 'javascript', 'typescript', 'rust', 'go', 'java'. "
-    "Use the language name as it appears in the repository."
-)
-
-NODE_TYPE_DESC = (
-    "Filter by code structure type. "
-    "Common values: 'function', 'class', 'method', 'interface', 'struct', 'enum'. "
-    "Helps narrow search to specific code constructs."
-)
-
-NODE_NAME_DESC = (
-    "Filter by specific symbol/identifier name. "
-    "Use to find references to a particular function, class, or variable name "
-    "across the codebase."
-)
-
-PARENT_SCOPE_DESC = (
-    "Filter by parent scope name. "
-    "Useful for finding methods within a specific class or functions within a module. "
-    "Example: parent_scope='AuthHandler' to find methods in the AuthHandler class."
-)
-
-HAS_DOCUMENTATION_DESC = (
-    "Filter by documentation presence. "
-    "Set to true to find only documented code, false to find undocumented code, "
-    "or omit to search all code regardless of documentation."
-)
-
-LIMIT_DESC = (
-    "Maximum number of search results to return. "
-    "Defaults to the repository's configured top_k value (usually 10). "
-    "Increase for broader results, decrease for faster responses."
-)
-
-
-@server.tool(icons=[mcp.types.Icon(src="🔎")])
-async def search_repository(
-    ctx: Context,
-    name: Annotated[str, Field(description=SEARCH_REPO_NAME_DESC)],
-    query: Annotated[str, Field(description=SEARCH_QUERY_DESC)],
-    document_path: Annotated[str | None, Field(description=DOCUMENT_PATH_DESC)] = None,
-    language: Annotated[str | None, Field(description=LANGUAGE_DESC)] = None,
-    node_type: Annotated[str | None, Field(description=NODE_TYPE_DESC)] = None,
-    node_name: Annotated[str | None, Field(description=NODE_NAME_DESC)] = None,
-    parent_scope: Annotated[str | None, Field(description=PARENT_SCOPE_DESC)] = None,
-    has_documentation: Annotated[bool | None, Field(description=HAS_DOCUMENTATION_DESC)] = None,
-    limit: Annotated[int | None, Field(description=LIMIT_DESC)] = None,
-) -> SearchResults:
-    """
-    Semantic search across an Indexter-configured repository's indexed code.
-
-    Supports filtering by file path, language, node type, node name, parent scope,
-    and documentation presence.
+    Performs incremental indexing by default, detecting changed files via
+    content hashing. Pass full=True to delete the existing index and
+    rebuild from scratch.
 
     Args:
-        ctx: FastMCP context for logging and progress reporting.
-        name: The repository name.
-        query: Natural language search query.
-        document_path: Filter by document path (exact match or prefix with trailing /).
-        language: Filter by programming language (e.g., 'python', 'javascript').
-        node_type: Filter by node type (e.g., 'function', 'class', 'method').
-        node_name: Filter by node name.
-        parent_scope: Filter by parent scope name (e.g., class name for methods).
-        has_documentation: Filter by documentation presence.
-        limit: Maximum number of results to return (defaults to 10).
+        name: Repository name (as shown by list_repos).
+        full: If True, perform a full re-index instead of incremental.
 
-    Returns code chunks ranked by semantic similarity to the query.
+    Returns:
+        IndexResult as a dict with documents indexed/deleted, nodes
+        added/deleted, duration, and any errors.
     """
-    return await search_repo(
-        ctx=ctx,
-        store=get_store(),
-        name=name,
+    client: QdrantClient = ctx.lifespan_context["client"]
+    repo = Repo.get_one(name)
+    result = repo.index(client, full=full)
+    return result.model_dump(mode="json")
+
+
+@server.tool
+def search_repo(
+    name: str,
+    query: str,
+    ctx: Context,
+    language: str | None = None,
+    node_type: str | None = None,
+    node_name: str | None = None,
+    document_path: str | None = None,
+    parent_scope: str | None = None,
+    has_documentation: bool | None = None,
+    limit: int | None = None,
+) -> dict:
+    """Semantic search over a repository's indexed code.
+
+    Combines dense (semantic) and sparse (keyword/BM25) search with
+    Reciprocal Rank Fusion for robust results. Supports filtering by
+    language, node type, file path, and more.
+
+    Args:
+        name: Repository name.
+        query: Natural-language or code search query.
+        language: Filter by programming language (e.g. 'python').
+        node_type: Filter by code construct (e.g. 'function', 'class').
+        node_name: Filter by exact node name.
+        document_path: Filter by file path (exact or directory prefix with trailing /).
+        parent_scope: Filter by enclosing scope (e.g. class name for methods).
+        has_documentation: Filter by presence of docstrings/comments.
+        limit: Max results (defaults to the repo's top_k setting).
+
+    Returns:
+        SearchResults as a dict with matched nodes, scores, and query metadata.
+    """
+    client: QdrantClient = ctx.lifespan_context["client"]
+    repo = Repo.get_one(name)
+    results = repo.search(
+        client,
         query=query,
-        document_path=document_path,
         language=language,
         node_type=node_type,
         node_name=node_name,
+        document_path=document_path,
         parent_scope=parent_scope,
         has_documentation=has_documentation,
         limit=limit,
     )
+    return results.model_dump(mode="json")
 
 
-@server.prompt(icons=[mcp.types.Icon(src="🗺️")])
-def search_workflow() -> str:
-    """Guide for effectively searching Indexter-configured code repositories."""
-    return get_search_workflow()
+@server.tool
+def remove_repo(name: str, ctx: Context) -> dict:
+    """Remove a registered repository and its indexed data.
 
+    Deletes the repository's vector store collection, cache, and
+    configuration entry. This is permanent.
 
-def run_server() -> None:
-    """Run the MCP server based on configuration settings."""
-    if settings.mcp.transport == "stdio":
-        server.run(transport="stdio")
-    else:
-        # Use streamable-http for proper MCP support
-        server.run(
-            transport="streamable-http",
-            host=settings.mcp.host,
-            port=settings.mcp.port,
-        )
+    Args:
+        name: Repository name to remove.
+
+    Returns:
+        Confirmation with the removed repository name and success status.
+    """
+    client: QdrantClient = ctx.lifespan_context["client"]
+    removed = Repo.remove_one(name, client)
+    return {"name": name, "removed": removed}
 
 
 if __name__ == "__main__":
-    run_server()
+    server.run()

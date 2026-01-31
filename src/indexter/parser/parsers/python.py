@@ -77,9 +77,9 @@ class PythonParser(BaseLanguageParser):
         # Get the name - check @name first, then @module for import_from_statement
         name_nodes = match.get("name", [])
         module_nodes = match.get("module", [])
-        if name_nodes:
+        if name_nodes and name_nodes[0].text is not None:
             node_name = name_nodes[0].text.decode()
-        elif module_nodes:
+        elif module_nodes and module_nodes[0].text is not None:
             node_name = module_nodes[0].text.decode()
         else:
             # Can't process without a name
@@ -145,13 +145,13 @@ class PythonParser(BaseLanguageParser):
         first_stmt = body.children[0]
 
         # Direct string literal
-        if first_stmt.type == "string":
+        if first_stmt.type == "string" and first_stmt.text is not None:
             return self._strip_docstring(first_stmt.text.decode())
 
         # String wrapped in expression_statement
         if first_stmt.type == "expression_statement" and first_stmt.children:
             expr = first_stmt.children[0]
-            if expr.type == "string":
+            if expr.type == "string" and expr.text is not None:
                 return self._strip_docstring(expr.text.decode())
 
         return None

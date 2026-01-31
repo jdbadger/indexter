@@ -1,3 +1,16 @@
+
+
+# Release Procedure
+# =================
+# 1. Ensure all tests pass:           just test
+# 2. Create a release candidate:      just release patch 1   (or minor/major)
+# 3. Push the RC:                     just push-release
+# 4. Create a GitHub Release from the RC tag to trigger the publish workflow.
+# 5. Validate the RC from TestPyPI.
+# 6. When ready, cut the final release: just release
+# 7. Push the final release:          just push-release
+# 8. Create a GitHub Release from the final tag to publish to PyPI.
+
 # List all the commands in this file
 list:
     just -l

@@ -1,6 +1,6 @@
 import pytest
 
-from indexter.walker.models import Document, DocumentMetadata
+from indexter.models import Document, DocumentMetadata
 
 
 @pytest.fixture
@@ -9,7 +9,6 @@ def sample_document_metadata():
     return DocumentMetadata(
         repo="test-repo",
         repo_path="/path/to/repo",
-        hash="abc123def456",
         ext=".py",
         size_bytes=1024,
         mtime=1234567890.0,

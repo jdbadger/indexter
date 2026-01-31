@@ -90,10 +90,10 @@ class RustParser(BaseLanguageParser):
         path_nodes = match.get("path", [])
         alias_nodes = match.get("alias", [])
 
-        if alias_nodes:
+        if alias_nodes and alias_nodes[0].text is not None:
             # use ... as alias
             node_name = alias_nodes[0].text.decode()
-        elif name_nodes:
+        elif name_nodes and name_nodes[0].text is not None:
             node_name = name_nodes[0].text.decode()
         elif path_nodes:
             # For use declarations, get the last segment of the path

@@ -1,9 +1,8 @@
 """Tests for ChunkParser class."""
 
-from indexter.parser.models import NodeMetadata
+from indexter.models import Document, DocumentMetadata, NodeMetadata
 from indexter.parser.parsers.base import LanguageEnum
 from indexter.parser.parsers.chunk import ChunkParser
-from indexter.walker.models import Document, DocumentMetadata
 
 # Unit Tests - ChunkParser.__init__
 
@@ -84,7 +83,6 @@ def test_chunk_parser_parse_chunk_content_from_document():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=11,
             mtime=123.0,
@@ -109,7 +107,6 @@ def test_chunk_parser_parse_respects_chunk_size():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=1000,
             mtime=123.0,
@@ -136,7 +133,6 @@ def test_chunk_parser_parse_with_overlap():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=10,
             mtime=123.0,
@@ -164,7 +160,6 @@ def test_chunk_parser_parse_prevents_infinite_loop_when_overlap_equals_chunk_siz
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=100,
             mtime=123.0,
@@ -189,7 +184,6 @@ def test_chunk_parser_parse_prevents_infinite_loop_when_overlap_greater_than_chu
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=100,
             mtime=123.0,
@@ -213,7 +207,6 @@ def test_chunk_parser_parse_empty_document():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=0,
             mtime=123.0,
@@ -234,7 +227,6 @@ def test_chunk_parser_parse_single_character():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=1,
             mtime=123.0,
@@ -256,7 +248,6 @@ def test_chunk_parser_parse_content_smaller_than_chunk_size():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -300,14 +291,16 @@ def test_chunk_parser_parse_metadata_document_path(sample_document):
         assert metadata.document_path == sample_document.path
 
 
-def test_chunk_parser_parse_metadata_hash(sample_document):
-    """Test that chunk metadata includes correct hash."""
+def test_chunk_parser_parse_metadata_has_expected_fields(sample_document):
+    """Test that chunk metadata includes expected fields."""
     parser = ChunkParser()
 
     chunks = list(parser.parse(sample_document))
 
     for _, metadata in chunks:
-        assert metadata.hash == sample_document.metadata.hash
+        # Verify metadata has expected fields
+        assert metadata.repo == sample_document.metadata.repo
+        assert metadata.repo_path == sample_document.metadata.repo_path
 
 
 def test_chunk_parser_parse_metadata_language():
@@ -318,7 +311,6 @@ def test_chunk_parser_parse_metadata_language():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -341,7 +333,6 @@ def test_chunk_parser_parse_metadata_node_type():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -363,7 +354,6 @@ def test_chunk_parser_parse_metadata_node_name():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -386,7 +376,6 @@ def test_chunk_parser_parse_metadata_start_and_end_bytes():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=10,
             mtime=123.0,
@@ -416,7 +405,6 @@ def test_chunk_parser_parse_metadata_start_and_end_lines_single_line():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=11,
             mtime=123.0,
@@ -441,7 +429,6 @@ def test_chunk_parser_parse_metadata_start_and_end_lines_multiline():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=17,
             mtime=123.0,
@@ -472,7 +459,6 @@ def test_chunk_parser_parse_metadata_documentation():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -494,7 +480,6 @@ def test_chunk_parser_parse_metadata_parent_scope():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -516,7 +501,6 @@ def test_chunk_parser_parse_metadata_signature():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -538,7 +522,6 @@ def test_chunk_parser_parse_metadata_extra():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=5,
             mtime=123.0,
@@ -564,7 +547,6 @@ def test_chunk_parser_parse_unicode_content():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=len(content.encode()),
             mtime=123.0,
@@ -590,7 +572,6 @@ def test_chunk_parser_parse_with_whitespace():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=len(content),
             mtime=123.0,
@@ -636,7 +617,6 @@ class MyClass:
         metadata=DocumentMetadata(
             repo="my-repo",
             repo_path="/path/to/my-repo",
-            hash="def456",
             ext=".py",
             size_bytes=len(python_content),
             mtime=1234567890.0,
@@ -655,7 +635,6 @@ class MyClass:
         assert metadata.repo == "my-repo"
         assert metadata.repo_path == "/path/to/my-repo"
         assert metadata.document_path == "module.py"
-        assert metadata.hash == "def456"
         assert metadata.language == "N/A"
         assert metadata.node_type == "chunk"
         assert len(chunk_content) <= 100
@@ -695,7 +674,6 @@ More content here.
         metadata=DocumentMetadata(
             repo="docs-repo",
             repo_path="/docs",
-            hash="md5hash",
             ext=".md",
             size_bytes=len(markdown_content),
             mtime=9999999.0,
@@ -724,7 +702,6 @@ def test_chunk_parser_integration_large_file_performance():
         metadata=DocumentMetadata(
             repo="perf-test",
             repo_path="/perf",
-            hash="perf",
             ext=".txt",
             size_bytes=10000,
             mtime=123.0,
@@ -755,7 +732,6 @@ def test_chunk_parser_integration_no_overlap_coverage():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=20,
             mtime=123.0,
@@ -787,7 +763,6 @@ def test_chunk_parser_integration_with_overlap_coverage():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=10,
             mtime=123.0,
@@ -825,7 +800,6 @@ def test_chunk_parser_integration_boundary_conditions():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=100,
             mtime=123.0,
@@ -850,7 +824,6 @@ def test_chunk_parser_integration_very_small_chunks():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".txt",
             size_bytes=len(content),
             mtime=123.0,
@@ -889,7 +862,6 @@ def test_chunk_parser_integration_json_document():
         metadata=DocumentMetadata(
             repo="json-repo",
             repo_path="/json",
-            hash="jsonhash",
             ext=".json",
             size_bytes=len(json_content),
             mtime=555555.0,

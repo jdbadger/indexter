@@ -50,7 +50,10 @@ class CssParser(BaseLanguageParser):
             if not name_nodes:
                 return None
 
-            node_name = name_nodes[0].text.decode().strip()
+            text = name_nodes[0].text
+            if text is None:
+                return None
+            node_name = text.decode().strip()
             node_type = "rule"
 
         elif at_rule_nodes:
@@ -63,7 +66,7 @@ class CssParser(BaseLanguageParser):
             elif node.type == "keyframes_statement":
                 # Get keyframes name if available
                 name_nodes = match.get("at_rule_name", [])
-                if name_nodes:
+                if name_nodes and name_nodes[0].text is not None:
                     keyframe_name = name_nodes[0].text.decode().strip()
                     node_name = f"@keyframes {keyframe_name}"
                 else:
@@ -77,7 +80,7 @@ class CssParser(BaseLanguageParser):
             elif node.type == "at_rule":
                 # Generic at-rule - try to extract name from first child
                 for child in node.children:
-                    if child.type == "at_keyword":
+                    if child.type == "at_keyword" and child.text is not None:
                         node_name = child.text.decode().strip()
                         break
                 else:

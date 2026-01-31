@@ -3,8 +3,8 @@ from unittest.mock import Mock
 import pytest
 from tree_sitter import Node
 
+from indexter.models import Document, DocumentMetadata
 from indexter.parser.parsers.json import JsonParser
-from indexter.walker.models import Document, DocumentMetadata
 
 
 @pytest.fixture
@@ -23,7 +23,6 @@ def sample_json_document():
     metadata = DocumentMetadata(
         repo="test-repo",
         repo_path="/path/to/repo",
-        hash="abc123",
         ext=".json",
         size_bytes=len(content),
         mtime=1234567890.0,
@@ -840,7 +839,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -864,7 +862,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -884,7 +881,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -910,7 +906,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -933,7 +928,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -949,7 +943,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -966,7 +959,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="my-repo",
             repo_path="/custom/path",
-            hash="hash123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -980,7 +972,6 @@ class TestParseIntegration:
         assert node_metadata.repo == "my-repo"
         assert node_metadata.repo_path == "/custom/path"
         assert node_metadata.document_path == "custom/data.json"
-        assert node_metadata.hash == "hash123"
 
     def test_should_parse_complex_json(self, json_parser):
         content = """{
@@ -1008,7 +999,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1030,7 +1020,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1054,7 +1043,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1091,7 +1079,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1110,7 +1097,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1129,7 +1115,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1144,7 +1129,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=0,
             mtime=1234567890.0,
@@ -1160,7 +1144,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1176,7 +1159,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1194,7 +1176,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1212,7 +1193,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1227,7 +1207,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".json",
             size_bytes=len(content),
             mtime=1234567890.0,

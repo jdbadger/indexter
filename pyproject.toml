@@ -1,13 +1,13 @@
 [project]
 name = "indexter"
 version = "0.1.2"
-description = "CLI tool and MCP server for enhanced codebase context via RAG"
+description = "MCP server for enhanced codebase context via RAG"
 readme = "README.md"
 license = "MIT"
 authors = [
     {name = "Joe Badger"}
 ]
-keywords = ["cli", "mcp", "rag", "vector-search", "tree-sitter", "code-indexing", "ai-agents"]
+keywords = ["mcp", "rag", "vector-search", "tree-sitter", "code-indexing", "ai-agents"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -23,53 +23,31 @@ classifiers = [
 ]
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "anyio>=4.0.0",
-    "pathspec>=0.12.1",
-    "qdrant-client[fastembed]>=1.12.0",
-    "pydantic>=2.10.0",
-    "pydantic-settings>=2.6.0",
-    "tomli>=2.0.0",
-    "tomlkit>=0.13.0",
+    "docker>=7.1.0",
+    "fastmcp>=3.2.0",
+    "pathspec>=1.0.4",
+    "qdrant-client[fastembed]>=1.17.1",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "tomlkit>=0.14.0",
     "tree-sitter>=0.25.2",
-    "tree-sitter-language-pack>=0.13.0",
+    "tree-sitter-language-pack>=1.4.0",
+    "watchfiles>=1.1.1",
 ]
-
-[project.optional-dependencies]
-full = [
-    "docker>=7.0.0",
-    "fastmcp>=0.4.1",
-    "rich>=13.9.0",
-    "typer>=0.12.0",
-]
-cli = [
-    "docker>=7.0.0",
-    "rich>=13.9.0",
-    "typer>=0.12.0",
-]
-mcp = [
-    "fastmcp>=0.4.1",
-]
-core = []
 
 [dependency-groups]
 dev = [
-    "docker>=7.0.0",
-    "fastmcp>=0.4.1",
-    "rich>=13.9.0",
-    "typer>=0.12.0",
-    "ruff>=0.14.10",
-    "rust-just>=1.45.0",
-    "ty>=0.0.6",
+    "pytest-testmon>=2.2.0",
+    "ruff>=0.15.8",
+    "rust-just>=1.48.1",
+    "ty>=0.0.26",
 ]
 test = [
     {include-group = "dev"},
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.0.0",
+    "pytest-cov>=7.1.0",
     "pytest-testmon>=2.2.0",
-    "pytest-xdist>=3.8.0",
-    "inline-snapshot>=0.15.0",
-    "dirty-equals>=0.8.0",
 ]
 
 [project.urls]
@@ -80,7 +58,6 @@ Documentation = "https://github.com/jdbadger/indexter#readme"
 Changelog = "https://github.com/jdbadger/indexter/blob/main/CHANGELOG.md"
 
 [project.scripts]
-indexter = "indexter.cli:app"
 indexter-mcp = "indexter.mcp.server:server.run"
 
 [build-system]

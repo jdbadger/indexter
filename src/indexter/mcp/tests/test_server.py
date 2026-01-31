@@ -1,658 +1,406 @@
-"""Comprehensive tests for MCP server implementation.
+"""Tests for the Indexter MCP server tools."""
 
-This test suite provides comprehensive coverage of the server module including:
-- Unit tests for server configuration and initialization
-- Integration tests with FastMCP Client
-- Tool registration and invocation
-- Prompt registration and retrieval
-- Lifespan management
-- Error handling and edge cases
-"""
-
-import inspect
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from fastmcp import Context, FastMCP
-from fastmcp import Context as FastMCPContext
-
-import indexter.mcp.server
-from indexter.config import MCPTransport, settings
-from indexter.mcp.server import (
-    get_repo,
-    get_repository,
-    get_search_workflow,
-    lifespan,
-    list_repos,
-    list_repositories,
-    run_server,
-    search_repo,
-    search_repository,
-    search_workflow,
-    server,
-)
-
-
-class TestMCPServerInitialization:
-    """Test MCP server initialization and configuration."""
-
-    def test_should_create_mcp_server_instance(self):
-        """Test MCP server is properly initialized."""
-        # Arrange & Act & Assert
-        assert isinstance(server, FastMCP)
-        assert server.name == "indexter"
-
-    def test_should_have_correct_server_name(self):
-        """Test MCP server has correct name."""
-        # Arrange & Act & Assert
-        assert server.name == "indexter"
-
-    def test_should_have_instructions(self):
-        """Test MCP server has instructions configured."""
-        # Arrange & Act & Assert
-        # FastMCP stores instructions internally
-        assert server is not None
-
-    def test_should_register_lifespan_manager(self):
-        """Test MCP server has lifespan manager configured."""
-        # Arrange & Act & Assert
-        # The lifespan is registered during FastMCP initialization
-        assert callable(lifespan)
-
-    def test_should_have_server_icon(self):
-        """Test MCP server has an icon configured."""
-        # Arrange & Act & Assert
-        assert (
-            hasattr(server, "_icon") or hasattr(server, "icon") or hasattr(server, "_icons") or hasattr(server, "icons")
-        )
-        # The icon should be set to the search emoji
-
-
-class TestLifespanManager:
-    """Test lifespan context manager."""
-
-    async def test_should_initialize_store_on_startup(self):
-        """Test lifespan manager initializes store client on startup."""
-        # Arrange
-        mock_server = Mock()
-        mock_store_instance = Mock()
-        mock_store_instance.client = Mock()
-        mock_store_instance.close = AsyncMock()
-
-        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
-            # Act
-            async with lifespan(mock_server):
-                # Assert - client property should be accessed during startup
-                _ = mock_store_instance.client
-                assert True  # If we get here, lifespan worked
-
-    async def test_should_handle_startup_errors_gracefully(self):
-        """Test lifespan manager handles startup errors."""
-        # Arrange
-        mock_server = Mock()
-        mock_store_instance = Mock()
-        mock_store_instance.close = AsyncMock()
-
-        # Configure mock to raise error on client access
-        type(mock_store_instance).client = property(
-            lambda self: (_ for _ in ()).throw(RuntimeError("Connection failed"))
-        )
-
-        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
-            # Act & Assert
-            with pytest.raises(RuntimeError, match="Connection failed"):
-                async with lifespan(mock_server):
-                    pass
-
-    async def test_should_yield_control_to_server(self):
-        """Test lifespan manager yields control properly."""
-        # Arrange
-        mock_server = Mock()
-        yielded = False
-        mock_store_instance = Mock()
-        mock_store_instance.client = Mock()
-        mock_store_instance.close = AsyncMock()
-
-        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
-            # Act
-            async with lifespan(mock_server):
-                yielded = True
-
-            # Assert
-            assert yielded
-
-
-class TestToolRegistration:
-    """Test tool registration and configuration."""
-
-    def test_should_register_list_repositories_tool(self):
-        """Test list_repositories tool is registered."""
-        # Arrange & Act
-        tools = server._tool_manager._tools
-
-        # Assert
-        assert "list_repositories" in tools
-
-    def test_should_register_get_repository_tool(self):
-        """Test get_repository tool is registered."""
-        # Arrange & Act
-        tools = server._tool_manager._tools
-
-        # Assert
-        assert "get_repository" in tools
-
-    def test_should_register_search_repository_tool(self):
-        """Test search_repository tool is registered."""
-        # Arrange & Act
-        tools = server._tool_manager._tools
-
-        # Assert
-        assert "search_repository" in tools
-
-    def test_should_have_three_tools_registered(self):
-        """Test exactly three tools are registered."""
-        # Arrange & Act
-        tools = server._tool_manager._tools
-
-        # Assert
-        assert len(tools) == 3
-
-    def test_list_repositories_should_have_docstring(self):
-        """Test list_repositories tool has documentation."""
-        # Arrange & Act
-        tool = server._tool_manager._tools["list_repositories"]
-
-        # Assert
-        assert tool.description is not None
-        assert len(tool.description) > 0
-
-    def test_get_repository_should_have_docstring(self):
-        """Test get_repository tool has documentation."""
-        # Arrange & Act
-        tool = server._tool_manager._tools["get_repository"]
-
-        # Assert
-        assert tool.description is not None
-        assert len(tool.description) > 0
-
-    def test_search_repository_should_have_docstring(self):
-        """Test search_repository tool has documentation."""
-        # Arrange & Act
-        tool = server._tool_manager._tools["search_repository"]
-
-        # Assert
-        assert tool.description is not None
-        assert len(tool.description) > 0
-
-
-class TestPromptRegistration:
-    """Test prompt registration and configuration."""
-
-    def test_should_register_search_workflow_prompt(self):
-        """Test search_workflow prompt is registered."""
-        # Arrange & Act
-        prompts = server._prompt_manager._prompts
-
-        # Assert
-        assert "search_workflow" in prompts
-
-    def test_should_have_one_prompt_registered(self):
-        """Test exactly one prompt is registered."""
-        # Arrange & Act
-        prompts = server._prompt_manager._prompts
-
-        # Assert
-        assert len(prompts) == 1
-
-    def test_search_workflow_should_have_docstring(self):
-        """Test search_workflow prompt has documentation."""
-        # Arrange & Act
-        prompt = server._prompt_manager._prompts["search_workflow"]
-
-        # Assert
-        assert prompt.description is not None
-        assert len(prompt.description) > 0
-
-
-class TestRunServer:
-    """Test run_server function."""
-
-    def test_should_run_with_stdio_transport(self):
-        """Test run_server starts server with stdio transport."""
-        # Arrange
-        with patch.object(settings.mcp, "transport", MCPTransport.stdio):
-            with patch.object(server, "run") as mock_run:
-                # Act
-                run_server()
-
-                # Assert
-                mock_run.assert_called_once_with(transport="stdio")
-
-    def test_should_run_with_http_transport(self):
-        """Test run_server starts server with HTTP transport."""
-        # Arrange
-        with patch.object(settings.mcp, "transport", MCPTransport.http):
-            with patch.object(settings.mcp, "host", "0.0.0.0"):
-                with patch.object(settings.mcp, "port", 9000):
-                    with patch.object(server, "run") as mock_run:
-                        # Act
-                        run_server()
-
-                        # Assert
-                        mock_run.assert_called_once_with(
-                            transport="streamable-http",
-                            host="0.0.0.0",
-                            port=9000,
-                        )
-
-    def test_should_use_default_host_and_port_for_http(self):
-        """Test run_server uses default host and port for HTTP."""
-        # Arrange
-        with patch.object(settings.mcp, "transport", MCPTransport.http):
-            with patch.object(server, "run") as mock_run:
-                # Act
-                run_server()
-
-                # Assert
-                mock_run.assert_called_once()
-                call_kwargs = mock_run.call_args.kwargs
-                assert "host" in call_kwargs
-                assert "port" in call_kwargs
-                assert call_kwargs["transport"] == "streamable-http"
-
-    def test_should_handle_stdio_transport_string(self):
-        """Test run_server handles stdio transport as string."""
-        # Arrange
-        with patch.object(settings.mcp, "transport", "stdio"):
-            with patch.object(server, "run") as mock_run:
-                # Act
-                run_server()
-
-                # Assert
-                mock_run.assert_called_once_with(transport="stdio")
-
-
-class TestToolWrappers:
-    """Test tool wrapper functions and registration."""
-
-    def test_list_repositories_should_be_registered(self):
-        """Test list_repositories tool is properly registered."""
-        # Act & Assert - verify it's a FunctionTool from the decorator
-        assert hasattr(list_repositories, "name")
-        assert list_repositories.name == "list_repositories"
-        assert hasattr(list_repositories, "description")
-        assert "repositor" in list_repositories.description.lower()
-
-    def test_get_repository_should_be_registered(self):
-        """Test get_repository tool is properly registered."""
-        # Act & Assert
-        assert hasattr(get_repository, "name")
-        assert get_repository.name == "get_repository"
-        assert hasattr(get_repository, "description")
-        assert "metadata" in get_repository.description.lower()
-
-    def test_search_repository_should_be_registered(self):
-        """Test search_repository tool is properly registered."""
-        # Act & Assert
-        assert hasattr(search_repository, "name")
-        assert search_repository.name == "search_repository"
-        assert hasattr(search_repository, "description")
-        assert "search" in search_repository.description.lower()
-
-    def test_search_repository_description_should_mention_filters(self):
-        """Test search_repository description mentions filter parameters."""
-        # Act
-        description = search_repository.description.lower()
-
-        # Assert - verify key filter concepts are mentioned
-        assert "filter" in description or "path" in description
-        assert "language" in description
-        assert "query" in description
-
-
-class TestPromptWrapper:
-    """Test prompt wrapper function and registration."""
-
-    def test_search_workflow_should_be_registered(self):
-        """Test search_workflow prompt is properly registered."""
-        # Act & Assert
-        assert hasattr(search_workflow, "name")
-        assert search_workflow.name == "search_workflow"
-        assert hasattr(search_workflow, "description")
-        assert search_workflow.description is not None
-
-    def test_search_workflow_should_have_description(self):
-        """Test search_workflow has a meaningful description."""
-        # Act
-        description = search_workflow.description.lower()
-
-        # Assert
-        assert "search" in description
-        assert len(description) > 0
-
-
-class TestServerEdgeCases:
-    """Test edge cases and boundary conditions."""
-
-    def test_run_server_should_handle_invalid_transport(self):
-        """Test run_server handles invalid transport values."""
-        # Arrange
-        # Set an invalid transport value
-        original_transport = settings.mcp.transport
-
-        try:
-            settings.mcp.transport = "invalid"  # type: ignore[assignment]
-
-            with patch.object(server, "run") as mock_run:
-                # Act
-                run_server()
-
-                # Assert
-                # Should fall through to else branch and use streamable-http
-                call_kwargs = mock_run.call_args.kwargs
-                assert call_kwargs["transport"] == "streamable-http"
-        finally:
-            settings.mcp.transport = original_transport
-
-    @pytest.mark.asyncio
-    async def test_lifespan_should_work_without_errors(self):
-        """Test lifespan manager completes without errors in normal case."""
-        # Arrange
-        mock_server = Mock()
-        completed = False
-
-        with patch("indexter.store.store") as mock_store:
-            mock_store.client = Mock()
-
-            # Act
-            async with lifespan(mock_server):
-                completed = True
-
-            # Assert
-            assert completed
-
-    def test_server_instance_should_be_singleton(self):
-        """Test server instance is a module-level singleton."""
-        # Act & Assert
-        # Both references should point to the same object since imported at top
-        assert server is server
-
-    def test_all_tools_should_be_async(self):
-        """Test all registered tools exist."""
-        # Act & Assert - verify tools are registered
-        assert hasattr(list_repositories, "name")
-        assert hasattr(get_repository, "name")
-        assert hasattr(search_repository, "name")
-
-    def test_prompt_should_be_registered(self):
-        """Test search_workflow prompt is registered."""
-        # Act & Assert
-        assert hasattr(search_workflow, "name")
-        assert search_workflow.name == "search_workflow"
-
-
-class TestServerConfiguration:
-    """Test server configuration and settings."""
-
-    def test_should_use_configured_mcp_settings(self):
-        """Test server uses configured MCP settings."""
-        # Arrange & Act & Assert
-        assert settings.mcp is not None
-        assert hasattr(settings.mcp, "transport")
-        assert hasattr(settings.mcp, "host")
-        assert hasattr(settings.mcp, "port")
-
-    def test_default_transport_should_be_stdio(self):
-        """Test default MCP transport is stdio."""
-        # Arrange & Act
-        # This tests the default value
-        default_transport = MCPTransport.stdio
-
-        # Assert
-        assert default_transport == "stdio"
-
-    def test_http_transport_value(self):
-        """Test HTTP transport enum value."""
-        # Arrange & Act
-        http_transport = MCPTransport.http
-
-        # Assert
-        assert http_transport == "http"
-
-    @pytest.mark.parametrize("transport", [MCPTransport.stdio, MCPTransport.http])
-    def test_run_server_should_accept_both_transports(self, transport):
-        """Test run_server works with both transport types."""
-        # Arrange
-        with patch.object(settings.mcp, "transport", transport):
-            with patch.object(server, "run") as mock_run:
-                # Act
-                run_server()
-
-                # Assert
-                mock_run.assert_called_once()
-
-
-class TestToolParameters:
-    """Test tool parameter handling via tool metadata."""
-
-    def test_list_repositories_should_be_documented(self):
-        """Test list_repositories has proper documentation."""
-        # Act & Assert
-        assert hasattr(list_repositories, "description")
-        assert list_repositories.description is not None
-        assert "repositor" in list_repositories.description.lower()
-
-    def test_get_repository_should_be_documented(self):
-        """Test get_repository has proper documentation."""
-        # Act & Assert
-        assert hasattr(get_repository, "description")
-        assert get_repository.description is not None
-        assert "name" in get_repository.description.lower()
-
-    def test_search_repository_should_document_all_parameters(self):
-        """Test search_repository documents all parameters."""
-        # Act
-        description = search_repository.description.lower()
-
-        # Assert
-        assert "query" in description
-        assert "name" in description or "repository" in description
-
-    def test_search_repository_should_support_parent_scope_parameter(self):
-        """Test search_repository supports parent_scope parameter."""
-        # Arrange
-        tool = server._tool_manager._tools["search_repository"]
-
-        # Act - Check that tool is registered and description mentions parent_scope
-        description_lower = tool.description.lower()
-
-        # Assert - tool should mention parent_scope in its description
-        assert tool is not None
-        assert tool.name == "search_repository"
-        # The parameter should be documented in the description
-        assert "parent" in description_lower and "scope" in description_lower
-
-    def test_all_tools_should_have_descriptions(self):
-        """Test all tools have non-empty descriptions."""
-        # Act & Assert
-        for tool in [list_repositories, get_repository, search_repository]:
-            assert hasattr(tool, "description")
-            assert tool.description is not None
-            assert len(tool.description) > 0
-
-
-class TestServerDocumentation:
-    """Test server and tool documentation."""
-
-    def test_server_module_should_have_docstring(self):
-        """Test server module has a docstring."""
-        # Act & Assert
-        assert indexter.mcp.server.__doc__ is not None
-        assert len(indexter.mcp.server.__doc__.strip()) > 0
-
-    def test_lifespan_should_have_docstring(self):
-        """Test lifespan function has a docstring."""
-        # Arrange & Act & Assert
-        assert lifespan.__doc__ is not None
-        assert "startup" in lifespan.__doc__.lower() or "shutdown" in lifespan.__doc__.lower()
-
-    def test_run_server_should_have_docstring(self):
-        """Test run_server function has a docstring."""
-        # Arrange & Act & Assert
-        assert run_server.__doc__ is not None
-        assert len(run_server.__doc__.strip()) > 0
-
-    def test_all_tool_wrappers_should_have_descriptions(self):
-        """Test all tool wrapper functions have descriptions."""
-        # Act & Assert
-        for tool in [list_repositories, get_repository, search_repository]:
-            assert hasattr(tool, "description")
-            assert tool.description is not None
-            assert len(tool.description) > 0
-
-    def test_prompt_wrapper_should_have_docstring(self):
-        """Test search_workflow prompt has description."""
-        # Act & Assert
-        assert hasattr(search_workflow, "description")
-        assert search_workflow.description is not None
-
-
-class TestServerImports:
-    """Test server imports and dependencies."""
-
-    def test_should_import_context_from_fastmcp(self):
-        """Test Context is imported from fastmcp."""
-        # Act & Assert - Context imported at top is the same as FastMCPContext
-        assert Context is FastMCPContext
-
-    def test_should_import_fastmcp_class(self):
-        """Test FastMCP class is imported."""
-        # Act & Assert
-        assert FastMCP is not None
-
-    def test_should_import_settings(self):
-        """Test settings is imported from config."""
-        # Act & Assert
-        assert settings is not None
-        assert hasattr(settings, "mcp")
-
-    def test_should_import_tool_functions(self):
-        """Test tool functions are imported from tools module."""
-        # Act & Assert
-        assert callable(get_repo)
-        assert callable(list_repos)
-        assert callable(search_repo)
-
-    def test_should_import_prompt_function(self):
-        """Test prompt function is imported from prompts module."""
-        # Act & Assert
-        assert callable(get_search_workflow)
-
-
-class TestServerMainExecution:
-    """Test server main execution."""
-
-    def test_should_call_run_server_when_main(self):
-        """Test __main__ execution calls run_server."""
-        # This test verifies the __main__ block structure
-        # We can't easily test the actual execution, but we can verify the function exists
-        # Arrange & Act & Assert
-        assert callable(run_server)
-
-    def test_run_server_should_not_return_value(self):
-        """Test run_server return type is None."""
-        # Act
-        sig = inspect.signature(run_server)
-
-        # Assert - handle string annotation 'None' or type None
-        assert sig.return_annotation == "None" or sig.return_annotation is None
-
-
-class TestLifespanIntegration:
-    """Integration tests for lifespan manager."""
-
-    async def test_should_initialize_and_cleanup_successfully(self):
-        """Test lifespan manager initializes and cleans up successfully."""
-        # Arrange
-        mock_server = Mock()
-        initialization_order = []
-        mock_store_instance = Mock()
-        mock_store_instance.close = AsyncMock()
-
-        # Track when client is accessed
-        def client_side_effect():
-            initialization_order.append("client_accessed")
-            return Mock()
-
-        type(mock_store_instance).client = property(lambda self: client_side_effect())
-
-        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
-            # Act
-            async with lifespan(mock_server):
-                initialization_order.append("in_context")
-
-            initialization_order.append("after_context")
-
-            # Assert
-            assert initialization_order == ["client_accessed", "in_context", "after_context"]
-
-    async def test_should_allow_server_operations_during_lifespan(self):
-        """Test server operations can be performed during lifespan."""
-        # Arrange
-        mock_server = Mock()
-        operations_performed = []
-        mock_store_instance = Mock()
-        mock_store_instance.client = Mock()
-        mock_store_instance.close = AsyncMock()
-
-        with patch("indexter.mcp.server.VectorStore", return_value=mock_store_instance):
-            # Act
-            async with lifespan(mock_server):
-                operations_performed.append("operation_1")
-                operations_performed.append("operation_2")
-
-            # Assert
-            assert len(operations_performed) == 2
-
-
-class TestTransportConfiguration:
-    """Test transport configuration handling."""
-
-    @pytest.mark.parametrize(
-        "host,port",
-        [
-            ("localhost", 8765),
-            ("0.0.0.0", 9000),
-            ("127.0.0.1", 3000),
-        ],
+from fastmcp import Client, FastMCP
+from fastmcp.server.lifespan import lifespan
+
+from indexter.exceptions import RepoExistsError, RepoNotFoundError
+from indexter.models import IndexResult, RepoMetadata, SearchResults
+
+# ---------------------------------------------------------------------------
+# Test server with mocked lifespan (no Docker)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_qdrant_client():
+    """A fake QdrantClient for tool injection."""
+    return MagicMock()
+
+
+@pytest.fixture
+def test_server(mock_qdrant_client):
+    """Create a FastMCP server identical to production but with a mock lifespan."""
+    from indexter.mcp.server import (
+        index_repo,
+        init_repo,
+        list_repos,
+        remove_repo,
+        search_repo,
     )
-    def test_should_use_configured_host_and_port(self, host, port):
-        """Test run_server uses configured host and port."""
-        # Arrange
-        with patch.object(settings.mcp, "transport", MCPTransport.http):
-            with patch.object(settings.mcp, "host", host):
-                with patch.object(settings.mcp, "port", port):
-                    with patch.object(server, "run") as mock_run:
-                        # Act
-                        run_server()
 
-                        # Assert
-                        mock_run.assert_called_once_with(
-                            transport="streamable-http",
-                            host=host,
-                            port=port,
-                        )
+    @lifespan
+    async def mock_lifespan(server):
+        yield {"client": mock_qdrant_client}
 
-    def test_should_convert_http_to_streamable_http(self):
-        """Test run_server converts http to streamable-http transport."""
-        # Arrange
-        with patch.object(settings.mcp, "transport", MCPTransport.http):
-            with patch.object(server, "run") as mock_run:
-                # Act
-                run_server()
+    srv = FastMCP(name="indexter-test", lifespan=mock_lifespan)
 
-                # Assert
-                call_kwargs = mock_run.call_args.kwargs
-                # Should use streamable-http, not http
-                assert call_kwargs["transport"] == "streamable-http"
-                assert call_kwargs["transport"] != "http"
+    # Re-register the same tool functions on the test server
+    srv.tool(list_repos)
+    srv.tool(init_repo)
+    srv.tool(index_repo)
+    srv.tool(search_repo)
+    srv.tool(remove_repo)
+
+    return srv
+
+
+@pytest.fixture
+async def client(test_server):
+    """Async FastMCP client connected to the test server."""
+    async with Client(test_server) as c:
+        yield c
+
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
+
+
+class TestServerSetup:
+    async def test_server_lists_all_tools(self, client):
+        """Server exposes exactly the expected 5 tools."""
+        tools = await client.list_tools()
+        tool_names = {t.name for t in tools}
+        assert tool_names == {"list_repos", "init_repo", "index_repo", "search_repo", "remove_repo"}
+
+
+# ---------------------------------------------------------------------------
+# list_repos
+# ---------------------------------------------------------------------------
+
+
+class TestListRepos:
+    @patch("indexter.mcp.server.Repo")
+    async def test_list_repos_empty(self, MockRepo, client):
+        """list_repos returns empty list when no repos registered."""
+        MockRepo.get_all.return_value = []
+        result = await client.call_tool("list_repos", {})
+        assert result.structured_content == {"result": []}
+
+    @patch("indexter.mcp.server.Repo")
+    async def test_list_repos_with_entries(self, MockRepo, client):
+        """list_repos returns repo details for each registered repo."""
+        mock_repo = MagicMock()
+        mock_repo.name = "my_repo"
+        mock_repo.path = "/tmp/my_repo"
+        mock_repo.is_stale = False
+        mock_repo.metadata = RepoMetadata(documents=5, nodes=20, languages=["python"])
+        MockRepo.get_all.return_value = [mock_repo]
+
+        result = await client.call_tool("list_repos", {})
+        data = result.structured_content["result"]
+        assert len(data) == 1
+        assert data[0]["name"] == "my_repo"
+        assert data[0]["is_stale"] is False
+        assert data[0]["metadata"]["documents"] == 5
+
+
+# ---------------------------------------------------------------------------
+# init_repo
+# ---------------------------------------------------------------------------
+
+
+class TestInitRepo:
+    @patch("indexter.mcp.server.Repo")
+    async def test_init_repo_success(self, MockRepo, client):
+        """init_repo registers a new repository."""
+        mock_repo = MagicMock()
+        mock_repo.name = "new_repo"
+        mock_repo.path = "/tmp/new_repo"
+        mock_repo.metadata = RepoMetadata()
+        MockRepo.init.return_value = mock_repo
+
+        result = await client.call_tool("init_repo", {"path": "/tmp/new_repo"})
+        assert result.data["name"] == "new_repo"
+        MockRepo.init.assert_called_once()
+
+    @patch("indexter.mcp.server.Repo")
+    async def test_init_repo_already_exists(self, MockRepo, client):
+        """init_repo returns error when repo name conflicts."""
+        MockRepo.init.side_effect = RepoExistsError("already exists")
+        result = await client.call_tool("init_repo", {"path": "/tmp/conflict"}, raise_on_error=False)
+        assert result.is_error
+
+
+# ---------------------------------------------------------------------------
+# index_repo
+# ---------------------------------------------------------------------------
+
+
+class TestIndexRepo:
+    @patch("indexter.mcp.server.Repo")
+    async def test_index_repo_incremental(self, MockRepo, client, mock_qdrant_client):
+        """index_repo performs incremental indexing by default."""
+        mock_repo = MagicMock()
+        mock_result = IndexResult(repo="test", repo_path="/tmp/test")
+        mock_repo.index.return_value = mock_result
+        MockRepo.get_one.return_value = mock_repo
+
+        result = await client.call_tool("index_repo", {"name": "test"})
+        assert "repo" in result.data
+        mock_repo.index.assert_called_once_with(mock_qdrant_client, full=False)
+
+    @patch("indexter.mcp.server.Repo")
+    async def test_index_repo_full(self, MockRepo, client, mock_qdrant_client):
+        """index_repo with full=True rebuilds from scratch."""
+        mock_repo = MagicMock()
+        mock_result = IndexResult(repo="test", repo_path="/tmp/test")
+        mock_repo.index.return_value = mock_result
+        MockRepo.get_one.return_value = mock_repo
+
+        result = await client.call_tool("index_repo", {"name": "test", "full": True})
+        assert "repo" in result.data
+        mock_repo.index.assert_called_once_with(mock_qdrant_client, full=True)
+
+    @patch("indexter.mcp.server.Repo")
+    async def test_index_repo_not_found(self, MockRepo, client):
+        """index_repo returns error when repo not found."""
+        MockRepo.get_one.side_effect = RepoNotFoundError("not found")
+        result = await client.call_tool("index_repo", {"name": "ghost"}, raise_on_error=False)
+        assert result.is_error
+
+
+# ---------------------------------------------------------------------------
+# search_repo
+# ---------------------------------------------------------------------------
+
+
+class TestSearchRepo:
+    @patch("indexter.mcp.server.Repo")
+    async def test_search_repo_basic(self, MockRepo, client, mock_qdrant_client):
+        """search_repo returns search results."""
+        mock_repo = MagicMock()
+        mock_results = SearchResults(results=[], query="find foo", filters={})
+        mock_repo.search.return_value = mock_results
+        MockRepo.get_one.return_value = mock_repo
+
+        result = await client.call_tool("search_repo", {"name": "test", "query": "find foo"})
+        assert result.data["query"] == "find foo"
+
+    @patch("indexter.mcp.server.Repo")
+    async def test_search_repo_with_filters(self, MockRepo, client, mock_qdrant_client):
+        """search_repo passes filter arguments through."""
+        mock_repo = MagicMock()
+        mock_results = SearchResults(results=[], query="q", filters={})
+        mock_repo.search.return_value = mock_results
+        MockRepo.get_one.return_value = mock_repo
+
+        await client.call_tool(
+            "search_repo",
+            {
+                "name": "test",
+                "query": "q",
+                "language": "python",
+                "node_type": "function",
+                "limit": 5,
+            },
+        )
+
+        call_kwargs = mock_repo.search.call_args
+        assert call_kwargs.kwargs["language"] == "python"
+        assert call_kwargs.kwargs["node_type"] == "function"
+        assert call_kwargs.kwargs["limit"] == 5
+
+    @patch("indexter.mcp.server.Repo")
+    async def test_search_repo_not_found(self, MockRepo, client):
+        """search_repo returns error when repo not found."""
+        MockRepo.get_one.side_effect = RepoNotFoundError("not found")
+        result = await client.call_tool("search_repo", {"name": "ghost", "query": "x"}, raise_on_error=False)
+        assert result.is_error
+
+
+# ---------------------------------------------------------------------------
+# remove_repo
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveRepo:
+    @patch("indexter.mcp.server.Repo")
+    async def test_remove_repo_success(self, MockRepo, client, mock_qdrant_client):
+        """remove_repo removes the repo and returns confirmation."""
+        MockRepo.remove_one.return_value = True
+        result = await client.call_tool("remove_repo", {"name": "test"})
+        assert result.data["name"] == "test"
+        assert result.data["removed"] is True
+        MockRepo.remove_one.assert_called_once_with("test", mock_qdrant_client)
+
+    @patch("indexter.mcp.server.Repo")
+    async def test_remove_repo_not_found(self, MockRepo, client):
+        """remove_repo returns error when repo not found."""
+        MockRepo.remove_one.side_effect = RepoNotFoundError("not found")
+        result = await client.call_tool("remove_repo", {"name": "ghost"}, raise_on_error=False)
+        assert result.is_error
+
+
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
+
+
+class TestAppLifespan:
+    @patch("indexter.mcp.server.stop_qdrant_container")
+    @patch("indexter.mcp.server.QdrantClient")
+    @patch("indexter.mcp.server.check_container_health")
+    @patch("indexter.mcp.server.start_qdrant_container")
+    @patch("indexter.mcp.server.settings")
+    async def test_lifespan_starts_container_and_client(
+        self, mock_settings, mock_start, mock_health, MockQdrantClient, mock_stop
+    ):
+        """Lifespan starts container, creates client, yields it, then cleans up."""
+        from indexter.mcp.server import app_lifespan
+
+        mock_store = MagicMock()
+        mock_store.mode = "server"
+        mock_store.host = "localhost"
+        mock_store.port = 6333
+        mock_store.grpc_port = 6334
+        mock_store.prefer_grpc = False
+        mock_store.api_key = None
+        mock_settings.store = mock_store
+
+        mock_container = MagicMock()
+        mock_start.return_value = mock_container
+        mock_client = MagicMock()
+        MockQdrantClient.return_value = mock_client
+
+        # Build a temporary server with the real lifespan
+        srv = FastMCP(name="lifespan-test", lifespan=app_lifespan)
+
+        async with Client(srv) as c:
+            await c.list_tools()
+            # Lifespan was invoked — verify startup calls
+            mock_start.assert_called_once_with(mock_settings)
+            mock_health.assert_called_once_with(mock_settings)
+            MockQdrantClient.assert_called_once()
+
+        # After context exit — verify teardown
+        mock_client.close.assert_called_once()
+        mock_stop.assert_called_once_with(mock_container)
+
+    @patch("indexter.mcp.server.settings")
+    async def test_lifespan_rejects_memory_mode(self, mock_settings):
+        """Lifespan raises RuntimeError when store mode is not 'server'."""
+        from indexter.mcp.server import app_lifespan
+
+        mock_store = MagicMock()
+        mock_store.mode = "memory"
+        mock_settings.store = mock_store
+
+        srv = FastMCP(name="lifespan-fail-test", lifespan=app_lifespan)
+
+        with pytest.raises(Exception, match="Store mode must be 'server'"):
+            async with Client(srv) as c:
+                await c.list_tools()
+
+    @patch("indexter.mcp.server.stop_qdrant_container")
+    @patch("indexter.mcp.server.QdrantClient")
+    @patch("indexter.mcp.server.check_container_health")
+    @patch("indexter.mcp.server.start_qdrant_container")
+    @patch("indexter.mcp.server.settings")
+    async def test_lifespan_stops_container_on_client_error(
+        self, mock_settings, mock_start, mock_health, MockQdrantClient, mock_stop
+    ):
+        """Container is stopped even if QdrantClient creation fails."""
+        from indexter.mcp.server import app_lifespan
+
+        mock_store = MagicMock()
+        mock_store.mode = "server"
+        mock_settings.store = mock_store
+        mock_container = MagicMock()
+        mock_start.return_value = mock_container
+        MockQdrantClient.side_effect = ConnectionError("refused")
+
+        srv = FastMCP(name="lifespan-error-test", lifespan=app_lifespan)
+
+        with pytest.raises(RuntimeError, match="Client failed to connect"):
+            async with Client(srv) as c:
+                await c.list_tools()
+
+        mock_stop.assert_called_once_with(mock_container)
+
+    @patch("indexter.mcp.server.watch_repos")
+    @patch("indexter.mcp.server.stop_qdrant_container")
+    @patch("indexter.mcp.server.QdrantClient")
+    @patch("indexter.mcp.server.check_container_health")
+    @patch("indexter.mcp.server.start_qdrant_container")
+    @patch("indexter.mcp.server.settings")
+    async def test_lifespan_starts_watcher_when_enabled(
+        self, mock_settings, mock_start, mock_health, MockQdrantClient, mock_stop, mock_watch_repos
+    ):
+        """Watcher task is created when watch.enabled is True."""
+        from indexter.mcp.server import app_lifespan
+
+        mock_store = MagicMock()
+        mock_store.mode = "server"
+        mock_store.host = "localhost"
+        mock_store.port = 6333
+        mock_store.grpc_port = 6334
+        mock_store.prefer_grpc = False
+        mock_store.api_key = None
+        mock_settings.store = mock_store
+
+        mock_watch = MagicMock()
+        mock_watch.enabled = True
+        mock_settings.watch = mock_watch
+
+        mock_container = MagicMock()
+        mock_start.return_value = mock_container
+        mock_client = MagicMock()
+        MockQdrantClient.return_value = mock_client
+
+        # Make watch_repos a coroutine that waits for stop
+        async def fake_watch(client, stop_event, watch_settings):
+            await stop_event.wait()
+
+        mock_watch_repos.side_effect = fake_watch
+
+        srv = FastMCP(name="watcher-test", lifespan=app_lifespan)
+
+        async with Client(srv) as c:
+            await c.list_tools()
+            mock_watch_repos.assert_called_once()
+
+        mock_client.close.assert_called_once()
+        mock_stop.assert_called_once_with(mock_container)
+
+    @patch("indexter.mcp.server.watch_repos")
+    @patch("indexter.mcp.server.stop_qdrant_container")
+    @patch("indexter.mcp.server.QdrantClient")
+    @patch("indexter.mcp.server.check_container_health")
+    @patch("indexter.mcp.server.start_qdrant_container")
+    @patch("indexter.mcp.server.settings")
+    async def test_lifespan_skips_watcher_when_disabled(
+        self, mock_settings, mock_start, mock_health, MockQdrantClient, mock_stop, mock_watch_repos
+    ):
+        """Watcher task is NOT created when watch.enabled is False."""
+        from indexter.mcp.server import app_lifespan
+
+        mock_store = MagicMock()
+        mock_store.mode = "server"
+        mock_store.host = "localhost"
+        mock_store.port = 6333
+        mock_store.grpc_port = 6334
+        mock_store.prefer_grpc = False
+        mock_store.api_key = None
+        mock_settings.store = mock_store
+
+        mock_watch = MagicMock()
+        mock_watch.enabled = False
+        mock_settings.watch = mock_watch
+
+        mock_container = MagicMock()
+        mock_start.return_value = mock_container
+        mock_client = MagicMock()
+        MockQdrantClient.return_value = mock_client
+
+        srv = FastMCP(name="watcher-disabled-test", lifespan=app_lifespan)
+
+        async with Client(srv) as c:
+            await c.list_tools()
+            mock_watch_repos.assert_not_called()
+
+        mock_client.close.assert_called_once()
+        mock_stop.assert_called_once_with(mock_container)
