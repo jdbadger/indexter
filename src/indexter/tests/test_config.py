@@ -19,6 +19,7 @@ from indexter.config import (
     StoreMode,
     StoreSettings,
     ensure_dirs,
+    get_cache_dir,
     get_config_dir,
     get_data_dir,
     settings,
@@ -86,6 +87,24 @@ class TestGetConfigDir:
             os.environ.pop("XDG_CONFIG_HOME", None)
             result = get_config_dir()
             expected = Path.home() / ".config" / "indexter"
+            assert result == expected
+
+
+class TestGetCacheDir:
+    """Test get_cache_dir function."""
+
+    def test_should_use_xdg_cache_home(self):
+        """Test get_cache_dir uses XDG_CACHE_HOME when set."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": "/custom/cache"}):
+            result = get_cache_dir()
+            assert result == Path("/custom/cache/indexter")
+
+    def test_should_default_to_home_cache(self):
+        """Test get_cache_dir defaults to ~/.cache/indexter."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("XDG_CACHE_HOME", None)
+            result = get_cache_dir()
+            expected = Path.home() / ".cache" / "indexter"
             assert result == expected
 
 
@@ -316,6 +335,26 @@ class TestSettings:
         assert settings_obj.store.host == "custom.host"
         assert settings_obj.mcp.transport == MCPTransport.http
         assert settings_obj.mcp.port == 9999
+
+    def test_should_load_prefer_grpc_from_config_file(self, tmp_path):
+        """Test Settings loads prefer_grpc from config file correctly."""
+        config_dir = tmp_path / "config"
+        data_dir = tmp_path / "data"
+        config_dir.mkdir(parents=True)
+
+        config_file = config_dir / CONFIG_FILENAME
+        config_content = """
+        [store]
+        prefer_grpc = true
+        grpc_port = 6334
+        """
+        config_file.write_text(config_content)
+
+        settings_obj = Settings(config_dir=config_dir, data_dir=data_dir)
+
+        # verify prefer_grpc is loaded from TOML, not using the default value
+        assert settings_obj.store.prefer_grpc is True
+        assert settings_obj.store.grpc_port == 6334
 
     def test_should_handle_validation_error_in_from_toml(self, tmp_path, caplog):
         """Test Settings.from_toml handles validation errors gracefully."""

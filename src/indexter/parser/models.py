@@ -15,7 +15,7 @@ class NodeMetadata(BaseModel):
     repo: str = Field(description="Name of the repository containing the node")
     repo_path: str = Field(description="Absolute path to the repository root")
     document_path: str = Field(description="Relative path to the source file within the repository")
-    hash: str | None = Field(default=None, description="Hash of the parent document")
+    document_hash: str = Field(description="Hash of the source document for change detection")
     language: str = Field(description="Programming language of the node")
     node_type: str = Field(description="Type of code construct (function, class, etc.)")
     node_name: str | None = Field(default=None, description="Name identifier of the node")
@@ -49,24 +49,13 @@ class Node(BaseModel):
     metadata: NodeMetadata = Field(description="Metadata describing the node's context and location")
 
     @classmethod
-    def placeholder(cls, repo: str, repo_path: str, document_path: str, hash: str | None = None) -> "Node":
-        """Create a placeholder node with default values."""
-        return cls(
-            content="",
-            metadata=NodeMetadata(
-                repo=repo,
-                repo_path=repo_path,
-                document_path=document_path,
-                hash=hash,
-                language="",
-                node_type="__PLACEHOLDER__",
-                node_name="",
-                start_byte=0,
-                end_byte=0,
-                start_line=0,
-                end_line=0,
-            ),
-        )
+    def from_parsed(cls, content: str, metadata: NodeMetadata) -> "Node":
+        """
+        Create a Node instance from parsed content and metadata.
+        If the content is empty, return a placeholder node."""
+        if not content:
+            metadata.node_type = "__PLACEHOLDER__"
+        return cls(content=content, metadata=metadata)
 
     def as_payload(self) -> dict:
         """Convert the node to a payload dictionary for storage in the vector store."""

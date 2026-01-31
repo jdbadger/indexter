@@ -9,32 +9,19 @@ from indexter.walker.models import Document, DocumentMetadata
 class TestDocumentMetadata:
     """Tests for DocumentMetadata model."""
 
-    @pytest.fixture
-    def valid_metadata_data(self):
-        """Fixture providing valid metadata data."""
-        return {
-            "repo": "test-repo",
-            "repo_path": "/home/user/repos/test-repo",
-            "hash": "abc123def456",
-            "ext": ".py",
-            "size_bytes": 1024,
-            "mtime": 1234567890.5,
-        }
-
     def test_should_create_metadata_with_valid_data(self, valid_metadata_data):
         """Test DocumentMetadata creation with all valid fields."""
         metadata = DocumentMetadata(**valid_metadata_data)
 
         assert metadata.repo == "test-repo"
         assert metadata.repo_path == "/home/user/repos/test-repo"
-        assert metadata.hash == "abc123def456"
         assert metadata.ext == ".py"
         assert metadata.size_bytes == 1024
         assert metadata.mtime == 1234567890.5
 
     @pytest.mark.parametrize(
         "field_name",
-        ["repo", "repo_path", "hash", "ext", "size_bytes", "mtime"],
+        ["repo", "repo_path", "ext", "size_bytes", "mtime"],
     )
     def test_should_reject_missing_required_field(self, valid_metadata_data, field_name):
         """Test DocumentMetadata rejects missing required fields."""
@@ -132,14 +119,13 @@ class TestDocumentMetadata:
 
         assert isinstance(json_str, str)
         assert "test-repo" in json_str
-        assert "abc123def456" in json_str
 
     def test_should_deserialize_from_dict(self, valid_metadata_data):
         """Test DocumentMetadata can be deserialized from dict."""
         metadata = DocumentMetadata.model_validate(valid_metadata_data)
 
         assert metadata.repo == valid_metadata_data["repo"]
-        assert metadata.hash == valid_metadata_data["hash"]
+        assert metadata.ext == valid_metadata_data["ext"]
 
     def test_should_support_field_descriptions(self):
         """Test DocumentMetadata fields have descriptions."""
@@ -160,7 +146,6 @@ class TestDocument:
         return DocumentMetadata(
             repo="test-repo",
             repo_path="/home/user/repos/test-repo",
-            hash="abc123def456",
             ext=".py",
             size_bytes=1024,
             mtime=1234567890.5,
@@ -274,7 +259,6 @@ if __name__ == '__main__':
         data["metadata"] = {
             "repo": "test-repo",
             "repo_path": "/home/user/repos/test-repo",
-            "hash": "def789",
             "ext": ".js",
             "size_bytes": 2048,
             "mtime": 1234567890.0,
@@ -284,7 +268,7 @@ if __name__ == '__main__':
 
         assert isinstance(doc.metadata, DocumentMetadata)
         assert doc.metadata.repo == "test-repo"
-        assert doc.metadata.hash == "def789"
+        assert doc.metadata.ext == ".js"
 
     def test_should_reject_invalid_metadata(self, valid_document_data):
         """Test Document rejects invalid metadata."""
@@ -376,7 +360,6 @@ class TestDocumentMetadataIntegration:
         original = DocumentMetadata(
             repo="integration-repo",
             repo_path="/path/to/repo",
-            hash="hash123",
             ext=".ts",
             size_bytes=4096,
             mtime=1234567890.123,
@@ -388,7 +371,6 @@ class TestDocumentMetadataIntegration:
 
         assert restored.repo == original.repo
         assert restored.repo_path == original.repo_path
-        assert restored.hash == original.hash
         assert restored.ext == original.ext
         assert restored.size_bytes == original.size_bytes
         assert restored.mtime == original.mtime
@@ -398,7 +380,6 @@ class TestDocumentMetadataIntegration:
         original = DocumentMetadata(
             repo="json-repo",
             repo_path="/json/path",
-            hash="jsonhash",
             ext=".json",
             size_bytes=512,
             mtime=1700000000.0,
@@ -410,7 +391,91 @@ class TestDocumentMetadataIntegration:
         restored = DocumentMetadata.model_validate(data)
 
         assert restored.repo == original.repo
-        assert restored.hash == original.hash
+        assert restored.ext == original.ext
+
+
+class TestDocumentHash:
+    """Tests for Document.hash computed property."""
+
+    @pytest.fixture
+    def valid_metadata(self):
+        """Fixture providing valid DocumentMetadata."""
+        return DocumentMetadata(
+            repo="test-repo",
+            repo_path="/home/user/repos/test-repo",
+            ext=".py",
+            size_bytes=1024,
+            mtime=1234567890.5,
+        )
+
+    def test_should_return_deterministic_hash(self, valid_metadata):
+        """Test hash returns the same value for the same document."""
+        doc = Document(path="src/main.py", content="def hello(): pass", metadata=valid_metadata)
+
+        assert doc.hash == doc.hash
+
+    def test_should_return_64_character_hex_string(self, valid_metadata):
+        """Test hash returns a valid SHA256 hex string."""
+        doc = Document(path="src/main.py", content="def hello(): pass", metadata=valid_metadata)
+
+        assert len(doc.hash) == 64
+        assert all(c in "0123456789abcdef" for c in doc.hash)
+
+    def test_should_return_same_hash_for_same_path_and_content(self, valid_metadata):
+        """Test two documents with the same path and content produce the same hash."""
+        doc1 = Document(path="src/main.py", content="def hello(): pass", metadata=valid_metadata)
+        doc2 = Document(path="src/main.py", content="def hello(): pass", metadata=valid_metadata)
+
+        assert doc1.hash == doc2.hash
+
+    def test_should_return_different_hash_for_different_content(self, valid_metadata):
+        """Test documents with different content produce different hashes."""
+        doc1 = Document(path="src/main.py", content="def hello(): pass", metadata=valid_metadata)
+        doc2 = Document(path="src/main.py", content="def goodbye(): pass", metadata=valid_metadata)
+
+        assert doc1.hash != doc2.hash
+
+    def test_should_return_different_hash_for_different_path(self, valid_metadata):
+        """Test documents with different paths produce different hashes."""
+        doc1 = Document(path="src/a.py", content="def hello(): pass", metadata=valid_metadata)
+        doc2 = Document(path="src/b.py", content="def hello(): pass", metadata=valid_metadata)
+
+        assert doc1.hash != doc2.hash
+
+    def test_should_not_depend_on_metadata(self, valid_metadata):
+        """Test hash only depends on path and content, not metadata."""
+        metadata2 = DocumentMetadata(
+            repo="other-repo",
+            repo_path="/other/path",
+            ext=".txt",
+            size_bytes=9999,
+            mtime=0.0,
+        )
+        doc1 = Document(path="src/main.py", content="content", metadata=valid_metadata)
+        doc2 = Document(path="src/main.py", content="content", metadata=metadata2)
+
+        assert doc1.hash == doc2.hash
+
+    def test_should_include_hash_in_model_dump(self, valid_metadata):
+        """Test Document.model_dump() includes the computed hash."""
+        doc = Document(path="src/main.py", content="content", metadata=valid_metadata)
+
+        result = doc.model_dump()
+
+        assert "hash" in result
+        assert result["hash"] == doc.hash
+
+    def test_should_handle_empty_content(self, valid_metadata):
+        """Test hash is computed for documents with empty content."""
+        doc = Document(path="src/empty.py", content="", metadata=valid_metadata)
+
+        assert len(doc.hash) == 64
+
+    def test_should_handle_unicode_content(self, valid_metadata):
+        """Test hash is computed correctly for unicode content."""
+        doc = Document(path="src/unicode.py", content="# café, naïve, 日本語 🚀", metadata=valid_metadata)
+
+        assert len(doc.hash) == 64
 
 
 class TestDocumentIntegration:
@@ -424,7 +489,6 @@ class TestDocumentIntegration:
             metadata=DocumentMetadata(
                 repo="test-repo",
                 repo_path="/test/path",
-                hash="inthash",
                 ext=".py",
                 size_bytes=100,
                 mtime=1234567890.0,
@@ -438,7 +502,7 @@ class TestDocumentIntegration:
         assert restored.path == original.path
         assert restored.content == original.content
         assert restored.metadata.repo == original.metadata.repo
-        assert restored.metadata.hash == original.metadata.hash
+        assert restored.metadata.ext == original.metadata.ext
 
     def test_should_roundtrip_through_json_serialization(self):
         """Test document can roundtrip through JSON serialization."""
@@ -448,7 +512,6 @@ class TestDocumentIntegration:
             metadata=DocumentMetadata(
                 repo="js-repo",
                 repo_path="/js/path",
-                hash="jshash",
                 ext=".js",
                 size_bytes=200,
                 mtime=1700000000.0,
@@ -466,17 +529,15 @@ class TestDocumentIntegration:
 
     def test_should_create_multiple_documents_with_same_metadata_structure(self):
         """Test creating multiple documents with consistent metadata structure."""
-        metadata_template = {
-            "repo": "multi-doc-repo",
-            "repo_path": "/multi/doc",
-            "ext": ".py",
-            "size_bytes": 500,
-            "mtime": 1234567890.0,
-        }
-
         documents = []
         for i in range(5):
-            metadata = DocumentMetadata(**{**metadata_template, "hash": f"hash{i}"})
+            metadata = DocumentMetadata(
+                repo="multi-doc-repo",
+                repo_path="/multi/doc",
+                ext=".py",
+                size_bytes=500,
+                mtime=1234567890.0,
+            )
             doc = Document(
                 path=f"file{i}.py",
                 content=f"# File {i}",
@@ -487,7 +548,6 @@ class TestDocumentIntegration:
         assert len(documents) == 5
         for i, doc in enumerate(documents):
             assert doc.path == f"file{i}.py"
-            assert doc.metadata.hash == f"hash{i}"
             assert doc.metadata.repo == "multi-doc-repo"
 
     def test_should_handle_nested_serialization(self):
@@ -498,7 +558,6 @@ class TestDocumentIntegration:
             metadata=DocumentMetadata(
                 repo="nested-repo",
                 repo_path="/nested",
-                hash="nestedhash",
                 ext=".py",
                 size_bytes=128,
                 mtime=1234567890.0,
@@ -522,7 +581,6 @@ class TestDocumentIntegration:
             metadata=DocumentMetadata(
                 repo="complete-repo",
                 repo_path="/complete/path/to/repo",
-                hash="completehash123456789",
                 ext=".rs",
                 size_bytes=1024,
                 mtime=1700000000.5,
@@ -534,7 +592,6 @@ class TestDocumentIntegration:
         assert "fn main()" in doc.content
         assert doc.metadata.repo == "complete-repo"
         assert doc.metadata.repo_path == "/complete/path/to/repo"
-        assert doc.metadata.hash == "completehash123456789"
         assert doc.metadata.ext == ".rs"
         assert doc.metadata.size_bytes == 1024
         assert doc.metadata.mtime == 1700000000.5

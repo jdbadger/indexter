@@ -147,7 +147,7 @@ class BaseLanguageParser(BaseParser):
                     "repo": document.metadata.repo,
                     "repo_path": document.metadata.repo_path,
                     "document_path": document.path,
-                    "hash": document.metadata.hash,
+                    "document_hash": document.hash,
                     "language": self.language,
                     **node_info,
                 }

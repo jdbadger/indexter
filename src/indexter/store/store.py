@@ -40,8 +40,8 @@ Collections:
 
     - Dense vector field for semantic embeddings
     - Sparse vector field for BM25 embeddings
-    - Payload fields: content, document_path, hash, language, node_type,
-      node_name, parent_scope, documentation, signature, etc.
+    - Payload fields: content, document_path, document_hash, language,
+      node_type, node_name, parent_scope, documentation, signature, etc.
 
 Classes:
     VectorStore:
@@ -55,7 +55,7 @@ Classes:
         Container for search results with query and filter information.
 
     IndexResult (in models.py):
-        Statistics from an indexing operation (nodes added, updated, etc.).
+        Statistics from an indexing operation (documents and nodes indexed/deleted, etc.).
 
 Example:
     Using VectorStore as a context manager::
@@ -82,12 +82,11 @@ Example:
             for result in results.results:
                 print(f"{result.score:.3f}: {result.metadata['node_name']}")
 
-    Change detection for incremental indexing::
-
-        async with VectorStore() as store:
-            # Get stored hashes for comparison with local files
-            hashes = await store.get_document_hashes("indexter_my-project")
-            # Returns: {"src/main.py": "abc123...", "src/utils.py": "def456..."}
+    Change detection:
+        Incremental indexing is managed by ``Repo.index()``, which compares
+        document-level hashes (SHA-256 of path + content) to detect new,
+        modified, and deleted files. The store handles deletion and upsertion
+        of nodes as directed by the ``Repo`` model.
 
 Configuration:
     Store behavior is controlled via ``settings.store``:
@@ -188,10 +187,17 @@ class VectorStore:
                 self._client = AsyncQdrantClient(
                     location=":memory:",
                     timeout=settings.store.timeout,
+                    local_inference_batch_size=settings.upsert_batch_size,  # Limit batch size for embedding
                 )
             else:
                 # Qdrant server (default)
-                logger.info(f"Connecting to Qdrant (async) at {settings.store.host}:{settings.store.port}")
+                if settings.store.prefer_grpc:
+                    logger.info(
+                        f"Connecting to Qdrant (async) at {settings.store.host}:{settings.store.grpc_port} "
+                        f"(gRPC preferred, HTTP fallback: {settings.store.port})"
+                    )
+                else:
+                    logger.info(f"Connecting to Qdrant (async) at {settings.store.host}:{settings.store.port} (HTTP)")
 
                 if settings.store.prefer_grpc:
                     # gRPC retry policy to handle transient failures
@@ -227,6 +233,7 @@ class VectorStore:
                     api_key=settings.store.api_key,
                     timeout=settings.store.timeout,
                     grpc_options=grpc_options,
+                    local_inference_batch_size=settings.upsert_batch_size,  # Limit batch size for embedding
                 )
 
             # Set the embedding models for fastembed
@@ -292,59 +299,6 @@ class VectorStore:
             await self.create_collection(collection_name)
 
         self._initialized_collections.add(collection_name)
-
-    async def get_document_hashes(self, collection_name: str) -> dict[str, str]:
-        """Get all document hashes from a collection.
-
-        Scrolls through all points and extracts unique document_path -> hash mappings.
-
-        Args:
-            collection_name: Name of the collection to query.
-
-        Returns:
-            Dict mapping document_path to content hash.
-        """
-        await self.ensure_collection(collection_name)
-
-        document_hashes: dict[str, str] = {}
-        offset = None
-
-        while True:
-            results, next_offset = await self.client.scroll(
-                collection_name=collection_name,
-                limit=1000,
-                offset=offset,
-                with_payload=["document_path", "hash"],
-                with_vectors=False,
-            )
-
-            for point in results:
-                if point.payload:
-                    doc_path = point.payload.get("document_path")
-                    doc_hash = point.payload.get("hash")
-                    if doc_path and doc_hash:
-                        # Only store first occurrence (all nodes from same doc have same hash)
-                        if doc_path not in document_hashes:
-                            document_hashes[doc_path] = doc_hash
-
-            if next_offset is None:
-                break
-            offset = next_offset
-
-        return document_hashes
-
-    async def count_nodes(self, collection_name: str) -> int:
-        """Count the total number of nodes in a collection.
-
-        Args:
-            collection_name: Name of the collection to count.
-
-        Returns:
-            Total number of nodes (points) in the collection.
-        """
-        await self.ensure_collection(collection_name)
-        collection_info = await self.client.get_collection(collection_name)
-        return collection_info.points_count or 0
 
     async def upsert_nodes(
         self,
@@ -421,42 +375,45 @@ class VectorStore:
 
         return total_upserted
 
-    async def delete_by_document_paths(
-        self,
-        collection_name: str,
-        document_paths: list[str],
-    ) -> int:
-        """Delete all nodes matching the given document paths.
+    async def delete_by_hashes(self, collection_name: str, hashes: list[str]) -> int:
+        """Delete all nodes with the provided document hashes.
 
         Args:
             collection_name: Name of the collection to delete from.
-            document_paths: List of document paths to delete nodes for.
+            hashes: List of document hashes to delete nodes for.
 
         Returns:
-            Number of paths processed (not individual points).
+            Number of points deleted.
         """
-        if not document_paths:
+        if not hashes:
             return 0
 
         await self.ensure_collection(collection_name)
 
-        # Delete using filter on document_path
-        await self.client.delete(
-            collection_name=collection_name,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    should=[
-                        models.FieldCondition(
-                            key="document_path",
-                            match=models.MatchValue(value=path),
-                        )
-                        for path in document_paths
-                    ]
+        hash_filter = models.Filter(
+            should=[
+                models.FieldCondition(
+                    key="document_hash",
+                    match=models.MatchValue(value=hash_value),
                 )
-            ),
+                for hash_value in hashes
+            ]
         )
 
-        return len(document_paths)
+        # Count matching points before deletion (Qdrant's delete doesn't return a count)
+        count_result = await self.client.count(
+            collection_name=collection_name,
+            count_filter=hash_filter,
+            exact=True,
+        )
+
+        # Delete using filter on document_hash
+        await self.client.delete(
+            collection_name=collection_name,
+            points_selector=models.FilterSelector(filter=hash_filter),
+        )
+
+        return count_result.count
 
     async def search(
         self,

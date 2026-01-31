@@ -42,7 +42,7 @@ Indexter indexes your local git repositories, parses them semantically using tre
   - HTML, CSS, JSON, YAML, TOML, Markdown
   - Generic chunking fallback for other file types
 - 📁 **Respects .gitignore** and configurable ignore patterns
-- 🔄 **Incremental updates** sync changed files via content hash comparison
+- 🔄 **Incremental updates** sync changed files via document-level content hash comparison
 - 🔍 **Hybrid search** combining dense semantic vectors and sparse keyword vectors with reciprocal rank fusion (RRF)
 - ⚡ **Powered by Qdrant** vector database with automatic embedding generation via FastEmbed
 - ⌨️ **CLI** for indexing repositories, searching code and inspecting configuration from your terminal
@@ -283,7 +283,7 @@ ignore_patterns = [
 # Number of top similar documents to retrieve for queries. Default: 10
 # top_k = 10
 
-# Number of documents to batch when upserting to vector store. Default: 50
+# Number of documents to batch when upserting to vector store. Default: 100
 # upsert_batch_size = 100
 ```
 
@@ -471,7 +471,7 @@ from indexter.store import VectorStore
 async def main():
     async with VectorStore() as store:
         # Initialize a new repository (name derived from directory)
-        repo = await Repo.init(Path("/path/to/your/repo"), store)
+        repo = await Repo.init(Path("/path/to/your/repo"))
 
         # Index the repository
         result = await repo.index(store)
@@ -482,12 +482,12 @@ async def main():
         for r in results.results:
             print(f"{r.score:.3f}: {r.metadata['node_name']}")
 
-        # Retrieve an existing repository with status metadata
-        repo = await Repo.get_one("my-repo", store, with_metadata=True)
-        print(f"Stale: {repo.metadata.is_stale}")
+        # Retrieve an existing repository
+        repo = await Repo.get_one("my-repo")
+        print(f"Stale: {repo.is_stale}")
 
         # List all configured repositories
-        all_repos = await Repo.get_all(store)
+        all_repos = await Repo.get_all()
 
         # Remove a repository and its indexed data
         await Repo.remove_one("my-repo", store)
@@ -495,7 +495,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Key properties: `repo.name`, `repo.path`, `repo.collection_name`, `repo.settings`.
+Key properties: `repo.name`, `repo.path`, `repo.collection_name`, `repo.settings`, `repo.is_stale`, `repo.metadata`.
 
 ## Contributing
 

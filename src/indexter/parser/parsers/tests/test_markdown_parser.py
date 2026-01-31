@@ -35,7 +35,6 @@ Content for section 2.
     metadata = DocumentMetadata(
         repo="test-repo",
         repo_path="/path/to/repo",
-        hash="abc123",
         ext=".md",
         size_bytes=len(content),
         mtime=1234567890.0,
@@ -804,7 +803,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -828,7 +826,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -855,7 +852,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -887,7 +883,6 @@ More content.
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -920,7 +915,6 @@ Paragraph 2.
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -943,7 +937,6 @@ Paragraph 2.
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=0,
             mtime=1234567890.0,
@@ -961,7 +954,6 @@ No headings here.
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -976,7 +968,6 @@ No headings here.
         metadata = DocumentMetadata(
             repo="my-repo",
             repo_path="/custom/path",
-            hash="hash123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -990,7 +981,6 @@ No headings here.
         assert node_metadata.repo == "my-repo"
         assert node_metadata.repo_path == "/custom/path"
         assert node_metadata.document_path == "custom/test.md"
-        assert node_metadata.hash == "hash123"
 
     def test_should_parse_headings_with_special_characters(self, markdown_parser):
         content = """# API & SDK
@@ -1002,7 +992,6 @@ No headings here.
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1026,7 +1015,6 @@ Content with unicode.
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1055,7 +1043,6 @@ Content with unicode.
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1111,7 +1098,6 @@ That's it!
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1152,7 +1138,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1176,7 +1161,6 @@ def hello():
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1198,7 +1182,6 @@ def hello():
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1218,7 +1201,6 @@ def hello():
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1236,7 +1218,6 @@ def hello():
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1256,7 +1237,6 @@ def hello():
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1274,7 +1254,6 @@ def hello():
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1291,7 +1270,6 @@ def hello():
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".md",
             size_bytes=len(content),
             mtime=1234567890.0,

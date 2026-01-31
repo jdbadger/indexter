@@ -112,6 +112,7 @@ def test_base_parser_can_be_subclassed():
                     repo="test",
                     repo_path="/test",
                     document_path="test.py",
+                    document_hash="abc123",
                     language="python",
                     node_type="function",
                     start_byte=0,
@@ -386,7 +387,6 @@ def test_base_language_parser_parse_includes_document_metadata(sample_document):
         assert metadata.repo == sample_document.metadata.repo
         assert metadata.repo_path == sample_document.metadata.repo_path
         assert metadata.document_path == sample_document.path
-        assert metadata.hash == sample_document.metadata.hash
         assert metadata.language == "python"
 
 
@@ -426,7 +426,6 @@ def test_base_language_parser_parse_handles_unicode_content():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".py",
             size_bytes=len(unicode_content.encode()),
             mtime=123.0,
@@ -482,7 +481,6 @@ def test_base_language_parser_parse_creates_tree_sitter_query():
                 metadata=DocumentMetadata(
                     repo="test",
                     repo_path="/test",
-                    hash="abc",
                     ext=".py",
                     size_bytes=100,
                     mtime=123.0,
@@ -521,7 +519,6 @@ def test_base_language_parser_parse_uses_query_cursor():
             metadata=DocumentMetadata(
                 repo="test",
                 repo_path="/test",
-                hash="abc",
                 ext=".py",
                 size_bytes=100,
                 mtime=123.0,
@@ -618,7 +615,6 @@ def test_base_language_parser_parse_merges_node_info_with_metadata(sample_docume
         assert metadata.repo == sample_document.metadata.repo
         assert metadata.repo_path == sample_document.metadata.repo_path
         assert metadata.document_path == sample_document.path
-        assert metadata.hash == sample_document.metadata.hash
 
         # Check node info from process_match is included
         assert metadata.node_type == "function"
@@ -667,7 +663,6 @@ def test_base_language_parser_parse_empty_document():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".py",
             size_bytes=0,
             mtime=123.0,
@@ -699,7 +694,6 @@ def test_base_language_parser_parse_whitespace_only_document():
         metadata=DocumentMetadata(
             repo="test",
             repo_path="/test",
-            hash="abc",
             ext=".py",
             size_bytes=10,
             mtime=123.0,

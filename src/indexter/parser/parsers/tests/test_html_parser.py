@@ -30,7 +30,6 @@ def sample_html_document():
     metadata = DocumentMetadata(
         repo="test-repo",
         repo_path="/path/to/repo",
-        hash="abc123",
         ext=".html",
         size_bytes=len(content),
         mtime=1234567890.0,
@@ -917,7 +916,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -940,7 +938,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -966,7 +963,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -991,7 +987,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1021,7 +1016,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1041,7 +1035,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1059,7 +1052,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1082,7 +1074,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1127,7 +1118,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1150,7 +1140,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1172,7 +1161,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=0,
             mtime=1234567890.0,
@@ -1194,7 +1182,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1209,7 +1196,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="my-repo",
             repo_path="/custom/path",
-            hash="hash123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1223,7 +1209,6 @@ class TestParseIntegration:
         assert node_metadata.repo == "my-repo"
         assert node_metadata.repo_path == "/custom/path"
         assert node_metadata.document_path == "custom/page.html"
-        assert node_metadata.hash == "hash123"
 
 
 class TestHtmlParserInitialization:
@@ -1258,7 +1243,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1274,7 +1258,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1289,7 +1272,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1307,7 +1289,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1324,7 +1305,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1342,7 +1322,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1367,7 +1346,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1396,7 +1374,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1416,7 +1393,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1435,7 +1411,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".html",
             size_bytes=len(content),
             mtime=1234567890.0,
