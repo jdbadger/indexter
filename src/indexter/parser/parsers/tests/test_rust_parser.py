@@ -28,7 +28,6 @@ struct SimpleStruct {
     metadata = DocumentMetadata(
         repo="test-repo",
         repo_path="/path/to/repo",
-        hash="abc123",
         ext=".rs",
         size_bytes=len(content),
         mtime=1234567890.0,
@@ -966,7 +965,6 @@ class TestParseIntegration:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -998,7 +996,6 @@ fn add(a: i32, b: i32) -> i32 {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1022,7 +1019,6 @@ fn add(a: i32, b: i32) -> i32 {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1047,7 +1043,6 @@ fn add(a: i32, b: i32) -> i32 {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1070,7 +1065,6 @@ fn add(a: i32, b: i32) -> i32 {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1102,7 +1096,6 @@ impl Calculator {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1135,7 +1128,6 @@ impl Calculator {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1157,7 +1149,6 @@ impl Calculator {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1180,7 +1171,6 @@ fn test_panic() {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1201,7 +1191,6 @@ use std::io::Read as IoRead;
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1222,7 +1211,6 @@ static GLOBAL_CONFIG: &str = "config";
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1242,7 +1230,6 @@ static GLOBAL_CONFIG: &str = "config";
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1264,7 +1251,6 @@ static GLOBAL_CONFIG: &str = "config";
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1327,7 +1313,6 @@ mod tests {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1351,7 +1336,6 @@ mod tests {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1369,7 +1353,6 @@ mod tests {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1392,7 +1375,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1413,7 +1395,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1436,7 +1417,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1454,7 +1434,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1474,7 +1453,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1498,7 +1476,6 @@ class TestEdgeCases:
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1527,7 +1504,6 @@ fn test() {
         metadata = DocumentMetadata(
             repo="test-repo",
             repo_path="/path/to/repo",
-            hash="abc123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1545,7 +1521,6 @@ fn test() {
         metadata = DocumentMetadata(
             repo="my-repo",
             repo_path="/my/repo/path",
-            hash="hash123",
             ext=".rs",
             size_bytes=len(content),
             mtime=1234567890.0,
@@ -1559,5 +1534,4 @@ fn test() {
         assert node_metadata.repo == "my-repo"
         assert node_metadata.repo_path == "/my/repo/path"
         assert node_metadata.document_path == "src/main.rs"
-        assert node_metadata.hash == "hash123"
         assert node_metadata.language == "rust"

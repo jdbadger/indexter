@@ -259,12 +259,9 @@ def index(
         console.print(f"[red]✗[/red] Unexpected error: {e}")
         raise typer.Exit(1) from e
 
-    if result.documents_indexed == 0:
+    if len(result.documents_indexed) == 0:
         console.print(f"  [dim]●[/dim] {repo.name}: up to date")
-        console.print(
-            f" [green]✓[/green] No changes detected. {result.documents_checked} documents checked. "
-            "Repository is up to date."
-        )
+        console.print("[green]✓[/green] No changes detected. Repository is up to date.")
     else:
         console.print(f"  [green]✓[/green] {repo.name}: {result.summary}")
 
@@ -276,13 +273,6 @@ def index(
             console.print(f"    ... and {len(result.errors) - 5} more")
         console.print("  [yellow]Some documents could not be indexed. Please check the errors above.[/yellow]")
         return
-
-    if result.skipped_documents:
-        console.print(f"  [yellow]Skipped: {result.skipped_documents} documents[/yellow]")
-        console.print(
-            "  [yellow]Some documents skipped during indexing due to maximum allowed file limit "
-            "being exceeded.[/yellow]"
-        )
 
     console.print("[green]Indexing complete![/green]")
 
@@ -377,12 +367,7 @@ def status() -> None:
         └─────────┴────────────────┴───────┴───────────┴─────────────┘
     """
 
-    async def _status() -> list[Repo]:
-        """Run all status operations in a single event loop."""
-        async with VectorStore() as store:
-            return await Repo.get_all(store, with_metadata=True)
-
-    repos = cast(list[Repo], anyio.run(_status))
+    repos = cast(list[Repo], anyio.run(Repo.get_all))
 
     if not repos:
         console.print("[bold]Repositories[/bold]")
@@ -401,9 +386,9 @@ def status() -> None:
         table.add_row(
             repo.name,
             str(repo.path),
-            str(repo.metadata.nodes_indexed if repo.metadata else "-"),
-            str(repo.metadata.documents_indexed if repo.metadata else "-"),
-            str(repo.metadata.is_stale if repo.metadata else "-"),
+            str(repo.metadata.nodes if repo.metadata else "-"),
+            str(repo.metadata.documents if repo.metadata else "-"),
+            str(repo.is_stale),
         )
 
     console.print(table)

@@ -36,24 +36,26 @@ Example:
 
         from pathlib import Path
         from indexter import Repo
+        from indexter.store import VectorStore
 
         # Register a new repository
         repo = await Repo.init(Path("/path/to/my-project"))
 
         # Index all code files
-        result = await repo.index()
-        print(f"Indexed {result.nodes_added} nodes")
+        async with VectorStore() as store:
+            result = await repo.index(store)
+            print(f"Indexed {result.nodes_added} nodes")
 
-        # Search for code
-        results = await repo.search("database connection handling")
-        for result in results.results:
-            print(f"{result.metadata['document_path']}: {result.score}")
+            # Search for code
+            results = await repo.search("database connection handling", store)
+            for result in results.results:
+                print(f"{result.metadata['document_path']}: {result.score}")
 
     Retrieve existing repositories::
 
         # Get a specific repository
-        repo = await Repo.get_one("my-project", with_metadata=True)
-        print(f"Stale: {repo.metadata.is_stale}")
+        repo = await Repo.get_one("my-project")
+        print(f"Stale: {repo.is_stale}")
 
         # List all repositories
         repos = await Repo.get_all()
@@ -67,12 +69,15 @@ See Also:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
+from functools import cached_property
 from pathlib import Path
 
 from pydantic import BaseModel, Field, computed_field
 
+from .cache import CacheManager
 from .config import RepoSettings
 from .exceptions import RepoExistsError, RepoNotFoundError
 from .parser import Parser
@@ -93,17 +98,13 @@ class RepoMetadata(BaseModel):
     document counts, and staleness indicators.
     """
 
-    document_paths: list[str] = Field(description="List of indexed document paths (relative to Repo root)")
-    is_stale: bool = Field(description="Whether the repository index is stale")
-    languages: list[str] = Field(description="Indexed languages")
-    node_types: list[str] = Field(description="Indexed node types")
-    nodes_indexed: int = Field(description="Total number of nodes indexed")
-
-    @computed_field
-    @property
-    def documents_indexed(self) -> int:
-        """Number of indexed documents."""
-        return len(self.document_paths)
+    document_paths: list[str] = Field(
+        default_factory=list, description="List of indexed document paths (relative to Repo root)"
+    )
+    documents: int = Field(default=0, description="Number of indexed documents")
+    node_types: list[str] = Field(default_factory=list, description="Indexed node types")
+    nodes: int = Field(default=0, description="Number of nodes")
+    languages: list[str] = Field(default_factory=list, description="Indexed languages")
 
     @computed_field
     @property
@@ -139,59 +140,6 @@ class RepoMetadata(BaseModel):
         render(tree)
         return "\n".join(lines)
 
-    @classmethod
-    async def from_repo(cls, repo: Repo, store: VectorStore) -> RepoMetadata:
-        """
-        Create RepoMetadata by querying the repository's current status.
-
-        Args:
-            repo: Repo instance to get metadata for.
-            store: VectorStore instance for querying indexed data.
-
-        Returns:
-            RepoMetadata model with current repository statistics.
-        """
-        _document_paths: set[str] = set()
-        _languages: set[str] = set()
-        _node_types: set[str] = set()
-
-        _local_hashes: dict[str, str] = {}
-        _stored_hashes: dict[str, str] = await store.get_document_hashes(repo.collection_name)
-
-        walker = Walker(repo)
-        async for path, content, metadata in walker.walk():
-            doc = Document(
-                path=path,
-                content=content,
-                metadata=metadata,
-            )
-            _document_paths.add(doc.path)
-            _local_hashes[doc.path] = doc.metadata.hash
-            parser = Parser(doc)
-            if not hasattr(parser, "language"):
-                continue
-            _languages.add(str(parser.language))
-            try:
-                for _, meta in parser.parse():
-                    if getattr(meta, "node_type", None) != "N/A":
-                        _node_types.add(meta.node_type)
-            except Exception as e:
-                logger.warning(f"Failed to parse {doc.path} for metadata extraction: {e}")
-
-        document_paths = list(_document_paths)
-        languages = list(_languages)
-        node_types = list(_node_types)
-        nodes_indexed = await store.count_nodes(repo.collection_name)
-        is_stale = _local_hashes != _stored_hashes
-
-        return RepoMetadata(
-            document_paths=document_paths,
-            languages=languages,
-            node_types=node_types,
-            nodes_indexed=nodes_indexed,
-            is_stale=is_stale,
-        )
-
 
 class Repo(BaseModel):
     """
@@ -205,10 +153,7 @@ class Repo(BaseModel):
     parameters that control how files are processed and stored.
     """
 
-    metadata: RepoMetadata | None = Field(default=None, description="Metadata about the repository")
     settings: RepoSettings = Field(description="Configuration settings for the repository")
-
-    # Properties derived from settings for convenience
 
     @computed_field
     @property
@@ -219,10 +164,23 @@ class Repo(BaseModel):
 
     @computed_field
     @property
-    def name(self) -> str:
-        """Name of the repository."""
-        name = self.settings.name
-        return name
+    def is_stale(self) -> bool:
+        """
+        Whether the repository index is stale compared to the current files.
+
+        Compares the cached hashmap (from last index operation) with a freshly
+        computed hashmap of current file contents. Returns True if:
+        - No cached hashmap exists (never indexed)
+        - The cached hashmap differs from the current hashmap (files changed)
+
+        Returns:
+            True if the index needs updating, False if up-to-date.
+        """
+        cached_hashmap = self._get_cached_hashmap()
+        if not cached_hashmap:
+            return True  # No cache means stale
+        current_hashmap = self._get_hashmap()
+        return cached_hashmap != current_hashmap
 
     @computed_field
     @property
@@ -230,6 +188,73 @@ class Repo(BaseModel):
         """Absolute path to the repository root."""
         path = str(self.settings.path)
         return path
+
+    @computed_field
+    @property
+    def name(self) -> str:
+        """Name of the repository."""
+        name = self.settings.name
+        return name
+
+    @computed_field
+    @property
+    def metadata(self) -> RepoMetadata:
+        """
+        Metadata about the repository's current state.
+
+        Walks the repository files and parses them to compute aggregate
+        metadata including document counts, node counts, languages, and
+        node types. Respects the max_files setting from repository config.
+
+        Returns:
+            RepoMetadata with aggregated statistics about indexed content.
+        """
+        repo_metadata = RepoMetadata()
+        for path, content, doc_metadata in Walker(self).walk():
+            if repo_metadata.documents == self.settings.max_files:
+                break
+            try:
+                doc = Document(
+                    path=path,
+                    content=content,
+                    metadata=doc_metadata,
+                )
+                parser = Parser(doc)
+                for _, meta in parser.parse():
+                    if getattr(meta, "node_type", None) != "N/A":
+                        node_types = set(repo_metadata.node_types)
+                        node_types.add(meta.node_type)
+                        repo_metadata.node_types = sorted(node_types)
+                    nodes = repo_metadata.nodes or 0
+                    nodes += 1
+                    repo_metadata.nodes = nodes
+                document_paths = set(repo_metadata.document_paths)
+                document_paths.add(doc.path)
+                repo_metadata.document_paths = sorted(document_paths)
+                if hasattr(parser, "language"):
+                    languages = set(repo_metadata.languages)
+                    languages.add(str(parser.language))
+                    repo_metadata.languages = sorted(languages)
+                documents = repo_metadata.documents
+                documents += 1
+                repo_metadata.documents = documents
+            except Exception:  # noqa: S112
+                continue
+
+        return repo_metadata
+
+    @cached_property
+    def cache(self) -> CacheManager:
+        """
+        Cache manager for repository-specific persistent data.
+
+        Returns a CacheManager instance for storing and retrieving cached
+        data like hashmaps. The cache is stored in the XDG data directory.
+
+        Returns:
+            CacheManager instance bound to this repository.
+        """
+        return CacheManager(self)
 
     @classmethod
     async def init(cls, path: Path) -> Repo:
@@ -281,7 +306,7 @@ class Repo(BaseModel):
         return cls(settings=settings)
 
     @classmethod
-    async def get_one(cls, name: str, store: VectorStore | None = None, with_metadata: bool = False) -> Repo:
+    async def get_one(cls, name: str) -> Repo:
         """
         Retrieve a configured repository by name.
 
@@ -290,52 +315,29 @@ class Repo(BaseModel):
 
         Args:
             name: Repository name (derived from the directory name containing .git).
-            store: VectorStore instance for querying metadata. Required if with_metadata is True.
-            with_metadata: If True, populate the metadata attribute. Requires store parameter.
 
         Returns:
-            Repo instance for the requested repository. If with_metadata is True,
-            the Repo instance will have its metadata attribute populated.
+            Repo instance for the requested repository.
 
         Raises:
             RepoNotFoundError: If no repository with the given name is configured.
-            ValueError: If with_metadata is True but store is not provided.
         """
-        if with_metadata and store is None:
-            raise ValueError("store parameter is required when with_metadata is True")
         repos = await RepoSettings.load()
         for repo_settings in repos:
             if repo_settings.name == name:
-                repo = cls(settings=repo_settings)
-                if with_metadata and store is not None:
-                    repo.metadata = await RepoMetadata.from_repo(repo, store)
-                return repo
+                return cls(settings=repo_settings)
         raise RepoNotFoundError(f"Repository not found: {name}")
 
     @classmethod
-    async def get_all(cls, store: VectorStore | None = None, with_metadata: bool = False) -> list[Repo]:
+    async def get_all(cls) -> list[Repo]:
         """
         Retrieve all configured repositories.
 
-        Args:
-            store: VectorStore instance for querying metadata. Required if with_metadata is True.
-            with_metadata: If True, populate the metadata attribute. Requires store parameter.
-
         Returns:
-            List of Repo instances for all configured repositories. If with_metadata is True,
-            each Repo instance will have its metadata attribute populated.
-
-        Raises:
-            ValueError: If with_metadata is True but store is not provided.
+            List of Repo instances for all configured repositories.
         """
-        if with_metadata and store is None:
-            raise ValueError("store parameter is required when with_metadata is True")
         repo_settings = await RepoSettings.load()
-        repos = [cls(settings=settings) for settings in repo_settings]
-        if with_metadata and store is not None:
-            for repo in repos:
-                repo.metadata = await RepoMetadata.from_repo(repo, store)
-        return repos
+        return [cls(settings=settings) for settings in repo_settings]
 
     @classmethod
     async def remove_one(cls, name: str, store: VectorStore) -> bool:
@@ -361,6 +363,13 @@ class Repo(BaseModel):
         # Delete collection from store
         await store.delete_collection(repo.collection_name)
 
+        # Delete cache directory
+        cache_dir = repo.cache.cache_dir
+        if cache_dir.exists():
+            for file in cache_dir.iterdir():
+                file.unlink()
+            cache_dir.rmdir()
+
         # Remove from repos.json
         repo_settings = await RepoSettings.load()
         new_repo_settings = [r for r in repo_settings if r.name != name]
@@ -384,40 +393,175 @@ class Repo(BaseModel):
         Returns:
             True if any repositories were removed, False if there were none.
         """
-        repo_settings = await RepoSettings.load()
-        if not repo_settings:
+        repos = await cls.get_all()
+        if not repos:
             return False
 
-        for settings in repo_settings:
-            collection_name = settings.collection_name
-            await store.delete_collection(collection_name)
-            logger.info(f"Removed repository collection: {collection_name}")
+        for repo in repos:
+            logger.info(f"Removing repository: {repo.name}")
+            # Remove collection from store
+            await store.delete_collection(repo.collection_name)
+            # Delete cache directory
+            cache_dir = repo.cache.cache_dir
+            if cache_dir.exists():
+                for file in cache_dir.iterdir():
+                    file.unlink()
+                cache_dir.rmdir()
+                logger.info(f"Removed repository cache: {cache_dir}")
 
         # Clear repos.json
         await RepoSettings.save([])
         logger.info("Removed all repositories")
         return True
 
+    def _get_hashmap(self) -> dict[str, str]:
+        """
+        Build a map of document hashes by document path.
+
+        Walks the repository and computes a hash for each document.
+        The hashmap maps document paths to document hashes, enabling
+        efficient change detection.
+
+        Respects max_files setting and logs a warning for files that
+        fail to process.
+
+        Returns:
+            Dict mapping document paths to document hashes.
+        """
+        count = 0
+        skipped = 0
+
+        def _max_files_limit_reached() -> bool:
+            nonlocal count
+            nonlocal skipped
+            if count >= self.settings.max_files:
+                skipped += 1
+                return True
+            return False
+
+        hashmap: dict[str, str] = {}
+        for path, content, metadata in Walker(self).walk():
+            if _max_files_limit_reached():
+                logger.warning(f"Reached max_files limit ({self.settings.max_files}): {path} will be skipped.")
+                break
+            try:
+                doc = Document(
+                    path=path,
+                    content=content,
+                    metadata=metadata,
+                )
+                hashmap[doc.path] = doc.hash
+                count += 1
+            except Exception as e:
+                logger.warning(f"Failed to add {path} to hashmap: {e}")
+                continue
+
+        if skipped > 0:
+            logger.warning(f"Skipped {skipped} files due to max_files limit.")
+
+        return hashmap
+
+    def _get_cached_hashmap(self) -> dict[str, str]:
+        """
+        Retrieve the cached hashmap from the last index operation.
+
+        Returns:
+            Dict mapping document paths to document hashes, or empty dict if
+            no cached hashmap exists.
+        """
+        data = self.cache.get("hashmap")
+        if not data:
+            return {}
+        hashmap = json.loads(data)
+        return hashmap
+
+    def _set_hashmap(self, hashmap: dict[str, str]) -> None:
+        """
+        Cache the hashmap for future change detection.
+
+        Persists the hashmap to the repository's cache directory. Called
+        after a successful index operation to enable incremental updates.
+
+        Args:
+            hashmap: Dict mapping document paths to document hashes.
+        """
+        data = json.dumps(hashmap)
+        self.cache.set("hashmap", data)
+
+    def _delete_hashmap(self) -> bool:
+        """
+        Delete the cached hashmap.
+
+        Removes the cached hashmap from the repository's cache directory.
+        Used when performing a full re-index to clear stale data.
+
+        Returns:
+            True if the hashmap was deleted, False if it did not exist.
+        """
+        return self.cache.delete("hashmap")
+
+    def _get_hashes(self, hashmap: dict[str, str]) -> list[str]:
+        """
+        A list of all document hashes.
+
+        Args:
+            hashmap: Dict mapping document paths to document hashes.
+
+        Returns:
+            List of all document hashes.
+        """
+        return list(hashmap.values())
+
+    def _get_hashes_to_add(self, hashes: list[str], cached_hashes: list[str]) -> list[str]:
+        """
+        Determine which document hashes are new or modified.
+
+        Computes the set difference between current and cached hashes to
+        identify documents that need to be added to the vector store.
+
+        Args:
+            hashes: Current document hashes from the repository.
+            cached_hashes: Previously cached document hashes.
+        Returns:
+            List of hashes present in current state but not in cached state.
+        """
+        return list(set(hashes) - set(cached_hashes or []))
+
+    def _get_hashes_to_delete(self, hashes: list[str], cached_hashes: list[str]) -> list[str]:
+        """
+        Determine which documents have been removed or modified.
+
+        Computes the set difference to identify document hashes that existed in the
+        cached state but are no longer present in the current state.
+
+        Args:
+            hashes: Current document hashes from the repository.
+            cached_hashes: Previously cached document hashes.
+
+        Returns:
+            List of hashes present in cached state but not in current state.
+        """
+        return list(set(cached_hashes or []) - set(hashes))
+
     async def index(self, store: VectorStore, full: bool = False) -> IndexResult:
         """
         Parse and index files in the repository.
 
-        By default, performs intelligent incremental indexing by comparing document
-        content hashes to detect changes. Only processes files that are new, modified,
-        or deleted since the last indexing operation. When full=True, re-indexes all
-        files by recreating the collection.
+        By default, performs intelligent incremental indexing using hash
+        comparison to detect changes at the document level. Identifies new,
+        modified, and deleted documents by comparing document hashes, and
+        only re-parses what changed. When full=True, re-indexes all files
+        by recreating the collection.
 
         The indexing process:
-        1. Walks the repository to find eligible source files
-        2. Computes content hashes for change detection
-        3. Identifies new, modified, and deleted files
-        4. Parses code into semantic nodes (functions, classes, methods, etc.)
-        5. Creates placeholder nodes for files with no parseable code
-        6. Generates embeddings and stores nodes in the vector store
-        7. Deletes nodes for removed files
+        1. Builds a hashmap from current repository state (document path → document hash)
+        2. Compares with cached hashmap to identify changed documents
+        3. Deletes nodes belonging to removed/modified documents
+        4. Parses changed documents and upserts their nodes
+        5. Saves the new hashmap to cache
 
         Files are processed according to repository settings:
-        - Honors ignore patterns from .gitignore and configuration
+        - Respects ignore patterns from .gitignore and configuration
         - Skips binary, minified, and oversized files
         - Limits indexing to max_files (additional files skipped with warning)
         - Batches upsert operations for efficiency
@@ -426,131 +570,97 @@ class Repo(BaseModel):
             store: VectorStore instance for storing embeddings.
             full: If True, performs a full re-index by deleting the existing
                 collection and re-parsing all files. If False (default),
-                performs incremental indexing based on content hashes.
+                performs incremental indexing based on hash comparison.
 
         Returns:
             IndexResult containing detailed statistics about the indexing
-            operation, including files processed, nodes added/updated/deleted,
+            operation, including documents indexed/deleted, nodes added/deleted,
             and any errors encountered.
         """
         start_time = datetime.now(UTC)
 
-        result = IndexResult(repo=self.name, repo_path=self.path)
-
         # Load per-repo configuration
         repo_settings = self.settings
         upsert_batch_size = repo_settings.upsert_batch_size
-        max_files = repo_settings.max_files
-
-        # On full index, recreate the collection
-        if full:
-            await store.delete_collection(self.collection_name)
-            logger.info(f"Performing full index for repository: {self.name}")
 
         # Ensure collection exists
         await store.ensure_collection(self.collection_name)
 
-        # Get stored document hashes for change detection
-        stored_hashes = await store.get_document_hashes(self.collection_name)
-        stored_paths = set(stored_hashes.keys())
+        # On full index, recreate the collection and clear cache
+        if full:
+            await store.delete_collection(self.collection_name)
+            self._delete_hashmap()
+            logger.info(f"Performing full index for repository: {self.name}")
 
-        # Track walked paths for detecting deletions
-        walked_paths: set[str] = set()
+        # Initialize result
+        result = IndexResult(repo=self.name, repo_path=self.path)
 
-        # Parse and upsert nodes in batches - single pass, streaming
-        pending_nodes: list[Node] = []
-        files_indexed = 0
+        # Quick check: if hashmaps match, no changes
+        hashmap = self._get_hashmap()
+        cached_hashmap = self._get_cached_hashmap()
+        if cached_hashmap and cached_hashmap == hashmap:
+            logger.info(f"No changes detected for {self.name}")
+            end_time = datetime.now(UTC)
+            result.indexed_at = end_time
+            result.duration = (end_time - start_time).total_seconds()
+            return result
 
-        walker = Walker(self)
-        async for path, content, metadata in walker.walk():
-            result.documents_checked += 1
-            walked_paths.add(path)
+        # Retrieve hashes for current and cached state
+        hashes = self._get_hashes(hashmap)
+        cached_hashes = self._get_hashes(cached_hashmap or {})
 
-            # Check if file needs indexing
-            stored_hash = stored_hashes.get(path)
-            is_new = stored_hash is None
-            is_modified = stored_hash is not None and stored_hash != metadata.hash
+        # Delete nodes for removed/modified documents by hash
+        if hashes_to_delete := self._get_hashes_to_delete(hashes, cached_hashes):
+            logger.info(f"Deleting {len(hashes_to_delete)} nodes from removed/modified documents")
+            # Delete nodes by document hash
+            nodes_deleted = await store.delete_by_hashes(self.collection_name, hashes_to_delete)
+            result.nodes_deleted = nodes_deleted
+            # Identify which documents were deleted based on hashes
+            documents_deleted = [path for path, hash in (cached_hashmap or {}).items() if hash in hashes_to_delete]
+            result.documents_deleted = documents_deleted
 
-            if not is_new and not is_modified:
-                # Unchanged file, skip
-                continue
+        # Parse and upsert nodes for new/modified documents and nodes
+        if hashes_to_add := self._get_hashes_to_add(hashes, cached_hashes):
+            nodes_to_upsert: list[Node] = []
+            excluded_paths = [path for path, hash in hashmap.items() if hash not in hashes_to_add]
+            for path, content, metadata in Walker(self).walk(excluded_paths=excluded_paths):
+                try:
+                    logger.info(f"Parsing document: {path}")
+                    nodes: list[Node] = []
+                    doc = Document(path=path, content=content, metadata=metadata)
+                    for node_content, node_metadata in Parser(doc).parse():
+                        node = Node.from_parsed(
+                            content=node_content,
+                            metadata=node_metadata,
+                        )
+                        nodes.append(node)
+                    nodes_to_upsert.extend(nodes)
+                    result.documents_indexed.append(doc.path)
+                except Exception as e:
+                    error_msg = f"Failed to parse {doc.path}: {e}"
+                    result.errors.append(error_msg)
+                    logger.warning(error_msg)
+                    continue
 
-            # Respect max_files limit
-            if files_indexed >= max_files:
-                result.skipped_documents += 1
-                if result.skipped_documents == 1:
-                    # Log warning once when limit is first exceeded
-                    logger.warning(f"Indexing limited to {max_files} files, additional files will be skipped")
-                continue
+                # Batch upsert when we have enough nodes
+                if len(nodes_to_upsert) >= upsert_batch_size:
+                    await store.upsert_nodes(self.collection_name, nodes_to_upsert)
+                    result.nodes_added += len(nodes_to_upsert)
+                    nodes_to_upsert = []
 
-            files_indexed += 1
-
-            if is_modified:
-                # stored_hash is guaranteed to be not None here due to is_modified check
-                if stored_hash is None:
-                    raise RuntimeError(f"Unexpected None hash for modified file: {path}")
-                logger.debug(
-                    f"Modified file detected: {path} (stored: {stored_hash[:8]}, current: {metadata.hash[:8]})"
-                )
-                # Delete old nodes for this file before re-adding
-                await store.delete_by_document_paths(self.collection_name, [path])
-            else:
-                logger.debug(f"New file detected: {path}")
-
-            # Process file immediately
-            doc = Document(path=path, content=content, metadata=metadata)
-
-            # Parse the file into nodes
-            try:
-                logger.info(f"Parsing {doc.path}")
-                doc_nodes: list[Node] = []
-                parser = Parser(doc)
-                for node_content, node_metadata in parser.parse():
-                    node = Node(content=node_content, metadata=node_metadata)
-                    doc_nodes.append(node)
-            except Exception as e:
-                error_msg = f"Failed to parse {doc.path}: {e}"
-                logger.warning(error_msg)
-                result.errors.append(error_msg)
-                continue
-
-            if not doc_nodes:
-                logger.debug(f"No nodes extracted from {doc.path}")
-                placeholder_node = Node.placeholder(self.name, self.path, doc.path, doc.metadata.hash)
-                doc_nodes = [placeholder_node]
-
-            pending_nodes.extend(doc_nodes)
-
-            # Only count as indexed if it's not just a placeholder
-            if doc_nodes[0].metadata.node_type != "__PLACEHOLDER__":
-                result.documents_indexed.append(doc.path)
-                if is_new:
-                    result.nodes_added += len(doc_nodes)
-                else:
-                    result.nodes_updated += len(doc_nodes)
-
-            # Batch upsert when we have enough nodes
-            if len(pending_nodes) >= upsert_batch_size:
-                await store.upsert_nodes(self.collection_name, pending_nodes)
-                pending_nodes = []
-
-        # Upsert any remaining nodes
-        if pending_nodes:
-            await store.upsert_nodes(self.collection_name, pending_nodes)
-
-        # Identify and delete nodes for removed files
-        deleted_paths = list(stored_paths - walked_paths)
-        if deleted_paths:
-            await store.delete_by_document_paths(self.collection_name, deleted_paths)
-            result.documents_deleted = deleted_paths
-
-        end_time = datetime.now(UTC)
+            # Upsert any remaining nodes
+            if nodes_to_upsert:
+                await store.upsert_nodes(self.collection_name, nodes_to_upsert)
+                result.nodes_added += len(nodes_to_upsert)
+                nodes_to_upsert = []
 
         # Finalize result
+        end_time = datetime.now(UTC)
         result.indexed_at = end_time
         result.duration = (end_time - start_time).total_seconds()
 
-        logger.debug(f"Indexing complete for {self.name}\n{result.summary}")
+        # Save the new hashmap to cache
+        self._set_hashmap(hashmap)
 
         return result
 
@@ -590,7 +700,6 @@ class Repo(BaseModel):
             SearchResults model containing matched code chunks with scores, metadata,
             and query context. Ordered by relevance (highest score first).
         """
-
         search_results = await store.search(
             collection_name=self.collection_name,
             query=query,
@@ -602,9 +711,6 @@ class Repo(BaseModel):
             parent_scope=parent_scope,
             has_documentation=has_documentation,
         )
-
-        # assign repo info to results
         search_results.repo = self.name
         search_results.repo_path = self.path
-
         return search_results

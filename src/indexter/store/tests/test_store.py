@@ -76,7 +76,11 @@ class TestVectorStoreClient:
         client = store.client
 
         assert client is not None
-        mock_client_class.assert_called_once_with(location=":memory:", timeout=120)
+        mock_client_class.assert_called_once_with(
+            location=":memory:",
+            timeout=120,
+            local_inference_batch_size=mock_settings.upsert_batch_size,
+        )
         mock_client_instance.set_model.assert_called_once_with("test-model")
         mock_client_instance.set_sparse_model.assert_called_once_with("sparse-model")
         assert store._embedding_model_name == "test-model"
@@ -285,130 +289,6 @@ class TestVectorStoreEnsureCollection:
         assert "existing-collection" in store._initialized_collections
 
 
-class TestVectorStoreGetDocumentHashes:
-    """Test VectorStore get_document_hashes method."""
-
-    @pytest.mark.asyncio
-    async def test_should_return_empty_dict_for_empty_collection(self, mock_qdrant_client):
-        """Test get_document_hashes returns empty dict for empty collection."""
-        store = VectorStore()
-        mock_qdrant_client.scroll.return_value = ([], None)
-        store._client = mock_qdrant_client
-
-        hashes = await store.get_document_hashes("empty-collection")
-
-        assert hashes == {}
-
-    @pytest.mark.asyncio
-    async def test_should_extract_document_hashes_from_points(self, mock_qdrant_client):
-        """Test get_document_hashes extracts hashes from points."""
-        store = VectorStore()
-
-        point1 = Mock()
-        point1.payload = {"document_path": "file1.py", "hash": "hash1"}
-        point2 = Mock()
-        point2.payload = {"document_path": "file2.py", "hash": "hash2"}
-
-        mock_qdrant_client.scroll.return_value = ([point1, point2], None)
-        store._client = mock_qdrant_client
-
-        hashes = await store.get_document_hashes("test-collection")
-
-        assert hashes == {"file1.py": "hash1", "file2.py": "hash2"}
-
-    @pytest.mark.asyncio
-    async def test_should_handle_multiple_scroll_pages(self, mock_qdrant_client):
-        """Test get_document_hashes handles pagination."""
-        store = VectorStore()
-
-        point1 = Mock()
-        point1.payload = {"document_path": "file1.py", "hash": "hash1"}
-        point2 = Mock()
-        point2.payload = {"document_path": "file2.py", "hash": "hash2"}
-
-        mock_qdrant_client.scroll.side_effect = [
-            ([point1], "offset1"),
-            ([point2], None),
-        ]
-        store._client = mock_qdrant_client
-
-        hashes = await store.get_document_hashes("test-collection")
-
-        assert hashes == {"file1.py": "hash1", "file2.py": "hash2"}
-        assert mock_qdrant_client.scroll.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_should_skip_points_without_required_fields(self, mock_qdrant_client):
-        """Test get_document_hashes skips points missing document_path or hash."""
-        store = VectorStore()
-
-        point1 = Mock()
-        point1.payload = {"document_path": "file1.py", "hash": "hash1"}
-        point2 = Mock()
-        point2.payload = {"document_path": "file2.py"}  # Missing hash
-        point3 = Mock()
-        point3.payload = {"hash": "hash3"}  # Missing document_path
-        point4 = Mock()
-        point4.payload = None
-
-        mock_qdrant_client.scroll.return_value = ([point1, point2, point3, point4], None)
-        store._client = mock_qdrant_client
-
-        hashes = await store.get_document_hashes("test-collection")
-
-        assert hashes == {"file1.py": "hash1"}
-
-    @pytest.mark.asyncio
-    async def test_should_keep_first_occurrence_of_duplicate_paths(self, mock_qdrant_client):
-        """Test get_document_hashes keeps first hash for duplicate paths."""
-        store = VectorStore()
-
-        point1 = Mock()
-        point1.payload = {"document_path": "file.py", "hash": "hash1"}
-        point2 = Mock()
-        point2.payload = {"document_path": "file.py", "hash": "hash2"}
-
-        mock_qdrant_client.scroll.return_value = ([point1, point2], None)
-        store._client = mock_qdrant_client
-
-        hashes = await store.get_document_hashes("test-collection")
-
-        assert hashes == {"file.py": "hash1"}
-
-
-class TestVectorStoreCountNodes:
-    """Test VectorStore count_nodes method."""
-
-    @pytest.mark.asyncio
-    async def test_should_return_points_count(self, mock_qdrant_client):
-        """Test count_nodes returns points count from collection."""
-        store = VectorStore()
-
-        collection_info = Mock()
-        collection_info.points_count = 42
-        mock_qdrant_client.get_collection.return_value = collection_info
-        store._client = mock_qdrant_client
-
-        count = await store.count_nodes("test-collection")
-
-        assert count == 42
-        mock_qdrant_client.get_collection.assert_called_once_with("test-collection")
-
-    @pytest.mark.asyncio
-    async def test_should_return_zero_if_points_count_none(self, mock_qdrant_client):
-        """Test count_nodes returns 0 if points_count is None."""
-        store = VectorStore()
-
-        collection_info = Mock()
-        collection_info.points_count = None
-        mock_qdrant_client.get_collection.return_value = collection_info
-        store._client = mock_qdrant_client
-
-        count = await store.count_nodes("empty-collection")
-
-        assert count == 0
-
-
 class TestVectorStoreUpsertNodes:
     """Test VectorStore upsert_nodes method."""
 
@@ -423,7 +303,7 @@ class TestVectorStoreUpsertNodes:
                     repo="test-repo",
                     repo_path="/path/to/repo",
                     document_path="test.py",
-                    hash="hash1",
+                    document_hash="doc_hash_1",
                     language="python",
                     node_type="function",
                     node_name="test",
@@ -440,7 +320,7 @@ class TestVectorStoreUpsertNodes:
                     repo="test-repo",
                     repo_path="/path/to/repo",
                     document_path="test.py",
-                    hash="hash1",
+                    document_hash="doc_hash_1",
                     language="python",
                     node_type="class",
                     node_name="Test",
@@ -507,28 +387,33 @@ class TestVectorStoreUpsertNodes:
         assert all("content" in p.payload for p in points)
 
 
-class TestVectorStoreDeleteByDocumentPaths:
-    """Test VectorStore delete_by_document_paths method."""
+class TestVectorStoreDeleteByHashes:
+    """Test VectorStore delete_by_hashes method."""
 
     @pytest.mark.asyncio
-    async def test_should_return_zero_for_empty_paths_list(self):
-        """Test delete_by_document_paths returns 0 for empty list."""
+    async def test_should_return_zero_for_empty_hashes_list(self):
+        """Test delete_by_hashes returns 0 for empty list."""
         store = VectorStore()
 
-        count = await store.delete_by_document_paths("collection", [])
+        count = await store.delete_by_hashes("collection", [])
 
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_should_delete_nodes_by_document_paths(self, mock_qdrant_client):
-        """Test delete_by_document_paths deletes nodes matching paths."""
+    async def test_should_delete_nodes_by_hashes(self, mock_qdrant_client):
+        """Test delete_by_hashes deletes nodes matching document hashes."""
         store = VectorStore()
         store._client = mock_qdrant_client
+        store._initialized_collections.add("test-collection")
 
-        paths = ["file1.py", "file2.py"]
-        count = await store.delete_by_document_paths("test-collection", paths)
+        # Mock the count response before deletion
+        mock_qdrant_client.count = AsyncMock(return_value=Mock(count=2))
+
+        hashes = ["hash1", "hash2"]
+        count = await store.delete_by_hashes("test-collection", hashes)
 
         assert count == 2
+        mock_qdrant_client.count.assert_called_once()
         mock_qdrant_client.delete.assert_called_once()
         call_args = mock_qdrant_client.delete.call_args
         assert call_args[1]["collection_name"] == "test-collection"
@@ -536,16 +421,43 @@ class TestVectorStoreDeleteByDocumentPaths:
 
     @pytest.mark.asyncio
     async def test_should_create_filter_with_should_conditions(self, mock_qdrant_client):
-        """Test delete_by_document_paths creates filter with should conditions."""
+        """Test delete_by_hashes creates filter with should conditions on document_hash key."""
         store = VectorStore()
         store._client = mock_qdrant_client
+        store._initialized_collections.add("collection")
 
-        paths = ["a.py", "b.py", "c.py"]
-        await store.delete_by_document_paths("collection", paths)
+        mock_qdrant_client.count = AsyncMock(return_value=Mock(count=3))
+
+        hashes = ["a", "b", "c"]
+        await store.delete_by_hashes("collection", hashes)
+
+        # Verify both count and delete use the same filter
+        count_filter = mock_qdrant_client.count.call_args[1]["count_filter"]
+        assert hasattr(count_filter, "should")
+        assert len(count_filter.should) == 3
+        for condition in count_filter.should:
+            assert condition.key == "document_hash"
 
         points_selector = mock_qdrant_client.delete.call_args[1]["points_selector"]
         assert hasattr(points_selector.filter, "should")
         assert len(points_selector.filter.should) == 3
+        for condition in points_selector.filter.should:
+            assert condition.key == "document_hash"
+
+    @pytest.mark.asyncio
+    async def test_should_ensure_collection_exists(self, mock_qdrant_client):
+        """Test delete_by_hashes ensures collection exists before delete."""
+        store = VectorStore()
+        store._client = mock_qdrant_client
+        # Collection not in initialized set, so ensure_collection will be called
+
+        mock_qdrant_client.count = AsyncMock(return_value=Mock(count=1))
+
+        await store.delete_by_hashes("new-collection", ["hash1"])
+
+        mock_qdrant_client.get_collections.assert_called_once()
+        mock_qdrant_client.count.assert_called_once()
+        mock_qdrant_client.delete.assert_called_once()
 
 
 class TestVectorStoreSearch:
@@ -847,6 +759,7 @@ class TestVectorStoreIntegration:
                     repo="test-repo",
                     repo_path="/path",
                     document_path="file.py",
+                    document_hash="doc_hash_1",
                     language="python",
                     node_type="function",
                     start_byte=0,
@@ -863,12 +776,9 @@ class TestVectorStoreIntegration:
         results = await store.search("test-repo", "test query")
         assert isinstance(results, SearchResults)
 
-        # Count
-        node_count = await store.count_nodes("test-repo")
-        assert node_count == 2
-
-        # Delete by path
-        deleted = await store.delete_by_document_paths("test-repo", ["file.py"])
+        # Delete by hash
+        mock_qdrant_client.count = AsyncMock(return_value=Mock(count=1))
+        deleted = await store.delete_by_hashes("test-repo", ["some-hash"])
         assert deleted == 1
 
         # Delete collection
@@ -909,6 +819,7 @@ class TestVectorStoreIntegration:
                     repo="repo",
                     repo_path="/path",
                     document_path=f"file{i}.py",
+                    document_hash=f"doc_hash_{i}",
                     language="python",
                     node_type="function",
                     start_byte=0,

@@ -12,7 +12,16 @@ from indexter.store import VectorStore
 from indexter.store.models import SearchResults
 
 
-async def list_repos(ctx: Context, store: VectorStore) -> list[Repo]:
+async def list_repos(ctx: Context) -> list[Repo]:
+    """
+    List all Indexter-configured repositories.
+
+    Args:
+        ctx: FastMCP context for logging and progress reporting.
+
+    Returns:
+        List of Repo models with name, path, and indexing status.
+    """
     await ctx.info("Fetching list of configured repositories")
     repos = await Repo.get_all()
     if not repos:
@@ -22,20 +31,19 @@ async def list_repos(ctx: Context, store: VectorStore) -> list[Repo]:
     return repos
 
 
-async def get_repo(ctx: Context, name: str, store: VectorStore) -> Repo:
+async def get_repo(ctx: Context, name: str) -> Repo:
     """
     Get metadata for a specific Indexter-configured repository.
 
     Args:
         ctx: FastMCP context for logging and progress reporting.
         name: The repository name.
-        store: VectorStore instance for querying metadata.
     Returns:
         Repo model containing metadata for the specified repository.
     """
     try:
         await ctx.info(f"Fetching repository '{name}'")
-        repo = await Repo.get_one(name, store, with_metadata=True)
+        repo = await Repo.get_one(name)
         await ctx.info(f"Fetched repository '{name}'")
         return repo
     except RepoNotFoundError as e:
@@ -87,7 +95,7 @@ async def search_repo(
     """
     try:
         await ctx.info(f"Searching repository '{name}' for: {query}")
-        repo = await Repo.get_one(name, store, with_metadata=True)
+        repo = await Repo.get_one(name)
     except RepoNotFoundError as e:
         await ctx.error(f"Repository '{name}' not found")
         raise ValueError(  # noqa: E501
@@ -98,10 +106,10 @@ async def search_repo(
         # Ensure the index is up to date before searching
         await ctx.report_progress(0, 3, "Updating repository index...")
         await ctx.debug(f"Ensuring index is up to date for '{name}'")
-        index_result = await repo.index(store)
+        index_result = await repo.index(store=store)
 
-        if index_result.nodes_added > 0 or index_result.nodes_updated > 0:
-            await ctx.info(f"Updated index: +{index_result.nodes_added} nodes, ~{index_result.nodes_updated} updated")
+        if index_result.nodes_added > 0 or index_result.nodes_deleted > 0:
+            await ctx.info(f"Updated index: +{index_result.nodes_added} nodes, -{index_result.nodes_deleted} deleted")
 
         # Use repo settings top_k if available, otherwise default to 10
         default_limit = repo.settings.top_k if repo.settings else 10

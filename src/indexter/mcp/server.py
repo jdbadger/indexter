@@ -73,7 +73,7 @@ async def list_repositories(ctx: Context) -> list[Repo]:
     indexing status (i.e., number of nodes indexed, number of documents indexed,
     number of stale documents in the index).
     """
-    return await list_repos(ctx, get_store())
+    return await list_repos(ctx)
 
 
 REPO_NAME_DESC = (
@@ -95,7 +95,7 @@ async def get_repository(
     Returns:
         Repo model containing metadata for the specified repository.
     """
-    return await get_repo(ctx, name, get_store())
+    return await get_repo(ctx, name)
 
 
 SEARCH_REPO_NAME_DESC = "Name of the repository to search. Use list_repositories to see available repositories."

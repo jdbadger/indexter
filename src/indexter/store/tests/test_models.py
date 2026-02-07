@@ -17,11 +17,9 @@ class TestIndexResult:
             "repo": "test-repo",
             "repo_path": "/home/user/repos/test-repo",
             "documents_indexed": ["src/main.py", "src/utils.py"],
-            "documents_deleted": ["old/file.py"],
-            "documents_checked": 10,
-            "skipped_documents": 2,
+            "documents_deleted": ["src/old.py"],
             "nodes_added": 50,
-            "nodes_updated": 10,
+            "nodes_deleted": 10,
             "duration": 1.5,
             "errors": ["Error parsing file.py"],
         }
@@ -33,11 +31,9 @@ class TestIndexResult:
         assert result.repo == "test-repo"
         assert result.repo_path == "/home/user/repos/test-repo"
         assert result.documents_indexed == ["src/main.py", "src/utils.py"]
-        assert result.documents_deleted == ["old/file.py"]
-        assert result.documents_checked == 10
-        assert result.skipped_documents == 2
+        assert result.documents_deleted == ["src/old.py"]
         assert result.nodes_added == 50
-        assert result.nodes_updated == 10
+        assert result.nodes_deleted == 10
         assert result.duration == 1.5
         assert result.errors == ["Error parsing file.py"]
 
@@ -49,10 +45,8 @@ class TestIndexResult:
         assert result.repo_path == "/path/to/repo"
         assert result.documents_indexed == []
         assert result.documents_deleted == []
-        assert result.documents_checked == 0
-        assert result.skipped_documents == 0
         assert result.nodes_added == 0
-        assert result.nodes_updated == 0
+        assert result.nodes_deleted == 0
         assert result.duration == 0.0
         assert result.errors == []
 
@@ -126,11 +120,11 @@ class TestIndexResult:
             repo="test",
             repo_path="/path",
             nodes_added=count,
-            nodes_updated=count,
+            nodes_deleted=count,
         )
 
         assert result.nodes_added == count
-        assert result.nodes_updated == count
+        assert result.nodes_deleted == count
 
     def test_should_reject_invalid_duration_type(self):
         """Test IndexResult rejects invalid duration type."""
@@ -142,9 +136,9 @@ class TestIndexResult:
     def test_should_reject_invalid_count_type(self):
         """Test IndexResult rejects invalid count type."""
         with pytest.raises(ValidationError) as exc_info:
-            IndexResult(repo="test", repo_path="/path", documents_checked="not_a_number")  # type: ignore[arg-type]
+            IndexResult(repo="test", repo_path="/path", nodes_added="not_a_number")  # type: ignore[arg-type]
 
-        assert "documents_checked" in str(exc_info.value).lower()
+        assert "nodes_added" in str(exc_info.value).lower()
 
     def test_should_generate_summary_with_data(self):
         """Test summary property generates correct summary."""
@@ -153,7 +147,7 @@ class TestIndexResult:
             repo_path="/path",
             documents_indexed=["file1.py", "file2.py"],
             nodes_added=10,
-            nodes_updated=5,
+            nodes_deleted=5,
             duration=2.5,
         )
 
@@ -161,7 +155,7 @@ class TestIndexResult:
 
         assert "2 documents" in summary
         assert "+10 nodes added" in summary
-        assert "~5 nodes updated" in summary
+        assert "-5 nodes deleted" in summary
         assert "2.50s" in summary
 
     def test_should_generate_summary_with_empty_data(self):
@@ -530,10 +524,8 @@ class TestIndexResultIntegration:
             repo_path="/integration/path",
             documents_indexed=["file1.py", "file2.js"],
             documents_deleted=["old.py"],
-            documents_checked=5,
-            skipped_documents=1,
             nodes_added=25,
-            nodes_updated=5,
+            nodes_deleted=5,
             duration=3.14,
             errors=["Error 1"],
         )

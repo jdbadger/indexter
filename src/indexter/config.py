@@ -261,6 +261,32 @@ def ensure_dirs(dirs: list[Path]) -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
+def get_cache_dir() -> Path:
+    """
+    Get the XDG cache directory for indexter.
+
+    Follows the XDG Base Directory Specification for user-specific
+    non-essential data files. Falls back to ~/.cache if XDG_CACHE_HOME
+    is not set.
+
+    Returns:
+        Path to the indexter cache directory.
+
+    Examples:
+        With XDG_CACHE_HOME=/custom/cache:
+            /custom/cache/indexter
+
+        Without XDG_CACHE_HOME:
+            ~/.cache/indexter
+    """
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        base = Path(xdg_cache)
+    else:
+        base = Path.home() / ".cache"
+    return base / "indexter"
+
+
 def get_config_dir() -> Path:
     """
     Get the XDG config directory for indexter.
@@ -465,6 +491,7 @@ class Settings(DefaultSettings):
     )
 
     # XDG-compliant directories
+    cache_dir: Path = Field(default_factory=get_cache_dir)
     config_dir: Path = Field(default_factory=get_config_dir)
     data_dir: Path = Field(default_factory=get_data_dir)
 
@@ -503,7 +530,7 @@ class Settings(DefaultSettings):
             __context: Pydantic validation context (unused).
         """
         super().model_post_init(__context)
-        ensure_dirs([self.config_dir, self.data_dir])
+        ensure_dirs([self.cache_dir, self.config_dir, self.data_dir])
         if self.config_file.exists():
             self.from_toml()
         else:

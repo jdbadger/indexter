@@ -76,9 +76,7 @@ class TestInitCommand:
             repo_path="/tmp/test-repo",
             documents_indexed=["src/main.py"],
             documents_deleted=[],
-            documents_checked=1,
             nodes_added=5,
-            nodes_updated=0,
             duration=0.5,
         )
 
@@ -213,9 +211,7 @@ class TestIndexCommand:
             repo_path="/tmp/test-repo",
             documents_indexed=["src/main.py", "src/utils.py"],
             documents_deleted=["src/old.py"],
-            documents_checked=3,
             nodes_added=15,
-            nodes_updated=3,
             duration=1.2,
         )
 
@@ -227,9 +223,7 @@ class TestIndexCommand:
             repo_path="/tmp/test-repo",
             documents_indexed=[],
             documents_deleted=[],
-            documents_checked=10,
             nodes_added=0,
-            nodes_updated=0,
             duration=0.1,
         )
 
@@ -241,9 +235,7 @@ class TestIndexCommand:
             repo_path="/tmp/test-repo",
             documents_indexed=["src/main.py"],
             documents_deleted=[],
-            documents_checked=5,
             nodes_added=5,
-            nodes_updated=0,
             duration=0.8,
             errors=[
                 "Error parsing src/broken.py: SyntaxError",
@@ -258,16 +250,12 @@ class TestIndexCommand:
 
     @pytest.fixture
     def mock_index_result_with_skipped(self):
-        """Create a mock IndexResult with skipped documents."""
+        """Create a mock IndexResult (skipped documents field removed)."""
         return IndexResult(
             repo="test-repo",
             repo_path="/tmp/test-repo",
             documents_indexed=["src/main.py"],
-            documents_deleted=[],
-            documents_checked=100,
-            skipped_documents=10,
             nodes_added=5,
-            nodes_updated=0,
             duration=0.5,
         )
 
@@ -290,8 +278,8 @@ class TestIndexCommand:
             result = cli_runner.invoke(app, ["index", "test-repo"])
 
             assert result.exit_code == 0
-            # When documents_indexed is 0, shows specific "up to date" message
-            if mock_index_result_no_changes.documents_indexed == 0:
+            # When documents_indexed is empty, shows specific "up to date" message
+            if len(mock_index_result_no_changes.documents_indexed) == 0:
                 assert "up to date" in result.stdout
                 assert "No changes detected" in result.stdout
             else:
@@ -372,8 +360,8 @@ class TestIndexCommand:
             # Should NOT show "and X more" since we only have 3 errors
             assert output.count("Error") >= 3
 
-    def test_should_display_skipped_documents_warning(self, cli_runner, mock_repo, mock_index_result_with_skipped):
-        """Test index command displays warning when documents are skipped."""
+    def test_should_display_index_summary(self, cli_runner, mock_repo, mock_index_result_with_skipped):
+        """Test index command displays summary."""
         with patch("indexter.cli.cli.anyio.run") as mock_run:
             mock_run.return_value = (mock_repo, mock_index_result_with_skipped)
 
@@ -381,7 +369,7 @@ class TestIndexCommand:
             output = strip_ansi(result.stdout)
 
             assert result.exit_code == 0
-            assert "Skipped: 10 documents" in output
+            assert "Indexed 1 documents" in output
             assert "Indexing complete!" in output
 
 
@@ -528,11 +516,11 @@ class TestStatusCommand:
             repo.name = name
             repo.path = mock_settings.path
             repo.settings = mock_settings
+            repo.is_stale = i % 2 == 0  # Alternate stale status
 
             metadata = Mock(spec=RepoMetadata)
-            metadata.nodes_indexed = (i + 1) * 100
-            metadata.documents_indexed = (i + 1) * 10
-            metadata.is_stale = i % 2 == 0  # Alternate stale status
+            metadata.nodes = (i + 1) * 100
+            metadata.documents = (i + 1) * 10
             repo.metadata = metadata
 
             repos.append(repo)
@@ -691,11 +679,11 @@ class TestIntegration:
         mock_repo.name = "temp-repo"
         mock_repo.path = mock_settings.path
         mock_repo.settings = mock_settings
+        mock_repo.is_stale = False
 
         metadata = Mock(spec=RepoMetadata)
-        metadata.nodes_indexed = 50
-        metadata.documents_indexed = 5
-        metadata.is_stale = False
+        metadata.nodes = 50
+        metadata.documents = 5
         mock_repo.metadata = metadata
 
         # Test status with repo

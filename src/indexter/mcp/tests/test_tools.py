@@ -44,10 +44,9 @@ class TestListRepos:
     async def test_should_return_empty_list_when_no_repos(self, mock_context):
         """Test list_repos returns empty list when no repositories configured."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_all", return_value=[]):
             # Act
-            result = await list_repos(mock_context, mock_store)
+            result = await list_repos(mock_context)
 
             # Assert
             assert result == []
@@ -57,7 +56,6 @@ class TestListRepos:
     async def test_should_return_list_of_repo_names(self, mock_context, tmp_path):
         """Test list_repos returns list of repository names."""
         # Arrange
-        mock_store = create_mock_store()
         repo1 = Mock(spec=Repo)
         repo1.name = "repo1"
         repo2 = Mock(spec=Repo)
@@ -65,7 +63,7 @@ class TestListRepos:
 
         with patch.object(Repo, "get_all", return_value=[repo1, repo2]):
             # Act
-            result = await list_repos(mock_context, mock_store)
+            result = await list_repos(mock_context)
 
             # Assert
             assert result == [repo1, repo2]
@@ -75,13 +73,12 @@ class TestListRepos:
     async def test_should_return_correct_type(self, mock_context):
         """Test list_repos returns list[Repo], not list[str]."""
         # Arrange
-        mock_store = create_mock_store()
         repo = Mock(spec=Repo)
         repo.name = "test-repo"
 
         with patch.object(Repo, "get_all", return_value=[repo]):
             # Act
-            result = await list_repos(mock_context, mock_store)
+            result = await list_repos(mock_context)
 
             # Assert
             assert isinstance(result, list)
@@ -93,13 +90,12 @@ class TestListRepos:
     async def test_should_log_info_messages(self, mock_context):
         """Test list_repos logs appropriate info messages."""
         # Arrange
-        mock_store = create_mock_store()
         repo = Mock(spec=Repo)
         repo.name = "test-repo"
 
         with patch.object(Repo, "get_all", return_value=[repo]):
             # Act
-            await list_repos(mock_context, mock_store)
+            await list_repos(mock_context)
 
             # Assert
             assert mock_context.info.call_count == 2
@@ -109,12 +105,11 @@ class TestListRepos:
     async def test_should_handle_multiple_repos(self, mock_context):
         """Test list_repos handles multiple repositories correctly."""
         # Arrange
-        mock_store = create_mock_store()
         repos = [Mock(spec=Repo, name=f"repo{i}") for i in range(5)]
 
         with patch.object(Repo, "get_all", return_value=repos):
             # Act
-            result = await list_repos(mock_context, mock_store)
+            result = await list_repos(mock_context)
 
             # Assert
             assert len(result) == 5
@@ -142,68 +137,62 @@ class TestGetRepo:
     async def test_should_return_repo_by_name(self, mock_context, mock_repo):
         """Test get_repo returns repository by name."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", return_value=mock_repo) as mock_get_one:
             # Act
-            result = await get_repo(mock_context, "test-repo", mock_store)
+            result = await get_repo(mock_context, "test-repo")
 
             # Assert
             assert result == mock_repo
-            mock_get_one.assert_called_once_with("test-repo", mock_store, with_metadata=True)
+            mock_get_one.assert_called_once_with("test-repo")
             mock_context.info.assert_any_call("Fetching repository 'test-repo'")
             mock_context.info.assert_any_call("Fetched repository 'test-repo'")
 
     async def test_should_fetch_repo_with_metadata(self, mock_context, mock_repo):
         """Test get_repo fetches repository with metadata."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", return_value=mock_repo) as mock_get_one:
             # Act
-            await get_repo(mock_context, "test-repo", mock_store)
+            await get_repo(mock_context, "test-repo")
 
             # Assert
-            mock_get_one.assert_called_once_with("test-repo", mock_store, with_metadata=True)
+            mock_get_one.assert_called_once_with("test-repo")
 
     async def test_should_raise_value_error_when_repo_not_found(self, mock_context):
         """Test get_repo raises ValueError when repository not found."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Repository not found: missing-repo")):
             # Act & Assert
             with pytest.raises(ValueError, match="is not configured"):
-                await get_repo(mock_context, "missing-repo", mock_store)
+                await get_repo(mock_context, "missing-repo")
 
             mock_context.error.assert_called_once_with("Repository 'missing-repo' not found")
 
     async def test_should_log_error_and_raise_on_repo_not_found(self, mock_context):
         """Test get_repo logs error before raising ValueError."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Repository not found: test")):
             # Act & Assert
             with pytest.raises(ValueError):
-                await get_repo(mock_context, "test", mock_store)
+                await get_repo(mock_context, "test")
 
             mock_context.error.assert_called_once()
 
     async def test_should_propagate_unexpected_errors(self, mock_context):
         """Test get_repo propagates unexpected errors."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", side_effect=RuntimeError("Database error")):
             # Act & Assert
             with pytest.raises(RuntimeError, match="Database error"):
-                await get_repo(mock_context, "test-repo", mock_store)
+                await get_repo(mock_context, "test-repo")
 
             mock_context.error.assert_called_once()
 
     async def test_should_log_all_operations(self, mock_context, mock_repo):
         """Test get_repo logs all operations."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", return_value=mock_repo):
             # Act
-            await get_repo(mock_context, "test-repo", mock_store)
+            await get_repo(mock_context, "test-repo")
 
             # Assert
             assert mock_context.info.call_count == 2
@@ -239,7 +228,7 @@ class TestSearchRepo:
             repo_path="/tmp/test-repo",
             documents_indexed=["main.py"],
             nodes_added=5,
-            nodes_updated=2,
+            nodes_deleted=2,
             duration=0.5,
         )
 
@@ -332,7 +321,7 @@ class TestSearchRepo:
             await search_repo(ctx=mock_context, store=mock_store, name="test-repo", query="query")
 
             # Assert
-            mock_context.info.assert_any_call("Updated index: +5 nodes, ~2 updated")
+            mock_context.info.assert_any_call("Updated index: +5 nodes, -2 deleted")
 
     async def test_should_not_log_index_updates_when_no_changes(self, mock_context, mock_repo, mock_search_results):
         """Test search_repo doesn't log when no index changes."""
@@ -342,7 +331,7 @@ class TestSearchRepo:
             repo="test-repo",
             repo_path="/tmp/test-repo",
             nodes_added=0,
-            nodes_updated=0,
+            nodes_deleted=0,
             duration=0.1,
         )
         mock_repo.index = AsyncMock(return_value=no_change_result)
@@ -564,12 +553,12 @@ class TestMCPToolsIntegration:
             repo.collection_name = f"indexter_repo{i + 1}"
             repo.settings = Mock()
             repo.settings.top_k = 10
+            repo.is_stale = False
             repo.metadata = RepoMetadata(
                 document_paths=[f"src/file{i}.py"],
                 languages=["python"],
                 node_types=["function"],
-                nodes_indexed=10 * (i + 1),
-                is_stale=False,
+                nodes=10 * (i + 1),
             )
             repos.append(repo)
         return repos
@@ -595,12 +584,11 @@ class TestMCPToolsIntegration:
         # Arrange
         # Note: We can't use the mcp client here due to lifespan issues
         # Instead, we test the tool functions directly
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_all", return_value=[]):
             mock_ctx = AsyncMock(spec=Context)
 
             # Act
-            result = await list_repos(mock_ctx, mock_store)
+            result = await list_repos(mock_ctx)
 
             # Assert
             assert result == []
@@ -608,12 +596,11 @@ class TestMCPToolsIntegration:
     async def test_should_call_list_repositories_tool(self, mock_repos):
         """Test calling list_repositories tool function."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_all", return_value=mock_repos):
             mock_ctx = AsyncMock(spec=Context)
 
             # Act
-            result = await list_repos(mock_ctx, mock_store)
+            result = await list_repos(mock_ctx)
 
             # Assert
             assert len(result) == 2
@@ -624,12 +611,11 @@ class TestMCPToolsIntegration:
     async def test_should_call_get_repository_tool(self, mock_repos):
         """Test calling get_repository tool function."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", return_value=mock_repos[0]):
             mock_ctx = AsyncMock(spec=Context)
 
             # Act
-            result = await get_repo(mock_ctx, "repo1", mock_store)
+            result = await get_repo(mock_ctx, "repo1")
 
             # Assert
             assert result.name == "repo1"
@@ -663,13 +649,12 @@ class TestMCPToolsIntegration:
     async def test_should_handle_tool_errors_gracefully(self):
         """Test tools handle errors gracefully."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Not found")):
             mock_ctx = AsyncMock(spec=Context)
 
             # Act & Assert
             with pytest.raises(ValueError):
-                await get_repo(mock_ctx, "nonexistent", mock_store)
+                await get_repo(mock_ctx, "nonexistent")
 
     async def test_integration_workflow(self, mock_repos, mock_search_results):
         """Test complete workflow: list -> get -> search."""
@@ -689,12 +674,12 @@ class TestMCPToolsIntegration:
 
         # Act & Assert - List
         with patch.object(Repo, "get_all", return_value=mock_repos):
-            repos = await list_repos(mock_ctx, mock_store)
+            repos = await list_repos(mock_ctx)
             assert len(repos) == 2
 
         # Act & Assert - Get
         with patch.object(Repo, "get_one", return_value=mock_repo):
-            repo = await get_repo(mock_ctx, "repo1", mock_store)
+            repo = await get_repo(mock_ctx, "repo1")
             assert repo.name == "repo1"
 
         # Act & Assert - Search
@@ -714,12 +699,11 @@ class TestToolsEdgeCases:
     async def test_list_repos_with_single_repo(self, mock_context):
         """Test list_repos with exactly one repository."""
         # Arrange
-        mock_store = create_mock_store()
         repo = Mock(spec=Repo, name="single-repo")
 
         with patch.object(Repo, "get_all", return_value=[repo]):
             # Act
-            result = await list_repos(mock_context, mock_store)
+            result = await list_repos(mock_context)
 
             # Assert
             assert len(result) == 1
@@ -728,13 +712,12 @@ class TestToolsEdgeCases:
     async def test_get_repo_with_special_characters_in_name(self, mock_context):
         """Test get_repo handles special characters in repository name."""
         # Arrange
-        mock_store = create_mock_store()
         repo = Mock(spec=Repo)
         repo.name = "my-special_repo.v2"
 
         with patch.object(Repo, "get_one", return_value=repo):
             # Act
-            result = await get_repo(mock_context, "my-special_repo.v2", mock_store)
+            result = await get_repo(mock_context, "my-special_repo.v2")
 
             # Assert
             assert result.name == "my-special_repo.v2"
@@ -893,7 +876,6 @@ class TestToolsEdgeCases:
     async def test_get_repo_propagates_all_exception_types(self, mock_context):
         """Test get_repo properly propagates different exception types."""
         # Arrange
-        mock_store = create_mock_store()
         exceptions = [
             (RuntimeError("Runtime error"), RuntimeError),
             (ValueError("Value error"), ValueError),
@@ -904,7 +886,7 @@ class TestToolsEdgeCases:
             with patch.object(Repo, "get_one", side_effect=exc):
                 # Act & Assert
                 with pytest.raises(exc_type):
-                    await get_repo(mock_context, "test-repo", mock_store)
+                    await get_repo(mock_context, "test-repo")
 
 
 class TestContextLogging:
@@ -918,12 +900,11 @@ class TestContextLogging:
     async def test_list_repos_logs_in_correct_order(self, mock_context):
         """Test list_repos logs messages in the correct order."""
         # Arrange
-        mock_store = create_mock_store()
         repo = Mock(spec=Repo, name="test")
 
         with patch.object(Repo, "get_all", return_value=[repo]):
             # Act
-            await list_repos(mock_context, mock_store)
+            await list_repos(mock_context)
 
             # Assert
             calls = [call[0][0] for call in mock_context.info.call_args_list]
@@ -933,12 +914,11 @@ class TestContextLogging:
     async def test_get_repo_logs_fetch_start_and_complete(self, mock_context):
         """Test get_repo logs both start and completion."""
         # Arrange
-        mock_store = create_mock_store()
         repo = Mock(spec=Repo, name="test")
 
         with patch.object(Repo, "get_one", return_value=repo):
             # Act
-            await get_repo(mock_context, "test", mock_store)
+            await get_repo(mock_context, "test")
 
             # Assert
             info_messages = [call[0][0] for call in mock_context.info.call_args_list]
@@ -981,11 +961,10 @@ class TestContextLogging:
     async def test_error_logging_includes_repository_name(self, mock_context):
         """Test error messages include repository name for context."""
         # Arrange
-        mock_store = create_mock_store()
         with patch.object(Repo, "get_one", side_effect=RepoNotFoundError("Not found")):
             # Act & Assert
             with pytest.raises(ValueError):
-                await get_repo(mock_context, "my-repo", mock_store)
+                await get_repo(mock_context, "my-repo")
 
             # Verify error message includes repo name
             error_msg = mock_context.error.call_args[0][0]

@@ -76,7 +76,6 @@ Example:
 
         async for path, content, metadata in walker.walk():
             print(f"Found: {path} ({metadata.size_bytes} bytes)")
-            print(f"Hash: {metadata.hash}")
 
     Custom ignore patterns::
 
@@ -135,13 +134,11 @@ Note:
 
 from __future__ import annotations
 
-import hashlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import anyio
 import pathspec
 
 from indexter.config import settings
@@ -152,11 +149,6 @@ if TYPE_CHECKING:
 from .models import DocumentMetadata
 
 logger = logging.getLogger(__name__)
-
-
-def compute_hash(content: str) -> str:
-    """Compute SHA256 hash of the provided content."""
-    return hashlib.sha256(content.encode()).hexdigest()
 
 
 class IgnorePatternMatcher:
@@ -267,19 +259,19 @@ class Walker:
         return ".min." in name or name.endswith(".min")
 
     @staticmethod
-    async def _read_content(file_path: anyio.Path) -> str | None:
+    def _read_content(file_path: Path) -> str | None:
         """Read file content asynchronously with encoding fallback."""
         try:
-            return await file_path.read_text(encoding="utf-8")
+            return file_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             try:
-                return await file_path.read_text(encoding="latin-1")
+                return file_path.read_text(encoding="latin-1")
             except Exception:
                 return None
         except Exception:
             return None
 
-    async def _walk_recursive(self, directory: anyio.Path) -> AsyncIterator[anyio.Path]:
+    def _walk_recursive(self, directory: Path) -> Generator[Path]:
         """Recursively walk a directory yielding files.
 
         Args:
@@ -289,7 +281,7 @@ class Walker:
             Path to each file found.
         """
         try:
-            entries = [entry async for entry in directory.iterdir()]
+            entries = [entry for entry in directory.iterdir()]
         except PermissionError as e:
             logger.warning(f"Permission denied: {directory}: {e}")
             return
@@ -298,7 +290,7 @@ class Walker:
             return
 
         # Pre-resolve the repo path for symlink target validation
-        repo_resolved = await anyio.Path(self.repo_path).resolve()
+        repo_resolved = Path(self.repo_path).resolve()
 
         for entry in entries:
             try:
@@ -307,9 +299,9 @@ class Walker:
 
                 # Check if this is a symlink - we need to handle symlinks carefully
                 # to avoid following them outside the repo
-                is_symlink = await entry.is_symlink()
+                is_symlink = entry.is_symlink()
 
-                if await entry.is_dir():
+                if entry.is_dir():
                     if self._matcher.should_ignore(relative_str + "/"):
                         logger.debug(f"Pruning directory: {relative_str}")
                         continue
@@ -317,7 +309,7 @@ class Walker:
                     # If it's a symlink, verify the target is within the repo
                     if is_symlink:
                         try:
-                            resolved = await entry.resolve()
+                            resolved = entry.resolve()
                             # Check if resolved path is within the repo
                             resolved.relative_to(repo_resolved)
                         except ValueError:
@@ -327,9 +319,8 @@ class Walker:
                             logger.debug(f"Skipping broken symlink: {relative_str}: {e}")
                             continue
 
-                    async for sub_entry in self._walk_recursive(entry):
-                        yield sub_entry
-                elif await entry.is_file():
+                    yield from self._walk_recursive(entry)
+                elif entry.is_file():
                     yield entry
             except ValueError as e:
                 # relative_to() raises ValueError if entry is not within repo_path
@@ -339,29 +330,33 @@ class Walker:
                 logger.warning(f"Error accessing {entry}: {e}")
                 continue
 
-    async def walk(self) -> AsyncIterator[tuple[str, str, DocumentMetadata]]:
+    def walk(self, excluded_paths: list[str] | None = None) -> Generator[tuple[str, str, DocumentMetadata]]:
         """Walk the repository and yield file info for each relevant file.
 
         Yields:
             Tuple of (relative_path, content, DocumentMetadata) for each file.
         """
-        async for path in self._walk_recursive(anyio.Path(self.repo_path)):
+        for path in self._walk_recursive(Path(self.repo_path)):
             relpath = str(path.relative_to(self.repo_path))
+
+            if excluded_paths and relpath in excluded_paths:
+                logger.debug(f"Ignoring (excluded): {relpath}")
+                continue
 
             if self._matcher.should_ignore(relpath):
                 logger.debug(f"Ignoring (pattern match): {relpath}")
                 continue
 
-            if self._is_binary_file(Path(path)):
+            if self._is_binary_file(path):
                 logger.debug(f"Ignoring (binary): {relpath}")
                 continue
 
-            if self._is_minified(Path(path)):
+            if self._is_minified(path):
                 logger.debug(f"Ignoring (minified): {relpath}")
                 continue
 
             try:
-                stat = await path.stat()
+                stat = path.stat()
             except OSError as e:
                 logger.warning(f"Cannot stat {relpath}: {e}")
                 continue
@@ -374,13 +369,12 @@ class Walker:
                 logger.debug(f"Ignoring (empty): {relpath}")
                 continue
 
-            content = await self._read_content(path)
+            content = self._read_content(path)
             if content is None:
                 logger.debug(f"Ignoring (cannot read): {relpath}")
                 continue
 
             ext = path.suffix.lower()
-            hash = compute_hash(f"{relpath}:{content}")
 
             yield (
                 relpath,
@@ -388,7 +382,6 @@ class Walker:
                 DocumentMetadata(
                     repo=self.repo.name,
                     repo_path=self.repo.path,
-                    hash=hash,
                     ext=ext,
                     size_bytes=stat.st_size,
                     mtime=stat.st_mtime,

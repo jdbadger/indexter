@@ -15,6 +15,7 @@ def mock_repo(tmp_path):
     repo_path.mkdir()
     (repo_path / ".git").mkdir()  # Make it a valid git repo
 
+    mock.name = "test_repo"
     mock.path = str(repo_path)
     mock.settings = MagicMock(spec=RepoSettings)
     mock.settings.path = repo_path
@@ -23,6 +24,25 @@ def mock_repo(tmp_path):
     mock.settings.max_file_size = 1024 * 1024  # 1 MB
     mock.settings.ignore_patterns = []
     return mock
+
+
+@pytest.fixture
+def mock_node_factory():
+    """Factory fixture to create mock Node objects for testing."""
+
+    def _create_node(
+        document_path: str = "src/main.py",
+        start_byte: int = 0,
+        content: str = "def hello(): pass",
+    ):
+        node = MagicMock()
+        node.metadata = MagicMock()
+        node.metadata.document_path = document_path
+        node.metadata.start_byte = start_byte
+        node.content = content
+        return node
+
+    return _create_node
 
 
 @pytest.fixture

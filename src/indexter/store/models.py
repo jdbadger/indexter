@@ -22,10 +22,8 @@ class IndexResult(BaseModel):
         default_factory=list,
         description="List of file paths that were deleted from the index",
     )
-    documents_checked: int = Field(default=0, description="Total number of documents checked")
-    skipped_documents: int = Field(default=0, description="Number of documents skipped due to max_files limit")
     nodes_added: int = Field(default=0, description="Count of new code nodes added to the index")
-    nodes_updated: int = Field(default=0, description="Count of code nodes updated (re-indexed)")
+    nodes_deleted: int = Field(default=0, description="Count of code nodes deleted from the index")
     indexed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration: float = Field(default=0.0, description="Duration of the indexing operation in seconds")
     errors: list[str] = Field(default_factory=list, description="List of error messages encountered during indexing")
@@ -37,7 +35,7 @@ class IndexResult(BaseModel):
 
         return (
             f"Indexed {len(self.documents_indexed)} documents (+{self.nodes_added} nodes added, "
-            f"~{self.nodes_updated} nodes updated) "
+            f"-{self.nodes_deleted} nodes deleted) "
             f"in {self.duration:.2f}s"
         )
 
