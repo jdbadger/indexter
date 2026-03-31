@@ -235,5 +235,15 @@ def remove_repo(name: str, ctx: Context) -> dict:
     return {"name": name, "removed": removed}
 
 
+def run_server() -> None:
+    """Entry-point wrapper that reads MCP transport settings from config."""
+    mcp = settings.mcp
+    kwargs: dict = {}
+    if mcp.transport.value != "stdio":
+        kwargs["host"] = mcp.host
+        kwargs["port"] = mcp.port
+    server.run(transport=mcp.transport.value, **kwargs)
+
+
 if __name__ == "__main__":
-    server.run()
+    run_server()

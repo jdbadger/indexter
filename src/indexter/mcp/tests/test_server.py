@@ -404,3 +404,40 @@ class TestAppLifespan:
 
         mock_client.close.assert_called_once()
         mock_stop.assert_called_once_with(mock_container)
+
+
+# ---------------------------------------------------------------------------
+# run_server entry point
+# ---------------------------------------------------------------------------
+
+
+class TestRunServer:
+    @patch("indexter.mcp.server.server")
+    @patch("indexter.mcp.server.settings")
+    def test_run_server_stdio_transport(self, mock_settings, mock_server):
+        """run_server passes stdio transport without host/port."""
+        from indexter.mcp.server import run_server
+
+        mock_mcp = MagicMock()
+        mock_mcp.transport.value = "stdio"
+        mock_settings.mcp = mock_mcp
+
+        run_server()
+
+        mock_server.run.assert_called_once_with(transport="stdio")
+
+    @patch("indexter.mcp.server.server")
+    @patch("indexter.mcp.server.settings")
+    def test_run_server_http_transport(self, mock_settings, mock_server):
+        """run_server passes http transport with host and port."""
+        from indexter.mcp.server import run_server
+
+        mock_mcp = MagicMock()
+        mock_mcp.transport.value = "http"
+        mock_mcp.host = "0.0.0.0"
+        mock_mcp.port = 9000
+        mock_settings.mcp = mock_mcp
+
+        run_server()
+
+        mock_server.run.assert_called_once_with(transport="http", host="0.0.0.0", port=9000)
