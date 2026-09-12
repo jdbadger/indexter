@@ -1,0 +1,97 @@
+[project]
+name = "indexter"
+version = "0.1.0"
+description = "CLI tool and MCP server for enhanced codebase context via a local code graph"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Joe Badger"}
+]
+keywords = ["cli", "mcp", "rag", "vector-search", "tree-sitter", "code-indexing", "ai-agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "tree-sitter>=0.25.2",
+    "tree-sitter-language-pack>=0.13.0",
+    "sqlite-vec>=0.1.9",
+    "sentence-transformers>=3.3.0",
+    "fastmcp>=0.4.1",
+    "typer>=0.12.0",
+    "pydantic>=2.10.0",
+    "pathspec>=0.12.1",
+]
+
+[project.optional-dependencies]
+onnx = [
+    "fastembed>=0.4.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.10",
+    "rust-just>=1.45.0",
+    "ty>=0.0.6",
+]
+test = [
+    {include-group = "dev"},
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "pytest-testmon>=2.2.0",
+    "pytest-xdist>=3.8.0",
+    "inline-snapshot>=0.15.0",
+    "dirty-equals>=0.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/jdbadger/indexter"
+Repository = "https://github.com/jdbadger/indexter"
+Documentation = "https://github.com/jdbadger/indexter#readme"
+"Bug Tracker" = "https://github.com/jdbadger/indexter/issues"
+Changelog = "https://github.com/jdbadger/indexter/blob/main/CHANGELOG.md"
+
+[project.scripts]
+indexter = "indexter.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+wheel-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
+source-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
+
+[tool.pytest.ini_options]
+addopts = ["--pyargs", "--cov=indexter", "--cov-fail-under=95"]
+python_files = ["test_*.py", "*_test.py", "*_tests.py"]
+
+[tool.ruff]
+indent-width = 4
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "S", "B"]
+fixable = ["E", "F", "I", "UP"]
+unfixable = ["S", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/*.py" = ["S"]
+
+[tool.ty.src]
+exclude = ["**/tests/**", "**/test_*.py", "**/conftest.py"]
+
+[tool.ty.environment]
+python-version = "3.13"

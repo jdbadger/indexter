@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.testmondata*
+.coverage
+.coverage.*
+htmlcov/
+
+# Indexed databases (and WAL/SHM sidecars)
+*.db
+*.db-wal
+*.db-shm
