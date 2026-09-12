@@ -90,7 +90,20 @@ class TestRepoConfig:
         assert settings == Settings()
 
 
+class TestDefaults:
+    def test_embedding_backend_defaults_to_sentence_transformers(self):
+        assert Settings().embedding_backend == "sentence-transformers"
+
+    def test_embed_max_tokens_defaults_to_256(self):
+        assert Settings().embed_max_tokens == 256
+
+
 class TestValidation:
+    def test_unknown_backend_rejected(self, global_config_dir, repo):
+        write(repo / "indexter.toml", 'embedding_backend = "bogus-backend"\n')
+        with pytest.raises(ConfigError, match="embedding_backend"):
+            load_settings(repo=repo)
+
     def test_unknown_key_rejected(self, global_config_dir, repo):
         write(repo / "indexter.toml", "not_a_real_setting = 1\n")
         with pytest.raises(ConfigError, match="not_a_real_setting"):

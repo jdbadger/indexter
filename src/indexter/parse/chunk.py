@@ -5,8 +5,8 @@ extract them from.
 Chunks by UTF-8 bytes rather than characters (the lifted implementation
 chunked by character), so `start_byte`/`end_byte` are directly usable byte
 offsets like every other parser's, consistent with the schema's byte-range
-columns. Retuning `chunk_size`/`chunk_overlap` for the composer's token
-budget is deferred to M3 (see design.md open questions).
+columns. Defaults (1000/100 bytes) are sized for the composer's ~256-token
+embedding budget at roughly 3.5 bytes per token.
 """
 
 from __future__ import annotations

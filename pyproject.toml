@@ -27,6 +27,8 @@ dependencies = [
     "tree-sitter-language-pack>=0.13.0",
     "sqlite-vec>=0.1.9",
     "sentence-transformers>=3.3.0",
+    "tokenizers>=0.20.0",
+    "huggingface-hub>=0.25.0",
     "fastmcp>=0.4.1",
     "typer>=0.12.0",
     "pydantic>=2.10.0",
@@ -100,6 +102,7 @@ unfixable = ["S", "B"]
 # wrapping them would make inline-snapshot's own --inline-snapshot=fix output
 # disagree with what ruff wants, so line length isn't enforced here.
 "**/tests/test_snapshots.py" = ["E501"]
+"**/tests/test_compose_snapshots.py" = ["E501"]
 
 [tool.ty.src]
 exclude = ["**/tests/**", "**/test_*.py", "**/conftest.py", "**/tests/fixtures/**"]

@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 from indexter.cli import _format_size, app
 from indexter.config import Settings
 from indexter.db.connection import IndexterDBError, open_db
+from indexter.index.embed import FakeEmbedder
 from indexter.paths import data_dir, db_path
 
 runner = CliRunner()
@@ -15,6 +16,7 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def isolated_data_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data-home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     return data_dir()
 
 
@@ -23,6 +25,14 @@ def repo(tmp_path):
     d = tmp_path / "some-repo"
     d.mkdir()
     return d
+
+
+@pytest.fixture
+def fake_embedder(monkeypatch):
+    """`init`/`reindex` tests inject a `FakeEmbedder` so no real model or
+    tokenizer is ever loaded.
+    """
+    monkeypatch.setattr("indexter.cli.make_embedder", lambda settings: FakeEmbedder(dim=settings.embedding_dim))
 
 
 def _index(repo, settings=None):
@@ -44,12 +54,28 @@ class TestFormatSize:
         assert _format_size(3 * 1024**3) == "3.0GB"
 
 
+def write(repo: Path, relpath: str, content: str) -> None:
+    path = repo / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+
+SRC_A = "def helper():\n    return 1\n"
+SRC_A_EDITED = "def helper():\n    return 2\n"
+
+
 class TestHelp:
     def test_help_lists_commands(self):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "list" in result.output
         assert "remove" in result.output
+
+    def test_help_lists_init_and_reindex(self):
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "init" in result.output
+        assert "reindex" in result.output
 
     def test_no_args_shows_help(self):
         # Click's no_args_is_help prints usage and exits 2 (a usage error) --
@@ -191,4 +217,157 @@ class TestRemove:
         result = runner.invoke(app, ["remove", str(repo), "--yes"])
         assert result.exit_code == 1
         assert "simulated database error" in result.output
+        assert "Traceback" not in result.output
+
+
+@pytest.mark.usefixtures("fake_embedder")
+class TestInit:
+    def test_creates_and_summarizes(self, repo):
+        write(repo, "a.py", SRC_A)
+        result = runner.invoke(app, ["init", str(repo)])
+        assert result.exit_code == 0
+        assert "Initialized" in result.output
+        assert "added=1" in result.output
+        assert "texts_embedded=" in result.output
+        assert db_path(repo).is_file()
+
+    def test_on_existing_syncs_and_says_so(self, repo):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+        result = runner.invoke(app, ["init", str(repo)])
+        assert result.exit_code == 0
+        assert "already initialized" in result.output
+        assert "unchanged=1" in result.output
+
+    def test_on_non_directory_exits_nonzero_and_creates_nothing(self, tmp_path):
+        not_a_dir = tmp_path / "not-a-dir.txt"
+        not_a_dir.write_text("hello")
+        result = runner.invoke(app, ["init", str(not_a_dir)])
+        assert result.exit_code != 0
+        assert not db_path(not_a_dir).exists()
+
+    def test_parse_errors_listed_with_exit_zero(self, repo, monkeypatch):
+        import indexter.index.sync as sync_mod
+
+        write(repo, "a.py", SRC_A)
+
+        original_parse_file = sync_mod.parse_file
+
+        def failing_parse_file(relpath, content, *, settings=None):
+            result = original_parse_file(relpath, content, settings=settings)
+            if relpath == "a.py":
+                result.errors.append("simulated parse error")
+            return result
+
+        monkeypatch.setattr(sync_mod, "parse_file", failing_parse_file)
+
+        result = runner.invoke(app, ["init", str(repo)])
+        assert result.exit_code == 0
+        assert "error: a.py: simulated parse error" in result.output
+
+    def test_config_error_rendered_as_one_line_and_exits_nonzero(self, repo):
+        write(repo, "indexter.toml", "not_a_real_setting = 1\n")
+        result = runner.invoke(app, ["init", str(repo)])
+        assert result.exit_code == 1
+        assert "not_a_real_setting" in result.output
+        assert "Traceback" not in result.output
+
+    def test_repo_path_mismatch_exits_nonzero(self, repo, tmp_path, monkeypatch):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+
+        other = tmp_path / "other-repo"
+        other.mkdir()
+        write(other, "a.py", SRC_A)
+        monkeypatch.setattr("indexter.index.sync.resolve_db_path", lambda _repo: db_path(repo))
+
+        result = runner.invoke(app, ["init", str(other)])
+        assert result.exit_code == 1
+        assert "does not match" in result.output
+
+
+@pytest.mark.usefixtures("fake_embedder")
+class TestReindex:
+    def test_on_non_directory_exits_nonzero(self, tmp_path):
+        not_a_dir = tmp_path / "not-a-dir.txt"
+        not_a_dir.write_text("hello")
+        result = runner.invoke(app, ["reindex", str(not_a_dir)])
+        assert result.exit_code != 0
+        assert "is not a directory" in result.output
+
+    def test_without_database_suggests_init(self, repo):
+        result = runner.invoke(app, ["reindex", str(repo)])
+        assert result.exit_code != 0
+        assert "indexter init" in result.output
+
+    def test_noop_summary(self, repo):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+        result = runner.invoke(app, ["reindex", str(repo)])
+        assert result.exit_code == 0
+        assert "unchanged=1" in result.output
+        assert "texts_embedded=0" in result.output
+
+    def test_edit_reparses_and_reembeds_only_changed_file(self, repo):
+        write(repo, "a.py", SRC_A)
+        write(repo, "b.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+
+        write(repo, "a.py", SRC_A_EDITED)
+        result = runner.invoke(app, ["reindex", str(repo)])
+        assert result.exit_code == 0
+        assert "changed=1" in result.output
+        assert "unchanged=1" in result.output
+
+    def test_full_rebuilds(self, repo):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+
+        result = runner.invoke(app, ["reindex", str(repo), "--full"])
+        assert result.exit_code == 0
+        assert "Rebuilt" in result.output
+        assert "added=1" in result.output
+
+    def test_schema_mismatch_rebuild_message(self, repo):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+
+        path = db_path(repo)
+        raw = sqlite3.connect(str(path))
+        raw.execute("UPDATE project_metadata SET value = '999' WHERE key = 'schema_version'")
+        raw.commit()
+        raw.close()
+
+        result = runner.invoke(app, ["reindex", str(repo)])
+        assert result.exit_code == 0
+        assert "Rebuilt" in result.output
+
+    def test_repo_path_mismatch_exits_nonzero(self, repo):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+
+        path = db_path(repo)
+        raw = sqlite3.connect(str(path))
+        raw.execute("UPDATE project_metadata SET value = '/somewhere/else' WHERE key = 'repo_path'")
+        raw.commit()
+        raw.close()
+
+        result = runner.invoke(app, ["reindex", str(repo)])
+        assert result.exit_code == 1
+        assert "does not match" in result.output
+
+    def test_embedder_error_rendered_as_one_line_and_exits_nonzero(self, repo, monkeypatch):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+        write(repo, "b.py", SRC_A)  # something new to embed on the next sync
+
+        from indexter.index.embed import EmbeddingError
+
+        def boom(settings):
+            raise EmbeddingError("simulated embedder error")
+
+        monkeypatch.setattr("indexter.cli.make_embedder", boom)
+        result = runner.invoke(app, ["reindex", str(repo)])
+        assert result.exit_code == 1
+        assert "simulated embedder error" in result.output
         assert "Traceback" not in result.output

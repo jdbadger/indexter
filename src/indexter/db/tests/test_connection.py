@@ -13,6 +13,7 @@ from indexter.db.connection import (
     SqliteVecNotInstalled,
     _apply_pragmas,
     _load_sqlite_vec,
+    delete_database_files,
     open_db,
     read_metadata,
 )
@@ -376,3 +377,65 @@ class TestDimensionChange:
         assert edge_count == 1
         assert file_count == 1
         assert read_metadata(db_path)["dim"] == "8"
+
+    def test_model_change_at_same_dimension_rebuilds_vectors(self, db_path, repo, settings):
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            insert_file(conn)
+            insert_node(conn, "a.py::foo#function")
+            insert_ref(conn, "a.py::foo#function")
+            insert_edge(conn, "a.py::foo#function", "a.py::bar#function")
+            conn.execute(
+                "INSERT INTO vectors (node_rowid, kind, language, emb) VALUES (1, 'function', 'python', ?)",
+                (f32([1, 0, 0, 0]),),
+            )
+
+        new_settings = Settings(embedding_dim=4, embedding_model="a-different-model")
+        with open_db(db_path, repo=repo, settings=new_settings) as conn:
+            (vector_count,) = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()
+            (node_count,) = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
+            (ref_count,) = conn.execute("SELECT COUNT(*) FROM refs").fetchone()
+            (edge_count,) = conn.execute("SELECT COUNT(*) FROM edges").fetchone()
+            (file_count,) = conn.execute("SELECT COUNT(*) FROM files").fetchone()
+
+        assert vector_count == 0
+        assert node_count == 1
+        assert ref_count == 1
+        assert edge_count == 1
+        assert file_count == 1
+        assert read_metadata(db_path)["model"] == "a-different-model"
+
+    def test_unchanged_model_and_dimension_keep_vectors(self, db_path, repo, settings):
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            insert_file(conn)
+            insert_node(conn, "a.py::foo#function")
+            conn.execute(
+                "INSERT INTO vectors (node_rowid, kind, language, emb) VALUES (1, 'function', 'python', ?)",
+                (f32([1, 0, 0, 0]),),
+            )
+
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            (vector_count,) = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()
+
+        assert vector_count == 1
+
+
+class TestDatabaseFileDeletion:
+    def test_removes_db_and_sidecars(self, tmp_path):
+        path = tmp_path / "sample.db"
+        path.write_text("db")
+        (tmp_path / "sample.db-wal").write_text("wal")
+        (tmp_path / "sample.db-shm").write_text("shm")
+
+        delete_database_files(path)
+
+        assert not path.exists()
+        assert not (tmp_path / "sample.db-wal").exists()
+        assert not (tmp_path / "sample.db-shm").exists()
+
+    def test_tolerates_missing_sidecars(self, tmp_path):
+        path = tmp_path / "sample.db"
+        path.write_text("db")
+
+        delete_database_files(path)
+
+        assert not path.exists()

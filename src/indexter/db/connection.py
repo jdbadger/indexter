@@ -165,6 +165,12 @@ def _read_metadata_value(conn: sqlite3.Connection, key: str) -> str | None:
     return row["value"] if row is not None else None
 
 
+def delete_database_files(db_path: Path) -> None:
+    """Delete a database and its WAL/SHM sidecars. Missing sidecars are fine."""
+    for suffix in ("", "-wal", "-shm"):
+        Path(f"{db_path}{suffix}").unlink(missing_ok=True)
+
+
 def read_metadata(db_path: Path) -> dict[str, str | None]:
     """Read project_metadata without creating a schema, loading sqlite-vec, or
     checking versions -- so `list`/`remove` work against any database file,
@@ -184,11 +190,6 @@ def _create_database(db_path: Path, repo: str | Path, settings: Settings) -> Non
     ensure_dir(db_path.parent)
     tmp_path = db_path.with_name(f"{db_path.name}.tmp-{uuid.uuid4().hex}")
 
-    def _cleanup_tmp() -> None:
-        for suffix in ("", "-wal", "-shm"):
-            candidate = Path(str(tmp_path) + suffix)
-            candidate.unlink(missing_ok=True)
-
     try:
         conn = _connect(tmp_path)
         try:
@@ -205,7 +206,7 @@ def _create_database(db_path: Path, repo: str | Path, settings: Settings) -> Non
             conn.close()
         tmp_path.rename(db_path)
     except BaseException:
-        _cleanup_tmp()
+        delete_database_files(tmp_path)
         raise
 
 
@@ -223,7 +224,12 @@ def _validate_and_sync(
             raise RepoPathMismatch(db_path=db_path, stored=stored_repo, given=canonical_repo)
 
     stored_dim = _read_metadata_value(conn, "dim")
-    if stored_dim is None or int(stored_dim) != settings.embedding_dim:
+    stored_model = _read_metadata_value(conn, "model")
+    if (
+        stored_dim is None
+        or int(stored_dim) != settings.embedding_dim
+        or stored_model != settings.embedding_model
+    ):
         rebuild_vectors_table(conn, settings.embedding_dim)
         now = time.time()
         _write_metadata(conn, "dim", str(settings.embedding_dim), now)
@@ -242,7 +248,8 @@ def open_db(
     On creation, `repo` is required -- it becomes the stored `repo_path`.
     On an existing database, `repo` (if given) is checked against the stored
     value, the schema version is checked (mismatch raises, database is left
-    untouched), and a changed embedding dimension rebuilds only `vectors`.
+    untouched), and a changed embedding model or dimension rebuilds only
+    `vectors`.
     """
     settings = settings if settings is not None else Settings()
     db_path = Path(db_path)

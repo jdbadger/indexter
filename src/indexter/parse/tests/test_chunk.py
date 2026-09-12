@@ -4,6 +4,11 @@ from indexter.parse.models import Kind
 
 
 class TestChunkParser:
+    def test_default_chunk_sizing(self):
+        parser = ChunkParser()
+        assert parser.chunk_size == 1000
+        assert parser.chunk_overlap == 100
+
     def test_file_node_present(self):
         result = ChunkParser().parse("a.txt", "hello world\n")
         file_nodes = [n for n in result.nodes if n.kind == Kind.FILE]

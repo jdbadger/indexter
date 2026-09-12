@@ -7,7 +7,7 @@ from __future__ import annotations
 import tomllib
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -28,13 +28,15 @@ class Settings(BaseModel):
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_dim: int = 384
+    embedding_backend: Literal["sentence-transformers", "fastembed"] = "sentence-transformers"
     embed_batch_size: int = 32
+    embed_max_tokens: int = 256
     ignore_patterns: tuple[str, ...] = ()
     max_file_size_bytes: int = 1_000_000
     search_limit: int = 10
     snippet_max_lines: int = 40
-    chunk_size: int = 250
-    chunk_overlap: int = 25
+    chunk_size: int = 1000
+    chunk_overlap: int = 100
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
