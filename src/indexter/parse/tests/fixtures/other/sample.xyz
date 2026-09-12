@@ -1,0 +1,5 @@
+This is a plain-text file with an extension indexter doesn't recognize.
+It should fall back to the chunking parser rather than any language parser.
+Repeat this sentence a few times to make sure it spans more than one chunk
+in the snapshot tests that will use a small chunk size. Repeat this sentence
+a few times to make sure it spans more than one chunk in the snapshot tests.

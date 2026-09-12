@@ -1,0 +1,8 @@
+name: sample
+version: 1
+settings:
+  enabled: true
+  limits:
+    - 1
+    - 2
+    - 3

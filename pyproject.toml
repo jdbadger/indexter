@@ -77,10 +77,17 @@ source-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
 addopts = ["--pyargs", "--cov=indexter", "--cov-fail-under=95"]
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
 
+[tool.inline-snapshot]
+format-command = "ruff format --stdin-filename {filename}"
+
 [tool.ruff]
 indent-width = 4
 line-length = 120
 target-version = "py313"
+# Fixture source is deliberately odd (collision cases, unresolved relative
+# imports, duplicate names) and is never imported by our own code -- it
+# exists to be parsed by tree-sitter, not to be lint-clean Python/JS/etc.
+extend-exclude = ["**/tests/fixtures/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "S", "B"]
@@ -89,9 +96,19 @@ unfixable = ["S", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/*.py" = ["S"]
+# Snapshot values are single-line-per-node renderings meant to diff cleanly;
+# wrapping them would make inline-snapshot's own --inline-snapshot=fix output
+# disagree with what ruff wants, so line length isn't enforced here.
+"**/tests/test_snapshots.py" = ["E501"]
 
 [tool.ty.src]
-exclude = ["**/tests/**", "**/test_*.py", "**/conftest.py"]
+exclude = ["**/tests/**", "**/test_*.py", "**/conftest.py", "**/tests/fixtures/**"]
 
 [tool.ty.environment]
 python-version = "3.13"
+
+[tool.coverage.run]
+# Fixture .py files live under the indexter package path but are read as
+# raw text by the parser tests, never imported -- without this they'd show
+# as 0%-covered modules and drag down --cov-fail-under.
+omit = ["**/tests/fixtures/**"]

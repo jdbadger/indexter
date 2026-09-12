@@ -33,6 +33,8 @@ class Settings(BaseModel):
     max_file_size_bytes: int = 1_000_000
     search_limit: int = 10
     snippet_max_lines: int = 40
+    chunk_size: int = 250
+    chunk_overlap: int = 25
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
