@@ -103,6 +103,7 @@ unfixable = ["S", "B"]
 # disagree with what ruff wants, so line length isn't enforced here.
 "**/tests/test_snapshots.py" = ["E501"]
 "**/tests/test_compose_snapshots.py" = ["E501"]
+"**/tests/test_graph_repo.py" = ["E501"]
 
 [tool.ty.src]
 exclude = ["**/tests/**", "**/test_*.py", "**/conftest.py", "**/tests/fixtures/**"]

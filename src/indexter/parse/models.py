@@ -71,6 +71,11 @@ class ParsedNode:
 class ParsedRef:
     """One call, import, or inheritance relationship. Unresolved: resolution
     into graph edges happens in M4, not here.
+
+    `imported_name` is the imported member name for an `imports` ref that
+    imports a member of a module. `for_type` is the implementing type's name,
+    as written, for an `inherits` ref declared outside its deriving type
+    (Rust `impl Trait for Type`). Both are `None` otherwise.
     """
 
     from_node_id: str
@@ -79,6 +84,8 @@ class ParsedRef:
     ref_kind: RefKind
     line: int
     col: int
+    imported_name: str | None = None
+    for_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +102,8 @@ class RawRef:
     ref_kind: RefKind
     line: int
     col: int
+    imported_name: str | None = None
+    for_type: str | None = None
 
 
 @dataclass

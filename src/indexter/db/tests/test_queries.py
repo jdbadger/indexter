@@ -17,7 +17,7 @@ class TestReadSummary:
         assert summary.node_count == 1
         assert summary.model == settings.embedding_model
         assert summary.dim == str(settings.embedding_dim)
-        assert summary.schema_version == "1"
+        assert summary.schema_version == "2"
         assert summary.size_bytes > 0
         assert summary.indexed_at is not None
 

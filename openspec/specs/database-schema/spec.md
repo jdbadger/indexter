@@ -159,9 +159,9 @@ At creation the system SHALL record the canonical repository path, embedding mod
 - **WHEN** a database is opened for a repository whose canonical path differs from the stored `repo_path`
 - **THEN** opening fails with an error showing both paths
 
-### Requirement: Embedding dimension change rebuilds only the vector table
+### Requirement: Embedding model or dimension change rebuilds only the vector table
 
-The `vectors` virtual table SHALL be created with the embedding dimension taken from configuration rather than hardcoded in the schema file. When the configured dimension differs from the stored one, the system SHALL drop and recreate the `vectors` table and update the stored dimension, leaving `nodes`, `refs`, `edges`, `files`, and `nodes_fts` intact.
+The `vectors` virtual table SHALL be created with the embedding dimension taken from configuration rather than hardcoded in the schema file. When the configured embedding model or the configured dimension differs from the stored one, the system SHALL drop and recreate the `vectors` table at the configured dimension and update both the stored model and the stored dimension, leaving `nodes`, `refs`, `edges`, `files`, and `nodes_fts` intact.
 
 #### Scenario: Vector table uses the configured dimension
 
@@ -172,3 +172,13 @@ The `vectors` virtual table SHALL be created with the embedding dimension taken 
 
 - **WHEN** a database holding nodes, edges, and vectors is opened with a different configured embedding dimension
 - **THEN** the `vectors` table is empty and dimensioned to the new value, the stored dimension is updated, and the row counts of `nodes`, `refs`, `edges`, and `files` are unchanged
+
+#### Scenario: Model change at the same dimension rebuilds vectors
+
+- **WHEN** a database holding vectors is opened with a different configured embedding model of the same dimension
+- **THEN** the `vectors` table is empty, the stored model name is updated, and the row counts of `nodes`, `refs`, `edges`, and `files` are unchanged
+
+#### Scenario: Unchanged model and dimension keep vectors
+
+- **WHEN** a database holding vectors is opened with the same configured model and dimension
+- **THEN** the `vectors` table is left untouched

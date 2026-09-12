@@ -15,7 +15,9 @@ from indexter.config import ConfigError, load_settings
 from indexter.db import queries
 from indexter.db.connection import IndexterDBError, delete_database_files
 from indexter.index.embed import EmbeddingError, make_embedder
+from indexter.index.graph import ResolveReport
 from indexter.index.sync import IndexResult, index_repository
+from indexter.parse.models import RefKind
 from indexter.paths import data_dir, db_path
 
 app = typer.Typer(
@@ -50,6 +52,28 @@ def _render_summary(summary: queries.RepoSummary) -> str:
     )
 
 
+def _render_resolution(resolution: ResolveReport) -> None:
+    summary = resolution.summary
+
+    edges_by_kind: dict[str, int] = {}
+    for (kind, _confidence), count in summary.edges_by_kind_confidence.items():
+        edges_by_kind[kind] = edges_by_kind.get(kind, 0) + count
+    edges_str = " ".join(f"{kind}={count}" for kind, count in sorted(edges_by_kind.items()))
+
+    calls_by_outcome: dict[str, int] = {}
+    for (ref_kind, status, confidence), count in summary.refs_by_outcome.items():
+        if ref_kind != RefKind.CALLS.value:
+            continue
+        label = status if confidence is None else f"{status}/{confidence}"
+        calls_by_outcome[label] = calls_by_outcome.get(label, 0) + count
+    calls_str = " ".join(f"{label}={count}" for label, count in sorted(calls_by_outcome.items()))
+
+    typer.echo(
+        f"  resolution: edges[{edges_str}] calls[{calls_str}] "
+        f"external_modules={summary.external_node_count} elapsed={resolution.elapsed_seconds:.2f}s"
+    )
+
+
 def _render_index_result(repo: Path, result: IndexResult) -> None:
     report = result.report
     if result.status == "created":
@@ -65,6 +89,8 @@ def _render_index_result(repo: Path, result: IndexResult) -> None:
         f"nodes_deleted={report.nodes_deleted} refs_written={report.refs_written} "
         f"texts_embedded={report.texts_embedded} elapsed={report.elapsed_seconds:.2f}s"
     )
+    if report.resolution is not None:
+        _render_resolution(report.resolution)
     for path, error in sorted(report.errors.items()):
         typer.echo(f"  error: {path}: {error}", err=True)
 

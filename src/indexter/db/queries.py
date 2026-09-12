@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from indexter.db.connection import read_metadata
+from indexter.parse.models import Kind
 
 
 @dataclass(frozen=True)
@@ -71,11 +72,15 @@ def node_count(conn: sqlite3.Connection) -> int:
 
 
 def orphaned_refs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """refs whose from_node_id, or non-null resolved_target_id, names no node."""
+    """refs whose from_node_id, non-null resolved_target_id, or any ID in a
+    non-null candidates list, names no node."""
     return conn.execute(
         "SELECT * FROM refs "
         "WHERE from_node_id NOT IN (SELECT id FROM nodes) "
-        "   OR (resolved_target_id IS NOT NULL AND resolved_target_id NOT IN (SELECT id FROM nodes))"
+        "   OR (resolved_target_id IS NOT NULL AND resolved_target_id NOT IN (SELECT id FROM nodes)) "
+        "   OR (candidates IS NOT NULL AND EXISTS ("
+        "         SELECT 1 FROM json_each(refs.candidates) WHERE json_each.value NOT IN (SELECT id FROM nodes)"
+        "       ))"
     ).fetchall()
 
 
@@ -84,3 +89,39 @@ def orphaned_edges(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM edges WHERE source NOT IN (SELECT id FROM nodes) OR target NOT IN (SELECT id FROM nodes)"
     ).fetchall()
+
+
+@dataclass(frozen=True)
+class ResolutionSummary:
+    """Resolution counts computed straight from stored rows (design.md
+    decision 12): what `ResolveReport` reports right after a resolution
+    run, and what this can independently verify at any later time."""
+
+    refs_by_outcome: dict[tuple[str, str, str | None], int]
+    edges_by_kind_confidence: dict[tuple[str, str], int]
+    external_node_count: int
+
+
+def resolution_summary(conn: sqlite3.Connection) -> ResolutionSummary:
+    """Reference counts by kind and status (with confidence for resolved
+    references), edge counts by kind and confidence, and the number of
+    external module nodes -- grouped straight from `refs`, `edges`, and
+    `nodes`."""
+    refs_by_outcome = {
+        (row["ref_kind"], row["status"], row["confidence"]): row["n"]
+        for row in conn.execute(
+            "SELECT ref_kind, status, confidence, COUNT(*) AS n FROM refs GROUP BY ref_kind, status, confidence"
+        )
+    }
+    edges_by_kind_confidence = {
+        (row["kind"], row["confidence"]): row["n"]
+        for row in conn.execute("SELECT kind, confidence, COUNT(*) AS n FROM edges GROUP BY kind, confidence")
+    }
+    (external_node_count,) = conn.execute(
+        "SELECT COUNT(*) FROM nodes WHERE kind = ?", (Kind.EXTERNAL_MODULE.value,)
+    ).fetchone()
+    return ResolutionSummary(
+        refs_by_outcome=refs_by_outcome,
+        edges_by_kind_confidence=edges_by_kind_confidence,
+        external_node_count=external_node_count,
+    )

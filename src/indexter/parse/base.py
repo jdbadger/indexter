@@ -20,8 +20,9 @@ from tree_sitter import Language, Node, Parser, Query, QueryCursor
 from tree_sitter_language_pack import get_language
 from tree_sitter_language_pack import get_parser as get_ts_parser
 
+from indexter.parse.builtins import BUILTINS_BY_LANGUAGE
 from indexter.parse.ids import assign_ids, link_parents, link_refs
-from indexter.parse.models import Kind, ParsedNode, ParseResult, RawRef
+from indexter.parse.models import Kind, ParsedNode, ParsedRef, ParseResult, RawRef, RefKind
 
 if TYPE_CHECKING:
     from tree_sitter_language_pack import SupportedLanguage
@@ -192,6 +193,7 @@ class BaseLanguageParser(BaseParser):
         nodes_with_ids = assign_ids(relpath, nodes)
         linked_nodes = link_parents(nodes_with_ids)
         refs = link_refs(linked_nodes, raw_refs)
+        refs = _drop_unshadowed_builtins(self.language, linked_nodes, refs)
         return ParseResult(nodes=linked_nodes, refs=refs, errors=errors)
 
     def _run_query(self, query, root_node, source_bytes, relpath, kind_label, sink, errors) -> None:  # noqa: ANN001
@@ -210,6 +212,29 @@ class BaseLanguageParser(BaseParser):
                 continue
             if result is not None:
                 sink(result)
+
+
+def _drop_unshadowed_builtins(
+    language: str, nodes: list[ParsedNode], refs: list[ParsedRef]
+) -> list[ParsedRef]:
+    """Drop `calls`/`inherits` refs whose head is a builtin name of
+    `language`, unless the file itself defines a node with that name or
+    binds it via an import -- see `parse/builtins.py` and design.md
+    decision 8. Import refs are never dropped.
+    """
+    builtins = BUILTINS_BY_LANGUAGE.get(language)
+    if not builtins:
+        return refs
+    shadowed = {n.name for n in nodes if n.name} | {
+        r.head for r in refs if r.ref_kind == RefKind.IMPORTS and r.head
+    }
+    return [
+        r
+        for r in refs
+        if r.ref_kind == RefKind.IMPORTS
+        or r.head not in builtins
+        or r.head in shadowed
+    ]
 
 
 # --- Extension registry -----------------------------------------------------

@@ -32,23 +32,54 @@ _REFERENCES_QUERY = """
 (call_expression function: (field_expression) @callee) @call
 (call_expression function: (scoped_identifier) @callee) @call
 
-(use_declaration argument: (scoped_identifier) @use_path) @use
-(use_declaration argument: (identifier) @use_path) @use
-(use_declaration argument: (use_as_clause path: (_) @use_path)) @use
+(use_declaration argument: (scoped_identifier) @use_simple)
+(use_declaration argument: (identifier) @use_simple)
+(use_declaration argument: (use_as_clause) @use_aliased)
+(use_declaration argument: (use_wildcard) @use_wildcard)
 (use_declaration
     argument: (scoped_use_list
-        path: (_) @use_prefix
-        list: (use_list (identifier) @use_item)))
-(use_declaration
-    argument: (scoped_use_list
-        path: (_) @use_prefix
-        list: (use_list (scoped_identifier) @use_item)))
+        path: (_) @use_group_prefix
+        list: (use_list [(identifier) (scoped_identifier) (use_as_clause)] @use_group_item)))
 
 (impl_item) @impl_block
 """
 
 # Containers whose methods count as `method` rather than `function`.
 _METHOD_CONTAINERS = frozenset({"impl_item", "trait_item"})
+
+
+def _split_path(node: Node) -> tuple[str | None, str]:
+    """Split a `use` target's `identifier`/`scoped_identifier` path into
+    `(prefix, last_segment)`. `prefix` is `None` for a single-segment path.
+    """
+    if node.type == "scoped_identifier":
+        path_field = node.child_by_field_name("path")
+        name_field = node.child_by_field_name("name")
+        prefix = node_text(path_field) if path_field is not None else None
+        last = node_text(name_field) if name_field is not None else ""
+        return prefix, last
+    return None, node_text(node)
+
+
+def _group_item_binding(item_node: Node, group_prefix: str) -> tuple[str, str | None, str] | None:
+    """`(raw_name, imported_name, head)` for one member of a `use a::{...}`
+    group, given the group's shared prefix text. `None` for a shape this
+    parser doesn't recognize (e.g. a nested group).
+    """
+    alias_text: str | None = None
+    inner = item_node
+    if item_node.type == "use_as_clause":
+        path_field = item_node.child_by_field_name("path")
+        alias_field = item_node.child_by_field_name("alias")
+        if path_field is None or alias_field is None:
+            return None
+        inner = path_field
+        alias_text = node_text(alias_field)
+    if inner.type not in ("identifier", "scoped_identifier"):
+        return None
+    prefix, last = _split_path(inner)
+    raw_name = f"{group_prefix}::{prefix}" if prefix is not None else group_prefix
+    return raw_name, last, alias_text if alias_text is not None else last
 
 
 class RustParser(BaseLanguageParser):
@@ -118,6 +149,7 @@ class RustParser(BaseLanguageParser):
             trait_node = node.child_by_field_name("trait")
             if trait_node is None or not trait_node.text:
                 return None  # inherent impl -- nothing to record
+            type_node = node.child_by_field_name("type")
             return RawRef(
                 origin_byte=node.start_byte,
                 raw_name=node_text(trait_node),
@@ -125,29 +157,51 @@ class RustParser(BaseLanguageParser):
                 ref_kind=RefKind.INHERITS,
                 line=node.start_point[0] + 1,
                 col=node.start_point[1] + 1,
+                for_type=node_text(type_node) if type_node is not None else None,
             )
-        if "use_prefix" in match:
-            item_node = match["use_item"][0]
-            prefix_node = match["use_prefix"][0]
-            raw_name = f"{node_text(prefix_node)}::{node_text(item_node)}"
-            # The prefix is the leftmost/outermost segment of the combined
-            # path (`std` in `std::io`), so its head identifies the whole.
-            return self._import_ref(item_node, raw_name, head_identifier(prefix_node))
-        if "use_path" in match:
-            position_node = match["use"][0]
-            path_node = match["use_path"][0]
-            return self._import_ref(position_node, node_text(path_node), head_identifier(path_node))
+        if "use_simple" in match:
+            node = match["use_simple"][0]
+            prefix, last = _split_path(node)
+            raw_name = prefix if prefix is not None else last
+            imported_name = last if prefix is not None else None
+            return self._import_ref(node, raw_name, head=last, imported_name=imported_name)
+        if "use_aliased" in match:
+            node = match["use_aliased"][0]
+            path_node = node.child_by_field_name("path")
+            alias_node = node.child_by_field_name("alias")
+            if path_node is None or alias_node is None:
+                return None
+            prefix, last = _split_path(path_node)
+            raw_name = prefix if prefix is not None else last
+            imported_name = last if prefix is not None else None
+            return self._import_ref(node, raw_name, head=node_text(alias_node), imported_name=imported_name)
+        if "use_wildcard" in match:
+            node = match["use_wildcard"][0]
+            prefix_node = node.children[0] if node.child_count else None
+            raw_name = node_text(prefix_node) if prefix_node is not None else ""
+            return self._import_ref(node, raw_name, head=None, imported_name="*")
+        if "use_group_item" in match:
+            item_node = match["use_group_item"][0]
+            group_prefix = node_text(match["use_group_prefix"][0])
+            binding = _group_item_binding(item_node, group_prefix)
+            if binding is None:
+                return None
+            raw_name, imported_name, head = binding
+            return self._import_ref(item_node, raw_name, head=head, imported_name=imported_name)
         return None
 
     @staticmethod
-    def _import_ref(position_node: Node, raw_name: str, head: str | None) -> RawRef:
+    def _import_ref(
+        node: Node, raw_name: str, *, head: str | None, imported_name: str | None = None
+    ) -> RawRef:
         return RawRef(
-            origin_byte=position_node.start_byte,
+            origin_byte=node.start_byte,
             raw_name=raw_name,
             head=head,
             ref_kind=RefKind.IMPORTS,
-            line=position_node.start_point[0] + 1,
-            col=position_node.start_point[1] + 1,
+            line=node.start_point[0] + 1,
+            col=node.start_point[1] + 1,
+            imported_name=imported_name,
         )
 
     def _kind_for(self, def_node: Node) -> Kind:

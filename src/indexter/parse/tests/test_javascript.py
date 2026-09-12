@@ -161,6 +161,34 @@ class TestDefensiveBranches:
 
         assert parser._signature(FakeNode(), b"") is None
 
+    def test_import_source_of_no_enclosing_statement_is_none(self):
+        # `_enclosing` always finds a real import/export statement for
+        # every capture our query produces -- exercised directly.
+        from indexter.parse.javascript import _import_source
+
+        assert _import_source(None) is None
+
+    def test_assigned_variable_when_call_is_not_the_declarator_value(self):
+        # A `require()` call our query captures is always either not inside
+        # a variable_declarator or is exactly its value -- exercised
+        # directly since real syntax can't produce the mismatch.
+        from indexter.parse.javascript import _assigned_variable
+
+        class FakeNode:
+            def __init__(self, type_, value_field=None):
+                self.type = type_
+                self._value_field = value_field
+                self.parent = None
+
+            def child_by_field_name(self, name):
+                return self._value_field if name == "value" else None
+
+        call_node = FakeNode("call_expression")
+        other_value = FakeNode("member_expression")
+        call_node.parent = FakeNode("variable_declarator", value_field=other_value)
+
+        assert _assigned_variable(call_node) is None
+
 
 class TestReferences:
     def test_member_chain_call_head(self, parser):
@@ -192,11 +220,70 @@ class TestReferences:
         result = parser.parse("a.js", 'import { X } from "./mod";\n')
         [ref] = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
         assert ref.raw_name == "./mod"
+        assert ref.imported_name == "X"
+        assert ref.head == "X"
 
     def test_require_specifier(self, parser):
         result = parser.parse("a.js", 'const x = require("./mod");\n')
         imports = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
         assert any(r.raw_name == "./mod" for r in imports)
+
+    def test_require_head_is_assigned_variable(self, parser):
+        result = parser.parse("a.js", 'const util = require("./util");\n')
+        [ref] = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
+        assert ref.raw_name == "./util"
+        assert ref.head == "util"
+
+    def test_require_without_assignment_has_no_head(self, parser):
+        result = parser.parse("a.js", 'require("./sideeffect");\n')
+        [ref] = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
+        assert ref.raw_name == "./sideeffect"
+        assert ref.head is None
+
+    def test_default_named_and_namespace_imports(self, parser):
+        content = "import X, { a as b } from './m';\nimport * as ns from 'react';\n"
+        result = parser.parse("a.js", content)
+        imports = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
+        by_head = {r.head: r for r in imports}
+        assert by_head["X"].raw_name == "./m"
+        assert by_head["X"].imported_name == "default"
+        assert by_head["b"].raw_name == "./m"
+        assert by_head["b"].imported_name == "a"
+        assert by_head["ns"].raw_name == "react"
+        assert by_head["ns"].imported_name is None
+
+    def test_side_effect_import_has_no_head(self, parser):
+        result = parser.parse("a.js", "import './polyfill';\n")
+        [ref] = result.refs
+        assert ref.ref_kind == RefKind.IMPORTS
+        assert ref.raw_name == "./polyfill"
+        assert ref.head is None
+        assert ref.imported_name is None
+
+    def test_export_from_reexport(self, parser):
+        content = "export { Client as C } from './client';\nexport * from './types';\n"
+        result = parser.parse("a.js", content)
+        imports = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
+        by_raw = {r.raw_name: r for r in imports}
+        assert by_raw["./client"].imported_name == "Client"
+        assert by_raw["./client"].head == "C"
+        assert by_raw["./types"].imported_name == "*"
+        assert by_raw["./types"].head is None
+
+    def test_local_export_is_not_an_import(self, parser):
+        result = parser.parse("a.js", "const local = 1;\nexport { local };\n")
+        assert all(r.ref_kind != RefKind.IMPORTS for r in result.refs)
+
+    def test_namespace_reexport(self, parser):
+        result = parser.parse("a.js", "export * as ns2 from './ns2mod';\n")
+        [ref] = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
+        assert ref.raw_name == "./ns2mod"
+        assert ref.head == "ns2"
+
+    def test_empty_string_specifier(self, parser):
+        result = parser.parse("a.js", 'import X from "";\n')
+        [ref] = result.refs
+        assert ref.raw_name == ""
 
     def test_extends_yields_inherits_ref(self, parser):
         content = (FIXTURES / "sample.js").read_text()
@@ -210,3 +297,9 @@ class TestReferences:
         node_ids = {n.id for n in result.nodes}
         assert result.refs
         assert all(r.from_node_id in node_ids for r in result.refs)
+
+
+class TestBuiltinDropping:
+    def test_builtin_receiver_dropped(self, parser):
+        result = parser.parse("a.js", "function f() {\n    console.log('hi');\n}\n")
+        assert all(r.ref_kind != RefKind.CALLS for r in result.refs)

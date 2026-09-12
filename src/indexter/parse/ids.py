@@ -91,6 +91,8 @@ def link_refs(nodes: list[ParsedNode], raw_refs: list[RawRef]) -> list[ParsedRef
                 ref_kind=raw.ref_kind,
                 line=raw.line,
                 col=raw.col,
+                imported_name=raw.imported_name,
+                for_type=raw.for_type,
             )
         )
     return refs

@@ -78,6 +78,8 @@ def insert_ref(conn, from_node_id, **overrides):
         from_node_id=from_node_id,
         raw_name="bar",
         head="bar",
+        imported_name=None,
+        for_type=None,
         ref_kind="call",
         line=3,
         col=4,

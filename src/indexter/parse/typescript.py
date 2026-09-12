@@ -48,7 +48,16 @@ _DEFINITIONS_QUERY = """
 """
 
 _REFERENCES_QUERY = """
-(import_statement source: (string (string_fragment) @specifier)) @import_stmt
+(import_clause (identifier) @default_name)
+(import_clause (namespace_import (identifier) @ns_name))
+(import_specifier name: (identifier) @named_name alias: (identifier)? @named_alias)
+(import_statement source: (string (string_fragment) @side_effect_specifier)) @side_effect_import
+
+(export_specifier name: (identifier) @export_name alias: (identifier)? @export_alias)
+(export_statement "*" source: (string (string_fragment) @export_star_specifier))
+(export_statement
+    (namespace_export (identifier) @export_ns_name)
+    source: (string (string_fragment) @export_ns_specifier))
 
 (call_expression
     function: (identifier) @fn
@@ -79,6 +88,44 @@ _FUNCTION_LIKE = frozenset({"arrow_function", "function", "function_expression"}
 
 def _is_constant_name(name: str) -> bool:
     return name.isupper() or ("_" in name and name.replace("_", "").isupper())
+
+
+def _enclosing(node: Node, type_name: str) -> Node | None:
+    current = node.parent
+    while current is not None and current.type != type_name:
+        current = current.parent
+    return current
+
+
+def _import_source(stmt: Node | None) -> str | None:
+    """The module specifier text an `import_statement`/`export_statement`'s
+    `source` field carries, or `None` when there is no such field (a local
+    `export { x };` with no module).
+    """
+    if stmt is None:
+        return None
+    source = stmt.child_by_field_name("source")
+    if source is None:
+        return None
+    for child in source.children:
+        if child.type == "string_fragment":
+            return node_text(child)
+    return ""
+
+
+def _has_import_clause(stmt: Node) -> bool:
+    return any(child.type == "import_clause" for child in stmt.children)
+
+
+def _assigned_variable(call_node: Node) -> str | None:
+    """The variable name a `require(...)` call is assigned to, if any."""
+    parent = call_node.parent
+    if parent is None or parent.type != "variable_declarator":
+        return None
+    if parent.child_by_field_name("value") != call_node:
+        return None
+    name_node = parent.child_by_field_name("name")
+    return node_text(name_node) if name_node is not None else None
 
 
 class TypeScriptParser(BaseLanguageParser):
@@ -164,23 +211,63 @@ class TypeScriptParser(BaseLanguageParser):
                 line=base.start_point[0] + 1,
                 col=base.start_point[1] + 1,
             )
-        if "import_stmt" in match:
-            node = match["import_stmt"][0]
-            return self._import_ref(node, node_text(match["specifier"][0]))
+        if "default_name" in match:
+            name = match["default_name"][0]
+            source = _import_source(_enclosing(name, "import_statement"))
+            return self._import_ref(name, source, head=node_text(name), imported_name="default")
+        if "ns_name" in match:
+            name = match["ns_name"][0]
+            source = _import_source(_enclosing(name, "import_statement"))
+            return self._import_ref(name, source, head=node_text(name))
+        if "named_name" in match:
+            name = match["named_name"][0]
+            alias = match.get("named_alias")
+            source = _import_source(_enclosing(name, "import_statement"))
+            imported = node_text(name)
+            head = node_text(alias[0]) if alias else imported
+            return self._import_ref(name, source, head=head, imported_name=imported)
+        if "side_effect_import" in match:
+            stmt = match["side_effect_import"][0]
+            if _has_import_clause(stmt):
+                return None  # handled per-binding by the patterns above
+            specifier = match["side_effect_specifier"][0]
+            return self._import_ref(stmt, node_text(specifier), head=None)
+        if "export_name" in match:
+            name = match["export_name"][0]
+            source = _import_source(_enclosing(name, "export_statement"))
+            if source is None:
+                return None  # a local re-export, not a module reference
+            alias = match.get("export_alias")
+            imported = node_text(name)
+            head = node_text(alias[0]) if alias else imported
+            return self._import_ref(name, source, head=head, imported_name=imported)
+        if "export_star_specifier" in match:
+            specifier = match["export_star_specifier"][0]
+            stmt = _enclosing(specifier, "export_statement")
+            return self._import_ref(stmt or specifier, node_text(specifier), head=None, imported_name="*")
+        if "export_ns_name" in match:
+            name = match["export_ns_name"][0]
+            specifier = match["export_ns_specifier"][0]
+            return self._import_ref(name, node_text(specifier), head=node_text(name))
         if "require_call" in match:
-            node = match["require_call"][0]
-            return self._import_ref(node, node_text(match["specifier"][0]))
+            call_node = match["require_call"][0]
+            specifier = match["specifier"][0]
+            head = _assigned_variable(call_node)
+            return self._import_ref(call_node, node_text(specifier), head=head)
         return None
 
     @staticmethod
-    def _import_ref(node: Node, specifier: str) -> RawRef:
+    def _import_ref(
+        node: Node, raw_name: str | None, *, head: str | None, imported_name: str | None = None
+    ) -> RawRef:
         return RawRef(
             origin_byte=node.start_byte,
-            raw_name=specifier,
-            head=None,
+            raw_name=raw_name or "",
+            head=head,
             ref_kind=RefKind.IMPORTS,
             line=node.start_point[0] + 1,
             col=node.start_point[1] + 1,
+            imported_name=imported_name,
         )
 
     def _kind_for(self, def_node: Node) -> Kind:

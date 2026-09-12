@@ -41,14 +41,14 @@ function name='deprecated' scope=() lang=python lines=28-30 bytes=589-690 sig='d
 function name='standalone' scope=() lang=python lines=33-36 bytes=693-790 sig='def standalone()' doc='A decorated module-level function.'
 
 REFS:
-imports raw='os' head=None line=3 col=8
-imports raw='collections.OrderedDict' head=None line=4 col=25
-imports raw='.sibling' head=None line=5 col=15
-imports raw='..pkg.thing' head=None line=6 col=19
-inherits raw='Base' head='Base' line=15 col=15
-calls raw='self.validate' head='self' line=20 col=9
-calls raw='os.path.join' head='os' line=21 col=9
-calls raw='thing' head='thing' line=22 col=16\
+imports raw='os' head='os' imported=None for_type=None line=3 col=8
+imports raw='collections' head='OrderedDict' imported='OrderedDict' for_type=None line=4 col=25
+imports raw='.' head='sibling' imported='sibling' for_type=None line=5 col=15
+imports raw='..pkg' head='thing' imported='thing' for_type=None line=6 col=19
+inherits raw='Base' head='Base' imported=None for_type=None line=15 col=15
+calls raw='self.validate' head='self' imported=None for_type=None line=20 col=9
+calls raw='os.path.join' head='os' imported=None for_type=None line=21 col=9
+calls raw='thing' head='thing' imported=None for_type=None line=22 col=16\
 """)
 
     def test_python_scopes(self):
@@ -77,11 +77,11 @@ function name='standalone' scope=() lang=javascript lines=14-16 bytes=237-279 si
 function name='double' scope=() lang=javascript lines=18-18 bytes=281-309 sig='(x) =>' doc=None
 
 REFS:
-imports raw='events' head=None line=1 col=1
-imports raw='./utils' head=None line=2 col=1
-inherits raw='EventEmitter' head='EventEmitter' line=4 col=20
-inherits raw='Base' head='Base' line=6 col=23
-calls raw='items.forEach' head='items' line=8 col=5\
+imports raw='events' head='EventEmitter' imported='EventEmitter' for_type=None line=1 col=10
+imports raw='./utils' head='defaultExport' imported='default' for_type=None line=2 col=8
+inherits raw='EventEmitter' head='EventEmitter' imported=None for_type=None line=4 col=20
+inherits raw='Base' head='Base' imported=None for_type=None line=6 col=23
+calls raw='items.forEach' head='items' imported=None for_type=None line=8 col=5\
 """)
 
     def test_javascript_objects(self):
@@ -109,8 +109,8 @@ method name='greet' scope=('Handler',) lang=typescript lines=17-19 bytes=271-332
 function name='standalone' scope=() lang=typescript lines=22-24 bytes=343-401 sig='function standalone(x: number): number' doc=None
 
 REFS:
-inherits raw='BaseHandler' head='BaseHandler' line=16 col=30
-inherits raw='Greeter' head='Greeter' line=16 col=53\
+inherits raw='BaseHandler' head='BaseHandler' imported=None for_type=None line=16 col=30
+inherits raw='Greeter' head='Greeter' imported=None for_type=None line=16 col=53\
 """)
 
     def test_rust_sample(self):
@@ -125,12 +125,12 @@ trait name='Greet' scope=() lang=rust lines=26-28 bytes=445-495 sig=None doc=Non
 method name='greet' scope=('Foo<Greet>',) lang=rust lines=31-33 bytes=522-582 sig='fn greet(&self) -> String' doc=None
 
 REFS:
-imports raw='std::fmt' head='std' line=1 col=1
-imports raw='crate::helpers::assist' head='crate' line=2 col=1
-inherits raw='fmt::Display' head=None line=14 col=1
-inherits raw='fmt::Debug' head=None line=20 col=1
-inherits raw='Greet' head='Greet' line=30 col=1
-calls raw='assist' head='assist' line=32 col=9\
+imports raw='std' head='fmt' imported='fmt' for_type=None line=1 col=5
+imports raw='crate::helpers' head='assist' imported='assist' for_type=None line=2 col=5
+inherits raw='fmt::Display' head=None imported=None for_type='Foo' line=14 col=1
+inherits raw='fmt::Debug' head=None imported=None for_type='Foo' line=20 col=1
+inherits raw='Greet' head='Greet' imported=None for_type='Foo' line=30 col=1
+calls raw='assist' head='assist' imported=None for_type=None line=32 col=9\
 """)
 
 

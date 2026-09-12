@@ -6,13 +6,14 @@ configuration changes, and `index_repository`'s database lifecycle.
 from __future__ import annotations
 
 import struct
+import time
 
 import pytest
 
 from indexter.db.connection import RepoPathMismatch, open_db
 from indexter.index.embed import FakeEmbedder
 from indexter.index.sync import _embedding_backlog, index_repository, sync_repo
-from indexter.index.tests.conftest import sync_source
+from indexter.index.tests.conftest import insert_vector, sync_source
 
 SRC_A = """\
 def helper():
@@ -367,6 +368,104 @@ class TestHealing:
         assert file_row["errors"] == "synthetic parse error"
 
 
+class TestResolution:
+    def test_no_op_sync_runs_no_resolution(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+            report = sync_repo(conn, repo, settings, embedder)
+
+        assert report.resolution is None
+
+    def test_edit_triggers_resolution(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+
+            write(repo, "a.py", SRC_A_EDITED_BODY)
+            report = sync_repo(conn, repo, settings, embedder)
+
+            pending = conn.execute(
+                "SELECT value FROM project_metadata WHERE key = 'resolution_pending'"
+            ).fetchone()["value"]
+
+        assert report.resolution is not None
+        assert pending == "0"
+
+    def test_touch_does_not_trigger_resolution(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+
+            set_mtime(repo, "a.py", (repo / "a.py").stat().st_mtime + 1000)
+            report = sync_repo(conn, repo, settings, embedder)
+
+        assert report.resolution is None
+
+    def test_interrupted_resolution_heals_on_next_sync(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+
+            # Simulate a crash between pass one's commit and resolution:
+            # leave the pending marker set with refs still unresolved.
+            conn.execute("UPDATE project_metadata SET value = '1' WHERE key = 'resolution_pending'")
+            conn.execute("UPDATE refs SET status = 'unresolved', resolved_target_id = NULL, confidence = NULL")
+
+            report = sync_repo(conn, repo, settings, embedder)
+
+            unresolved = conn.execute("SELECT COUNT(*) AS n FROM refs WHERE status = 'unresolved'").fetchone()["n"]
+
+        assert report.resolution is not None
+        assert unresolved == 0
+
+    def test_resolver_version_bump_reresolves_without_reparsing_or_embedding(
+        self, repo, db_path, settings, embedder
+    ):
+        write(repo, "a.py", SRC_A)
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+
+            import indexter.index.graph as graph_mod
+            import indexter.index.sync as sync_mod
+
+            original_version = graph_mod.RESOLVER_VERSION
+            original_parse_file = sync_mod.parse_file
+            parse_calls = []
+
+            def counting_parse_file(*args, **kwargs):
+                parse_calls.append(args)
+                return original_parse_file(*args, **kwargs)
+
+            graph_mod.RESOLVER_VERSION = original_version + 1
+            sync_mod.parse_file = counting_parse_file
+            try:
+                report = sync_repo(conn, repo, settings, embedder)
+            finally:
+                sync_mod.parse_file = original_parse_file
+                graph_mod.RESOLVER_VERSION = original_version
+
+        assert report.resolution is not None
+        assert parse_calls == []
+        assert report.texts_embedded == 0
+
+    def test_failed_ref_succeeds_after_definition_added(self, repo, db_path, settings, embedder):
+        write(repo, "b.py", "def run():\n    return undefined_thing()\n")
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+            status = conn.execute("SELECT status FROM refs").fetchone()["status"]
+            assert status == "failed"
+
+            write(repo, "a.py", "def undefined_thing():\n    return 1\n")
+            sync_repo(conn, repo, settings, embedder)
+
+            status_after = conn.execute(
+                "SELECT status FROM refs WHERE raw_name = 'undefined_thing'"
+            ).fetchone()["status"]
+
+        assert status_after == "resolved"
+
+
 class TestIndexRepository:
     def test_create(self, repo, settings, embedder, monkeypatch, tmp_path):
         write(repo, "a.py", SRC_A)
@@ -412,6 +511,21 @@ class TestIndexRepository:
             conn.execute(
                 "UPDATE project_metadata SET value = '999' WHERE key = 'schema_version'"
             )
+
+        result = index_repository(repo, settings, embedder)
+
+        assert result.status == "rebuilt"
+        assert result.report.added == ("a.py",)
+
+    def test_version_1_database_rebuilds(self, repo, settings, embedder, monkeypatch, tmp_path):
+        """A real pre-M4 database (schema_version=1) is rebuilt, not migrated."""
+        write(repo, "a.py", SRC_A)
+        data_dir = tmp_path / "data"
+        monkeypatch.setattr("indexter.paths.data_dir", lambda: data_dir)
+
+        first = index_repository(repo, settings, embedder)
+        with open_db(first.db_path, repo=repo, settings=settings) as conn:
+            conn.execute("UPDATE project_metadata SET value = '1' WHERE key = 'schema_version'")
 
         result = index_repository(repo, settings, embedder)
 
@@ -484,3 +598,37 @@ class TestEmbeddingBacklog:
             remaining = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
 
         assert remaining == 0
+
+    def _insert_external_node(self, conn, node_id: str = "external::pydantic") -> None:
+        conn.execute(
+            "INSERT INTO nodes (id, kind, name, file_path, degree, updated_at) "
+            "VALUES (?, 'external_module', 'pydantic', '', 0, ?)",
+            (node_id, time.time()),
+        )
+
+    def test_external_module_nodes_are_never_embedded(self, repo, db_path, settings, tokenizer):
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_source(conn, "a.py", SRC_A, settings, tokenizer)
+            self._insert_external_node(conn)
+
+            embedder = FakeEmbedder(dim=settings.embedding_dim)
+            embedded = _embedding_backlog(conn, embedder, settings)
+
+            node_count = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            vector_count = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
+
+        assert embedded == node_count - 1
+        assert vector_count == node_count - 1
+
+    def test_only_externals_lacking_vectors_does_not_load_model(self, repo, db_path, settings, tokenizer):
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_source(conn, "a.py", SRC_A, settings, tokenizer)
+            for row in conn.execute("SELECT rowid FROM nodes").fetchall():
+                insert_vector(conn, row["rowid"], dim=settings.embedding_dim)
+            self._insert_external_node(conn)
+
+            embedder = FakeEmbedder(dim=settings.embedding_dim)
+            embedded = _embedding_backlog(conn, embedder, settings)
+
+        assert embedded == 0
+        assert embedder.model_loads == 0

@@ -148,15 +148,46 @@ class TestReferences:
 
     def test_relative_import_dots_preserved(self, parser):
         result = parser.parse("a.py", "from . import sibling\nfrom ..pkg import thing\n")
-        raw_names = {r.raw_name for r in result.refs if r.ref_kind == RefKind.IMPORTS}
-        assert raw_names == {".sibling", "..pkg.thing"}
+        imports = {r.imported_name: r for r in result.refs if r.ref_kind == RefKind.IMPORTS}
+        assert imports["sibling"].raw_name == "."
+        assert imports["thing"].raw_name == "..pkg"
 
     def test_plain_and_from_imports(self, parser):
         content = (FIXTURES / "sample.py").read_text()
         result = parser.parse("python/sample.py", content)
-        raw_names = {r.raw_name for r in result.refs if r.ref_kind == RefKind.IMPORTS}
+        imports = [r for r in result.refs if r.ref_kind == RefKind.IMPORTS]
+        raw_names = {r.raw_name for r in imports}
         assert "os" in raw_names
-        assert "collections.OrderedDict" in raw_names
+        assert any(r.raw_name == "collections" and r.imported_name == "OrderedDict" for r in imports)
+
+    def test_plain_import_head_is_first_segment(self, parser):
+        result = parser.parse("a.py", "import os.path\n")
+        [ref] = result.refs
+        assert ref.raw_name == "os.path"
+        assert ref.imported_name is None
+        assert ref.head == "os"
+
+    def test_aliased_plain_import_head_is_alias(self, parser):
+        result = parser.parse("a.py", "import numpy as np\n")
+        [ref] = result.refs
+        assert ref.raw_name == "numpy"
+        assert ref.imported_name is None
+        assert ref.head == "np"
+
+    def test_from_import_multiple_names(self, parser):
+        result = parser.parse("a.py", "from a.b import thing, other as alias\n")
+        refs = {r.imported_name: r for r in result.refs}
+        assert refs["thing"].raw_name == "a.b"
+        assert refs["thing"].head == "thing"
+        assert refs["other"].raw_name == "a.b"
+        assert refs["other"].head == "alias"
+
+    def test_wildcard_import(self, parser):
+        result = parser.parse("a.py", "from a import *\n")
+        [ref] = result.refs
+        assert ref.raw_name == "a"
+        assert ref.imported_name == "*"
+        assert ref.head is None
 
     def test_multiple_bases_yield_one_ref_each(self, parser):
         result = parser.parse("a.py", "class C(A, B):\n    pass\n")
@@ -236,3 +267,23 @@ class TestDefensiveBranches:
 
     def test_process_reference_match_with_no_recognized_capture(self, parser):
         assert parser.process_reference_match({}, b"") is None
+
+
+class TestBuiltinDropping:
+    def test_builtin_calls_dropped(self, parser):
+        result = parser.parse("a.py", "def f():\n    len(items)\n    isinstance(x, str)\n")
+        assert all(r.ref_kind != RefKind.CALLS for r in result.refs)
+
+    def test_builtin_base_class_dropped(self, parser):
+        result = parser.parse("a.py", "class C(Exception):\n    pass\n")
+        assert all(r.ref_kind != RefKind.INHERITS for r in result.refs)
+
+    def test_local_definition_shadows_builtin(self, parser):
+        result = parser.parse("a.py", "def open(path):\n    pass\ndef f():\n    open(path)\n")
+        calls = [r for r in result.refs if r.ref_kind == RefKind.CALLS]
+        assert any(r.raw_name == "open" for r in calls)
+
+    def test_import_shadows_builtin(self, parser):
+        result = parser.parse("a.py", "from .compat import filter\ndef f():\n    filter(items)\n")
+        calls = [r for r in result.refs if r.ref_kind == RefKind.CALLS]
+        assert any(r.raw_name == "filter" for r in calls)

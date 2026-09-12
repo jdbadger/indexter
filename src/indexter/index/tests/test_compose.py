@@ -44,7 +44,7 @@ class TestFormatVersion:
     def test_pinned(self):
         # Bump this alongside a real composer format change -- and
         # regenerate test_compose_snapshots.py's values.
-        assert INDEX_FORMAT_VERSION == 1
+        assert INDEX_FORMAT_VERSION == 2
 
 
 class TestIdentifierSplitting:

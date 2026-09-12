@@ -25,7 +25,7 @@ from indexter.parse.models import Kind, ParsedNode, ParseResult
 if TYPE_CHECKING:
     from indexter.index.embed import TokenizerLike
 
-INDEX_FORMAT_VERSION = 1
+INDEX_FORMAT_VERSION = 2
 
 _CONTAINER_KINDS = frozenset({Kind.CLASS, Kind.STRUCT, Kind.TRAIT, Kind.INTERFACE, Kind.ENUM})
 _LEAF_CODE_KINDS = frozenset({Kind.FUNCTION, Kind.METHOD, Kind.CONSTANT, Kind.TYPE_ALIAS})

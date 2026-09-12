@@ -43,6 +43,11 @@ def conn(db_path, repo, settings):
         yield conn
 
 
+def pending(conn) -> str | None:
+    row = conn.execute("SELECT value FROM project_metadata WHERE key = 'resolution_pending'").fetchone()
+    return row["value"] if row is not None else None
+
+
 class TestWriteFile:
     def test_new_file_writes_every_column(self, conn, settings, tokenizer):
         sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
@@ -144,6 +149,7 @@ class TestWriteFile:
         sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
         before_files = conn.execute("SELECT * FROM files").fetchall()
         before_nodes = conn.execute("SELECT * FROM nodes ORDER BY id").fetchall()
+        conn.execute("UPDATE project_metadata SET value = '0' WHERE key = 'resolution_pending'")
 
         parse_result = parse_file("a.py", SRC_V1_CHANGED_DOCSTRING, settings=settings)
         composed = compose_file("a.py", SRC_V1_CHANGED_DOCSTRING, parse_result, tokenizer, settings.embed_max_tokens)
@@ -161,6 +167,24 @@ class TestWriteFile:
         after_nodes = conn.execute("SELECT * FROM nodes ORDER BY id").fetchall()
         assert [dict(r) for r in after_files] == [dict(r) for r in before_files]
         assert [dict(r) for r in after_nodes] == [dict(r) for r in before_nodes]
+        assert pending(conn) == "0"
+
+    def test_sets_resolution_pending(self, conn, settings, tokenizer):
+        assert pending(conn) is None
+        sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
+        assert pending(conn) == "1"
+
+    def test_writes_imported_name_and_for_type(self, conn, settings, tokenizer):
+        sync_source(conn, "a.py", "from collections import OrderedDict\n", settings, tokenizer)
+        ref = conn.execute("SELECT * FROM refs WHERE ref_kind = 'imports'").fetchone()
+        assert ref["raw_name"] == "collections"
+        assert ref["imported_name"] == "OrderedDict"
+        assert ref["head"] == "OrderedDict"
+
+    def test_writes_for_type_on_rust_inherits(self, conn, settings, tokenizer):
+        sync_source(conn, "a.rs", "struct Foo;\nimpl Display for Foo {}\n", settings, tokenizer)
+        ref = conn.execute("SELECT * FROM refs WHERE ref_kind = 'inherits'").fetchone()
+        assert ref["for_type"] == "Foo"
 
 
 class TestRemoveFile:
@@ -169,6 +193,7 @@ class TestRemoveFile:
 
         sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
         before = conn.execute("SELECT * FROM files WHERE path = ?", ("a.py",)).fetchone()
+        conn.execute("UPDATE project_metadata SET value = '0' WHERE key = 'resolution_pending'")
 
         def boom(*args, **kwargs):
             raise RuntimeError("boom")
@@ -179,6 +204,15 @@ class TestRemoveFile:
 
         after = conn.execute("SELECT * FROM files WHERE path = ?", ("a.py",)).fetchone()
         assert dict(after) == dict(before)
+        assert pending(conn) == "0"
+
+    def test_sets_resolution_pending(self, conn, settings, tokenizer):
+        sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
+        conn.execute("UPDATE project_metadata SET value = '0' WHERE key = 'resolution_pending'")
+
+        remove_file(conn, "a.py")
+
+        assert pending(conn) == "1"
 
     def test_leaves_nothing_behind(self, conn, settings, tokenizer):
         sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
@@ -215,6 +249,7 @@ class TestRecordUnreadable:
 
         sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
         before = conn.execute("SELECT * FROM files WHERE path = ?", ("a.py",)).fetchone()
+        conn.execute("UPDATE project_metadata SET value = '0' WHERE key = 'resolution_pending'")
 
         def boom(*args, **kwargs):
             raise RuntimeError("boom")
@@ -226,6 +261,7 @@ class TestRecordUnreadable:
 
         after = conn.execute("SELECT * FROM files WHERE path = ?", ("a.py",)).fetchone()
         assert dict(after) == dict(before)
+        assert pending(conn) == "0"
 
     def test_new_unreadable_file(self, conn):
         walked = make_walked("bad.bin", "\xff\xfe")
@@ -236,6 +272,12 @@ class TestRecordUnreadable:
         assert file_row["content_hash"] == ""
         assert file_row["node_count"] == 0
         assert file_row["errors"] == "boom"
+
+    def test_sets_resolution_pending(self, conn):
+        walked = make_walked("bad.bin", "\xff\xfe")
+        record_unreadable(conn, walked, "boom")
+
+        assert pending(conn) == "1"
 
 
 class TestTouchFile:
@@ -252,3 +294,12 @@ class TestTouchFile:
         assert after["content_hash"] == before["content_hash"]
         assert after["indexed_at"] == before["indexed_at"]
         assert after["node_count"] == before["node_count"]
+
+    def test_does_not_set_resolution_pending(self, conn, settings, tokenizer):
+        sync_source(conn, "a.py", SRC_V1, settings, tokenizer)
+        conn.execute("UPDATE project_metadata SET value = '0' WHERE key = 'resolution_pending'")
+
+        walked = make_walked("a.py", SRC_V1)
+        touch_file(conn, walked)
+
+        assert pending(conn) == "0"

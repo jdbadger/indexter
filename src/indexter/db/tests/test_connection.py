@@ -81,8 +81,18 @@ class TestRoundTrip:
         assert node_row["parent_id"] is None
         assert ref_row["resolved_target_id"] is None
         assert ref_row["candidates"] == '["x", "y"]'
+        assert ref_row["imported_name"] is None
+        assert ref_row["for_type"] is None
         assert edge_row["line"] is None
         assert edge_row["target"] == "a.py::Bar#class"
+
+    def test_ref_imported_name_and_for_type_round_trip(self, db_path, repo, settings):
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            insert_ref(conn, "a.py::Foo#class", imported_name="thing", for_type="Foo")
+            ref_row = conn.execute("SELECT * FROM refs WHERE from_node_id = 'a.py::Foo#class'").fetchone()
+
+        assert ref_row["imported_name"] == "thing"
+        assert ref_row["for_type"] == "Foo"
 
     def test_node_id_uniqueness(self, db_path, repo, settings):
         with open_db(db_path, repo=repo, settings=settings) as conn:
@@ -300,7 +310,7 @@ class TestMetadata:
         assert metadata["repo_path"] == str(repo.resolve())
         assert metadata["model"] == settings.embedding_model
         assert metadata["dim"] == str(settings.embedding_dim)
-        assert metadata["schema_version"] == "1"
+        assert metadata["schema_version"] == "2"
 
     def test_version_mismatch_raises_and_leaves_file_untouched(self, db_path, repo, settings):
         with open_db(db_path, repo=repo, settings=settings):

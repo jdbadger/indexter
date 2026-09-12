@@ -165,6 +165,55 @@ class TestDefensiveBranches:
         node = next(n for n in result.nodes if n.name == "f")
         assert node.docstring is None
 
+    def test_group_item_binding_use_as_clause_missing_fields(self):
+        from indexter.parse.rust import _group_item_binding
+
+        class FakeNode:
+            type = "use_as_clause"
+
+            def child_by_field_name(self, name):
+                return None
+
+        assert _group_item_binding(FakeNode(), "std") is None
+
+    def test_group_item_binding_unrecognized_inner_type(self):
+        from indexter.parse.rust import _group_item_binding
+
+        class FakeItem:
+            type = "scoped_use_list"  # a nested group -- not supported
+
+        assert _group_item_binding(FakeItem(), "std") is None
+
+    def test_use_wildcard_with_no_children(self, parser):
+        class FakeNode:
+            type = "use_wildcard"
+            child_count = 0
+            children = []
+            start_byte = 0
+            start_point = (0, 0)
+
+        ref = parser.process_reference_match({"use_wildcard": [FakeNode()]}, b"")
+        assert ref.raw_name == ""
+
+    def test_use_aliased_missing_fields_yields_no_ref(self, parser):
+        class FakeNode:
+            type = "use_as_clause"
+
+            def child_by_field_name(self, name):
+                return None
+
+        assert parser.process_reference_match({"use_aliased": [FakeNode()]}, b"") is None
+
+    def test_use_group_item_with_unrecognized_binding_yields_no_ref(self, parser):
+        class FakePrefix:
+            text = b"std"
+
+        class FakeItem:
+            type = "scoped_use_list"  # a nested group -- not supported
+
+        match = {"use_group_item": [FakeItem()], "use_group_prefix": [FakePrefix()]}
+        assert parser.process_reference_match(match, b"") is None
+
 
 class TestReferences:
     def test_self_field_chain_head(self, parser):
@@ -183,25 +232,52 @@ class TestReferences:
         result = parser.parse("a.rs", "use std::fmt;\n")
         [ref] = result.refs
         assert ref.ref_kind == RefKind.IMPORTS
-        assert ref.raw_name == "std::fmt"
-        assert ref.head == "std"
+        assert ref.raw_name == "std"
+        assert ref.imported_name == "fmt"
+        assert ref.head == "fmt"
 
     def test_use_crate_path_head(self, parser):
         result = parser.parse("a.rs", "use crate::helpers::assist;\n")
         [ref] = result.refs
-        assert ref.raw_name == "crate::helpers::assist"
-        assert ref.head == "crate"
+        assert ref.raw_name == "crate::helpers"
+        assert ref.imported_name == "assist"
+        assert ref.head == "assist"
+
+    def test_use_single_segment_has_no_imported_name(self, parser):
+        result = parser.parse("a.rs", "use serde;\n")
+        [ref] = result.refs
+        assert ref.raw_name == "serde"
+        assert ref.imported_name is None
+        assert ref.head == "serde"
+
+    def test_use_aliased_yields_alias_head(self, parser):
+        result = parser.parse("a.rs", "use std::collections::HashMap as Map;\n")
+        [ref] = result.refs
+        assert ref.raw_name == "std::collections"
+        assert ref.imported_name == "HashMap"
+        assert ref.head == "Map"
+
+    def test_use_wildcard(self, parser):
+        result = parser.parse("a.rs", "use std::collections::*;\n")
+        [ref] = result.refs
+        assert ref.raw_name == "std::collections"
+        assert ref.imported_name == "*"
+        assert ref.head is None
 
     def test_braced_use_list_yields_one_ref_per_item(self, parser):
-        result = parser.parse("a.rs", "use std::{io, fmt::Display};\n")
-        raw_names = {r.raw_name for r in result.refs}
-        assert raw_names == {"std::io", "std::fmt::Display"}
+        result = parser.parse("a.rs", "use std::{io, fmt::Display as Show};\n")
+        refs = {r.imported_name: r for r in result.refs}
+        assert refs["io"].raw_name == "std"
+        assert refs["io"].head == "io"
+        assert refs["Display"].raw_name == "std::fmt"
+        assert refs["Display"].head == "Show"
 
     def test_trait_impl_yields_inherits(self, parser):
         result = parser.parse("a.rs", "struct Foo;\nimpl Display for Foo {}\n")
         [ref] = [r for r in result.refs if r.ref_kind == RefKind.INHERITS]
         assert ref.raw_name == "Display"
         assert ref.head == "Display"
+        assert ref.for_type == "Foo"
 
     def test_inherent_impl_yields_no_inherits(self, parser):
         result = parser.parse("a.rs", "struct Foo;\nimpl Foo { fn new() -> Foo { Foo } }\n")
@@ -213,3 +289,10 @@ class TestReferences:
         node_ids = {n.id for n in result.nodes}
         assert result.refs
         assert all(r.from_node_id in node_ids for r in result.refs)
+
+
+class TestBuiltinDropping:
+    def test_prelude_constructors_dropped(self, parser):
+        content = "fn f() {\n    Some(1);\n    Vec::new();\n}\n"
+        result = parser.parse("a.rs", content)
+        assert all(r.ref_kind != RefKind.CALLS for r in result.refs)

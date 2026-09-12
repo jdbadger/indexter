@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Literal
 
 from indexter.db.connection import SchemaVersionMismatch, delete_database_files, open_db
 from indexter.index.compose import INDEX_FORMAT_VERSION, compose_file
+from indexter.index.graph import ResolveReport, resolution_due, resolve_repo
 from indexter.parse.base import parse_file
 from indexter.parse.models import Kind, ParseResult
 from indexter.paths import db_path as resolve_db_path
@@ -36,6 +37,21 @@ if TYPE_CHECKING:
     from indexter.walk import WalkedFile
 
 _FINGERPRINT_KEY = "index_fingerprint"
+_RESOLUTION_PENDING_KEY = "resolution_pending"
+
+
+def _mark_resolution_pending(conn: sqlite3.Connection, now: float) -> None:
+    """Flag that resolution must run before the next sync completes.
+
+    Called inside every structural write's own transaction, so an
+    interruption after the write but before resolution leaves the mark set
+    for the next sync to pick up (design.md decision 3).
+    """
+    conn.execute(
+        "INSERT INTO project_metadata (key, value, updated_at) VALUES (?, '1', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at",
+        (_RESOLUTION_PENDING_KEY, now),
+    )
 
 
 def _delete_nodes(conn: sqlite3.Connection, rowids: list[int]) -> None:
@@ -175,10 +191,21 @@ def write_file(
 
         for ref in parse_result.refs:
             conn.execute(
-                "INSERT INTO refs (from_node_id, raw_name, head, ref_kind, line, col, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'unresolved')",
-                (ref.from_node_id, ref.raw_name, ref.head, ref.ref_kind.value, ref.line, ref.col),
+                "INSERT INTO refs (from_node_id, raw_name, head, imported_name, for_type, ref_kind, line, col, "
+                "status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unresolved')",
+                (
+                    ref.from_node_id,
+                    ref.raw_name,
+                    ref.head,
+                    ref.imported_name,
+                    ref.for_type,
+                    ref.ref_kind.value,
+                    ref.line,
+                    ref.col,
+                ),
             )
+
+        _mark_resolution_pending(conn, now)
     except BaseException:
         conn.execute("ROLLBACK")
         raise
@@ -203,6 +230,7 @@ def remove_file(conn: sqlite3.Connection, path: str) -> int:
         _delete_refs_from(conn, [row["id"] for row in rows])
         _delete_nodes(conn, [row["rowid"] for row in rows])
         conn.execute("DELETE FROM files WHERE path = ?", (path,))
+        _mark_resolution_pending(conn, time.time())
     except BaseException:
         conn.execute("ROLLBACK")
         raise
@@ -232,6 +260,7 @@ def record_unreadable(conn: sqlite3.Connection, walked: WalkedFile, error: str) 
             "indexed_at = excluded.indexed_at, node_count = 0, errors = excluded.errors",
             (walked.path, walked.size, walked.mtime, now, error),
         )
+        _mark_resolution_pending(conn, now)
     except BaseException:
         conn.execute("ROLLBACK")
         raise
@@ -296,6 +325,7 @@ class SyncReport:
     texts_embedded: int
     errors: dict[str, str]
     elapsed_seconds: float
+    resolution: ResolveReport | None = None
 
 
 def _embedding_backlog(conn: sqlite3.Connection, embedder: Embedder, settings: Settings) -> int:
@@ -304,7 +334,9 @@ def _embedding_backlog(conn: sqlite3.Connection, embedder: Embedder, settings: S
     (decision 1) -- a no-op sync must not load a tokenizer or a model.
     """
     rows = conn.execute(
-        "SELECT rowid, kind, language, embed_text FROM nodes WHERE rowid NOT IN (SELECT node_rowid FROM vectors)"
+        "SELECT rowid, kind, language, embed_text FROM nodes "
+        "WHERE rowid NOT IN (SELECT node_rowid FROM vectors) AND kind != ?",
+        (Kind.EXTERNAL_MODULE.value,),
     ).fetchall()
     if not rows:
         return 0
@@ -337,9 +369,10 @@ def _embedding_backlog(conn: sqlite3.Connection, embedder: Embedder, settings: S
 
 def sync_repo(conn: sqlite3.Connection, repo_path: str | Path, settings: Settings, embedder: Embedder) -> SyncReport:
     """Sync a repository's database with its current files: pass one (walk,
-    classify, write structural changes) then pass two (the embedding
-    backlog) -- see design.md decision 1. Nothing is read, parsed, or
-    embedded unless something on disk actually looks different.
+    classify, write structural changes), resolution, then pass two (the
+    embedding backlog) -- see design.md decision 1 and decision 2. Nothing
+    is read, parsed, resolved, or embedded unless something on disk, or the
+    resolver itself, actually looks different.
     """
     start = time.perf_counter()
 
@@ -401,6 +434,8 @@ def sync_repo(conn: sqlite3.Connection, repo_path: str | Path, settings: Setting
             removed.append(path)
             nodes_deleted += remove_file(conn, path)
 
+    resolution = resolve_repo(conn) if resolution_due(conn) else None
+
     texts_embedded = _embedding_backlog(conn, embedder, settings)
 
     _write_fingerprint(conn, current_fingerprint, time.time())
@@ -416,6 +451,7 @@ def sync_repo(conn: sqlite3.Connection, repo_path: str | Path, settings: Setting
         texts_embedded=texts_embedded,
         errors=errors,
         elapsed_seconds=time.perf_counter() - start,
+        resolution=resolution,
     )
 
 

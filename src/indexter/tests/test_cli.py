@@ -239,6 +239,25 @@ class TestInit:
         assert "already initialized" in result.output
         assert "unchanged=1" in result.output
 
+    def test_first_init_prints_resolution_line(self, repo):
+        write(
+            repo,
+            "a.py",
+            "import os\n\n\ndef helper():\n    return 1\n\n\ndef main():\n    return helper()\n",
+        )
+        result = runner.invoke(app, ["init", str(repo)])
+        assert result.exit_code == 0
+        assert "resolution: edges[" in result.output
+        assert "calls[" in result.output
+        assert "external_modules=" in result.output
+
+    def test_noop_init_omits_resolution_line(self, repo):
+        write(repo, "a.py", SRC_A)
+        runner.invoke(app, ["init", str(repo)])
+        result = runner.invoke(app, ["init", str(repo)])
+        assert result.exit_code == 0
+        assert "resolution:" not in result.output
+
     def test_on_non_directory_exits_nonzero_and_creates_nothing(self, tmp_path):
         not_a_dir = tmp_path / "not-a-dir.txt"
         not_a_dir.write_text("hello")

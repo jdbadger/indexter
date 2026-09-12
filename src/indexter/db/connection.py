@@ -23,7 +23,7 @@ from pathlib import Path
 from indexter.config import Settings
 from indexter.paths import canonical_repo_path, ensure_dir
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class IndexterDBError(Exception):

@@ -27,7 +27,8 @@ def render_result(result: ParseResult) -> str:
         for n in sorted(result.nodes, key=lambda n: (n.start_byte, n.end_byte, n.kind.value, n.name))
     ]
     ref_lines = [
-        f"{r.ref_kind.value} raw={r.raw_name!r} head={r.head!r} line={r.line} col={r.col}"
+        f"{r.ref_kind.value} raw={r.raw_name!r} head={r.head!r} imported={r.imported_name!r} "
+        f"for_type={r.for_type!r} line={r.line} col={r.col}"
         for r in sorted(result.refs, key=lambda r: (r.line, r.col, r.raw_name))
     ]
     return "NODES:\n" + "\n".join(node_lines) + "\n\nREFS:\n" + "\n".join(ref_lines)

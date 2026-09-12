@@ -3,7 +3,7 @@ from tree_sitter import Node
 
 from indexter.parse import base as base_module
 from indexter.parse.base import BaseLanguageParser, head_identifier, parse_file, register_parser
-from indexter.parse.models import Kind, ParsedNode, ParseResult, RawRef, RefKind
+from indexter.parse.models import Kind, ParsedNode, ParsedRef, ParseResult, RawRef, RefKind
 
 
 def _first_call_function(lang: str, src: bytes) -> Node:
@@ -331,3 +331,55 @@ class TestParseResultType:
     def test_parse_file_returns_parse_result(self):
         result = parse_file("a.zzz", "text\n")
         assert isinstance(result, ParseResult)
+
+
+class TestDropUnshadowedBuiltins:
+    def _ref(self, head, ref_kind=RefKind.CALLS, raw_name="x", imported_name=None):
+        return ParsedRef(
+            from_node_id="a.py::f#function",
+            raw_name=raw_name,
+            head=head,
+            ref_kind=ref_kind,
+            line=1,
+            col=1,
+            imported_name=imported_name,
+        )
+
+    def test_unknown_language_is_a_no_op(self):
+        refs = [self._ref("len")]
+        assert base_module._drop_unshadowed_builtins("cobol", [], refs) == refs
+
+    def test_builtin_call_dropped(self):
+        refs = [self._ref("len")]
+        assert base_module._drop_unshadowed_builtins("python", [], refs) == []
+
+    def test_non_builtin_call_kept(self):
+        refs = [self._ref("helper")]
+        assert base_module._drop_unshadowed_builtins("python", [], refs) == refs
+
+    def test_ref_with_no_head_kept(self):
+        refs = [self._ref(None)]
+        assert base_module._drop_unshadowed_builtins("python", [], refs) == refs
+
+    def test_import_never_dropped(self):
+        refs = [self._ref("len", ref_kind=RefKind.IMPORTS)]
+        assert base_module._drop_unshadowed_builtins("python", [], refs) == refs
+
+    def test_builtin_kept_when_file_defines_it(self):
+        node = ParsedNode(
+            kind=Kind.FUNCTION,
+            name="open",
+            scope_path=(),
+            language="python",
+            start_line=1,
+            end_line=1,
+            start_byte=0,
+            end_byte=1,
+        )
+        refs = [self._ref("open")]
+        assert base_module._drop_unshadowed_builtins("python", [node], refs) == refs
+
+    def test_builtin_kept_when_imported(self):
+        refs = [self._ref("filter", ref_kind=RefKind.IMPORTS, imported_name="filter"), self._ref("filter")]
+        result = base_module._drop_unshadowed_builtins("python", [], refs)
+        assert result == refs

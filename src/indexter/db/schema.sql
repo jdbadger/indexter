@@ -52,6 +52,8 @@ CREATE TABLE refs (
     from_node_id        TEXT NOT NULL,
     raw_name            TEXT NOT NULL,
     head                TEXT,
+    imported_name       TEXT,
+    for_type            TEXT,
     ref_kind            TEXT NOT NULL,
     line                INTEGER,
     col                 INTEGER,

@@ -41,14 +41,17 @@ _DEFINITIONS_QUERY = """
 
 _REFERENCES_QUERY = """
 (import_statement name: (dotted_name) @plain_import)
-(import_statement name: (aliased_import name: (dotted_name) @plain_import))
+(import_statement name: (aliased_import name: (dotted_name) @aliased_module alias: (identifier) @aliased_alias))
 
 (import_from_statement
     module_name: (_) @from_module
     name: (dotted_name) @from_name)
 (import_from_statement
     module_name: (_) @from_module
-    name: (aliased_import name: (dotted_name) @from_name))
+    name: (aliased_import name: (dotted_name) @from_aliased_name alias: (identifier) @from_alias))
+(import_from_statement
+    module_name: (_) @from_module_wc
+    (wildcard_import) @from_wildcard)
 
 (call function: (identifier) @callee) @call
 (call function: (attribute) @callee) @call
@@ -150,22 +153,42 @@ class PythonParser(BaseLanguageParser):
             )
         if "plain_import" in match:
             node = match["plain_import"][0]
-            return self._import_ref(node, node_text(node))
+            return self._import_ref(node, node_text(node), head=_first_segment(node))
+        if "aliased_module" in match:
+            module = match["aliased_module"][0]
+            alias = match["aliased_alias"][0]
+            return self._import_ref(module, node_text(module), head=node_text(alias))
         if "from_name" in match:
             module = match["from_module"][0]
             name = match["from_name"][0]
-            raw_name = _join_module_name(node_text(module), node_text(name))
-            return self._import_ref(name, raw_name)
+            imported_name = node_text(name)
+            return self._import_ref(
+                name, node_text(module), head=imported_name, imported_name=imported_name
+            )
+        if "from_aliased_name" in match:
+            module = match["from_module"][0]
+            name = match["from_aliased_name"][0]
+            alias = match["from_alias"][0]
+            return self._import_ref(
+                alias, node_text(module), head=node_text(alias), imported_name=node_text(name)
+            )
+        if "from_wildcard" in match:
+            module = match["from_module_wc"][0]
+            wildcard = match["from_wildcard"][0]
+            return self._import_ref(wildcard, node_text(module), head=None, imported_name="*")
         return None
 
-    def _import_ref(self, node: Node, raw_name: str) -> RawRef:
+    def _import_ref(
+        self, node: Node, raw_name: str, *, head: str | None, imported_name: str | None = None
+    ) -> RawRef:
         return RawRef(
             origin_byte=node.start_byte,
             raw_name=raw_name,
-            head=head_identifier(node),
+            head=head,
             ref_kind=RefKind.IMPORTS,
             line=node.start_point[0] + 1,
             col=node.start_point[1] + 1,
+            imported_name=imported_name,
         )
 
     def _kind_for(self, def_node: Node) -> Kind:
@@ -212,14 +235,10 @@ class PythonParser(BaseLanguageParser):
         return source[node.start_byte : end].decode().rstrip().rstrip(":")
 
 
-def _join_module_name(module_text: str, name_text: str) -> str:
-    """Join a from-import's module and name text, without doubling a dot
-    when the module is purely relative markers (`.` / `..`), which already
-    end in a dot -- `.` + `sibling` must stay `.sibling`, not `..sibling`.
-    """
-    if module_text.endswith("."):
-        return f"{module_text}{name_text}"
-    return f"{module_text}.{name_text}"
+def _first_segment(dotted_name: Node) -> str | None:
+    """The leftmost identifier of a `dotted_name` node (`os.path` -> `os`)."""
+    first = dotted_name.children[0] if dotted_name.child_count else None
+    return node_text(first) if first is not None and first.type == "identifier" else None
 
 
 def _strip_docstring(text: str) -> str:
