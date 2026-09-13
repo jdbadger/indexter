@@ -21,3 +21,7 @@ htmlcov/
 *.db
 *.db-wal
 *.db-shm
+
+# Retrieval eval cache, if --cache-dir points inside the repository
+# (defaults to ~/.cache/indexter-eval, outside it)
+eval-cache/

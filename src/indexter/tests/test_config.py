@@ -39,6 +39,11 @@ class TestLayering:
         assert settings.embed_batch_size == 64
         assert settings.embedding_dim == Settings().embedding_dim
 
+    def test_repo_overrides_search_max_chars(self, global_config_dir, repo):
+        write(repo / "indexter.toml", "search_max_chars = 5000\n")
+        settings = load_settings(repo=repo)
+        assert settings.search_max_chars == 5000
+
     def test_explicit_args_win(self, global_config_dir, repo):
         write(global_config_dir / "config.toml", "embed_batch_size = 16\n")
         write(repo / "indexter.toml", "embed_batch_size = 32\n")
@@ -96,6 +101,9 @@ class TestDefaults:
 
     def test_embed_max_tokens_defaults_to_256(self):
         assert Settings().embed_max_tokens == 256
+
+    def test_search_max_chars_defaults_to_20000(self):
+        assert Settings().search_max_chars == 20_000
 
 
 class TestValidation:

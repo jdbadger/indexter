@@ -251,6 +251,11 @@ def register_parser(extensions: list[str], parser_cls: type[BaseLanguageParser])
         _EXTENSION_REGISTRY[ext.lower()] = parser_cls
 
 
+def registered_languages() -> frozenset[str]:
+    """Every language a registered parser emits (the chunk fallback has none)."""
+    return frozenset(cls.language for cls in _EXTENSION_REGISTRY.values())
+
+
 def _get_instance(parser_cls: type[BaseLanguageParser]) -> BaseLanguageParser:
     instance = _instances.get(parser_cls)
     if instance is None:

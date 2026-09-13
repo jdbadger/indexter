@@ -30,12 +30,12 @@ The system SHALL expose one console command, `indexter`, backed by a command gro
 
 ### Requirement: Initializing a repository index
 
-`indexter init [PATH]` SHALL index the repository at `PATH` (default: the current directory), resolving settings for that repository, creating its database when absent, and synchronizing it. When the database already exists it SHALL synchronize it and state that the repository was already initialized. It SHALL print a summary of the sync and any per-file errors, and SHALL exit zero when the index was built even if some files had parse errors.
+`indexter init [PATH]` SHALL index the repository at `PATH` (default: the current directory), resolving settings for that repository, creating its database when absent, and synchronizing it. When the database already exists it SHALL synchronize it and state that the repository was already initialized. It SHALL print a summary of the sync — including, when resolution ran, edge counts by kind and call-reference outcomes by status and confidence — and any per-file errors, and SHALL exit zero when the index was built even if some files had parse errors.
 
 #### Scenario: First index
 
 - **WHEN** `indexter init <repo>` is run for a repository with no database
-- **THEN** a database is created at the repository's derived path, every eligible file is indexed, a summary of files, nodes, refs, and embeddings is printed, and the process exits zero
+- **THEN** a database is created at the repository's derived path, every eligible file is indexed and resolved, a summary of files, nodes, refs, embeddings, edges, and call-reference outcomes is printed, and the process exits zero
 
 #### Scenario: Already initialized
 
@@ -51,6 +51,11 @@ The system SHALL expose one console command, `indexter`, backed by a command gro
 
 - **WHEN** a repository contains a file that fails to parse cleanly
 - **THEN** the index is built, the file and its errors are listed in the output, and the process exits zero
+
+#### Scenario: Nothing to resolve
+
+- **WHEN** `indexter init <repo>` is run on an already initialized repository with no changes
+- **THEN** the summary omits resolution results rather than printing zeros
 
 ### Requirement: Reindexing a repository
 

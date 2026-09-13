@@ -35,6 +35,7 @@ class Settings(BaseModel):
     max_file_size_bytes: int = 1_000_000
     search_limit: int = 10
     snippet_max_lines: int = 40
+    search_max_chars: int = 20_000
     chunk_size: int = 1000
     chunk_overlap: int = 100
 
