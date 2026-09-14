@@ -26,7 +26,7 @@ tables, headings, and so on — rather than indexed as flat text.
 |---|---|---|
 | Python | `.py` | Functions, methods, classes, module-level constants, docstrings |
 | JavaScript | `.js`, `.jsx` | Functions, methods, classes, module-level constants, JSDoc comments |
-| TypeScript | `.ts` | Functions, methods, classes, interfaces, type aliases, enums, module-level constants |
+| TypeScript | `.ts` | Functions, methods, classes, interfaces, type aliases, enums, module-level constants, TSDoc comments |
 | Rust | `.rs` | Functions, methods, structs, traits, enums, type aliases, constants, doc comments (`///`, `//!`) |
 | Markdown | `.md` | Sections, one per heading, named by their full heading path |
 | HTML | `.html`, `.htm` | Sections: headings (`h1`–`h6`), tables and lists, scoped to their enclosing container |

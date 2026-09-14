@@ -117,6 +117,26 @@ class TestConstantsAndSignatures:
         assert greet.signature == "greet(name: string): string"
 
 
+class TestDocs:
+    def test_tsdoc_comment_is_parsed(self, parser):
+        content = "/**\n * Does the thing.\n * @param x input\n */\nfunction f(x: number) {}\n"
+        result = parser.parse("a.ts", content)
+        node = next(n for n in result.nodes if n.name == "f")
+        assert node.docstring == "Does the thing.\n@param x input"
+
+    def test_tsdoc_on_an_interface(self, parser):
+        content = "/** Describes a greeter. */\ninterface Greeter {\n  greet(): string;\n}\n"
+        result = parser.parse("a.ts", content)
+        node = next(n for n in result.nodes if n.name == "Greeter")
+        assert node.docstring == "Describes a greeter."
+
+    def test_non_tsdoc_comment_is_ignored(self, parser):
+        content = "// just a regular comment\nfunction f() {}\n"
+        result = parser.parse("a.ts", content)
+        node = next(n for n in result.nodes if n.name == "f")
+        assert node.docstring is None
+
+
 class TestDefensiveBranches:
     """Match-handler fallbacks real tree-sitter queries never actually
     produce -- exercised directly since every capture group our queries
@@ -133,6 +153,12 @@ class TestDefensiveBranches:
 
     def test_process_reference_match_with_no_recognized_capture(self, parser):
         assert parser.process_reference_match({}, b"") is None
+
+    def test_jsdoc_with_no_parent(self, parser):
+        class FakeNode:
+            parent = None
+
+        assert parser._jsdoc(FakeNode(), b"") is None
 
     def test_nested_function_inside_method_finds_enclosing_construct(self, parser):
         # Exercises _nearest_enclosing_type's "found something" branch --

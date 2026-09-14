@@ -1,6 +1,6 @@
 """TypeScript parser: functions, methods, classes, interfaces, type aliases,
-enums, and constants as nodes; calls, imports, `extends`, and `implements`
-as references.
+enums, and constants as nodes, each with its TSDoc comment where one
+precedes it; calls, imports, `extends`, and `implements` as references.
 
 Lifted from `~/dev/indexter`'s TypeScript parser. Export-wrapped
 declarations need no special duplicate suppression here -- unlike the old
@@ -8,6 +8,12 @@ code, there is no competing `(export_statement) @def` pattern (exports
 aren't nodes), and `export class Foo {}` matches `class_declaration`
 directly regardless of the `export`/`export default` wrapper, one node
 either way.
+
+TSDoc comments are just JSDoc's `/** ... */` block-comment syntax with
+richer tag conventions; tree-sitter-typescript places them as a leading
+sibling exactly like tree-sitter-javascript does, so the extraction logic
+is identical to `javascript.py`'s (duplicated rather than imported, to keep
+each language parser self-contained).
 """
 
 from __future__ import annotations
@@ -187,6 +193,7 @@ class TypeScriptParser(BaseLanguageParser):
             start_byte=node.start_byte,
             end_byte=node.end_byte,
             signature=self._signature(actual_def, source_bytes),
+            docstring=self._jsdoc(node, source_bytes),
         )
 
     def process_reference_match(self, match: dict[str, list[Node]], source_bytes: bytes) -> RawRef | None:
@@ -313,3 +320,31 @@ class TypeScriptParser(BaseLanguageParser):
         body = node.child_by_field_name("body")
         end = body.start_byte if body else node.end_byte
         return source[node.start_byte : end].decode().strip()
+
+    @staticmethod
+    def _jsdoc(node: Node, source_bytes: bytes) -> str | None:
+        parent = node.parent
+        if parent is None:
+            return None
+        for i, child in enumerate(parent.children):
+            if child == node:
+                if i > 0:
+                    prev = parent.children[i - 1]
+                    if prev.type == "comment" and prev.text:
+                        return _parse_jsdoc(node_text(prev))
+                break
+        return None
+
+
+def _parse_jsdoc(comment: str) -> str | None:
+    if not (comment.startswith("/**") and comment.endswith("*/")):
+        return None
+    content = comment[3:-2]
+    lines = []
+    for line in content.split("\n"):
+        cleaned = line.strip()
+        if cleaned.startswith("*"):
+            cleaned = cleaned[1:].strip()
+        if cleaned:
+            lines.append(cleaned)
+    return "\n".join(lines) if lines else None
