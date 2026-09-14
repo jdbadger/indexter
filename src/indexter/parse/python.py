@@ -162,25 +162,19 @@ class PythonParser(BaseLanguageParser):
             module = match["from_module"][0]
             name = match["from_name"][0]
             imported_name = node_text(name)
-            return self._import_ref(
-                name, node_text(module), head=imported_name, imported_name=imported_name
-            )
+            return self._import_ref(name, node_text(module), head=imported_name, imported_name=imported_name)
         if "from_aliased_name" in match:
             module = match["from_module"][0]
             name = match["from_aliased_name"][0]
             alias = match["from_alias"][0]
-            return self._import_ref(
-                alias, node_text(module), head=node_text(alias), imported_name=node_text(name)
-            )
+            return self._import_ref(alias, node_text(module), head=node_text(alias), imported_name=node_text(name))
         if "from_wildcard" in match:
             module = match["from_module_wc"][0]
             wildcard = match["from_wildcard"][0]
             return self._import_ref(wildcard, node_text(module), head=None, imported_name="*")
         return None
 
-    def _import_ref(
-        self, node: Node, raw_name: str, *, head: str | None, imported_name: str | None = None
-    ) -> RawRef:
+    def _import_ref(self, node: Node, raw_name: str, *, head: str | None, imported_name: str | None = None) -> RawRef:
         return RawRef(
             origin_byte=node.start_byte,
             raw_name=raw_name,

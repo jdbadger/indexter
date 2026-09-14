@@ -18,6 +18,24 @@ from indexter.index.embed import (
 DEFAULT_MODEL = Settings().embedding_model
 
 
+@pytest.fixture
+def stub_tokenizer_download(monkeypatch, tmp_path):
+    """Patch `hf_hub_download` to hand back a real, minimal tokenizer file
+    built locally, so a test can exercise `_load_tokenizer`'s real path with
+    no network access and regardless of what's in the local HF cache.
+    """
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+
+    path = tmp_path / "tokenizer.json"
+    Tokenizer(WordLevel(vocab={"[UNK]": 0}, unk_token="[UNK]")).save(str(path))
+
+    import huggingface_hub
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda *args, **kwargs: str(path))
+    return path
+
+
 def _unpack(vector: bytes) -> tuple[float, ...]:
     n = len(vector) // 4
     return struct.unpack(f"{n}f", vector)
@@ -87,12 +105,12 @@ class TestConstructionIsLazy:
         assert embedder._model is None
         assert embedder._tokenizer is None
 
-    def test_tokenizer_without_model(self):
+    def test_tokenizer_without_model(self, stub_tokenizer_download):
         embedder = SentenceTransformerEmbedder(Settings())
         embedder.tokenizer()
         assert embedder._model is None
 
-    def test_fastembed_tokenizer_without_model(self):
+    def test_fastembed_tokenizer_without_model(self, stub_tokenizer_download):
         embedder = FastEmbedEmbedder(Settings(embedding_backend="fastembed"))
         tokenizer = embedder.tokenizer()
         assert tokenizer is not None
@@ -123,9 +141,7 @@ class TestSentenceTransformerBackend:
         assert calls["constructions"] == 1
 
     def test_output_order_and_count(self, monkeypatch):
-        module, _ = _make_sentence_transformers_stub(
-            dim=2, vectors={"first": [1.0, 0.0], "second": [0.0, 1.0]}
-        )
+        module, _ = _make_sentence_transformers_stub(dim=2, vectors={"first": [1.0, 0.0], "second": [0.0, 1.0]})
         monkeypatch.setitem(sys.modules, "sentence_transformers", module)
         embedder = SentenceTransformerEmbedder(Settings(embedding_dim=2))
 
@@ -294,7 +310,18 @@ def _tokenizer_cached_locally(model_name: str) -> bool:
     return True
 
 
+def _model_cached_locally(model_name: str) -> bool:
+    try:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(model_name, local_files_only=True)
+    except OSError:
+        return False
+    return True
+
+
 TOKENIZER_CACHED = _tokenizer_cached_locally(DEFAULT_MODEL)
+MODEL_CACHED = _model_cached_locally(DEFAULT_MODEL)
 
 
 @pytest.mark.skipif(not TOKENIZER_CACHED, reason=f"{DEFAULT_MODEL} tokenizer is not cached locally")
@@ -308,7 +335,7 @@ class TestRealTokenizer:
         assert len(encoding.ids) > 128
 
 
-@pytest.mark.skipif(not TOKENIZER_CACHED, reason=f"{DEFAULT_MODEL} model is not cached locally")
+@pytest.mark.skipif(not MODEL_CACHED, reason=f"{DEFAULT_MODEL} model is not cached locally")
 class TestRealModel:
     def test_dimension_and_semantic_ordering(self):
         embedder = SentenceTransformerEmbedder(Settings())

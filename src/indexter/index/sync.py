@@ -467,9 +467,7 @@ class IndexResult:
     report: SyncReport
 
 
-def index_repository(
-    repo: str | Path, settings: Settings, embedder: Embedder, *, full: bool = False
-) -> IndexResult:
+def index_repository(repo: str | Path, settings: Settings, embedder: Embedder, *, full: bool = False) -> IndexResult:
     """Resolve a repository's database path, create/open/rebuild it as
     needed, and run `sync_repo` -- the shared body of `indexter init` and
     `indexter reindex` (decision 12).

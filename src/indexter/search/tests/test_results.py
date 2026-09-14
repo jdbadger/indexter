@@ -23,9 +23,20 @@ from indexter.search.types import (
 )
 
 
-def _row(node_id, *, kind="function", qualified_name=None, file_path="src/a.py",
-         start_line=1, end_line=1, start_byte=0, end_byte=10, signature=None,
-         docstring=None, parent_id=None):
+def _row(
+    node_id,
+    *,
+    kind="function",
+    qualified_name=None,
+    file_path="src/a.py",
+    start_line=1,
+    end_line=1,
+    start_byte=0,
+    end_byte=10,
+    signature=None,
+    docstring=None,
+    parent_id=None,
+):
     return NodeRow(
         id=node_id,
         kind=kind,

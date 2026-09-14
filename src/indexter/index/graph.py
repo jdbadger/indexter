@@ -193,8 +193,7 @@ def resolve_repo(conn: sqlite3.Connection) -> ResolveReport:
             )
             if stored_refs.get(ref_id) != new:
                 conn.execute(
-                    "UPDATE refs SET status = ?, resolved_target_id = ?, confidence = ?, candidates = ? "
-                    "WHERE id = ?",
+                    "UPDATE refs SET status = ?, resolved_target_id = ?, confidence = ?, candidates = ? WHERE id = ?",
                     (*new, ref_id),
                 )
 

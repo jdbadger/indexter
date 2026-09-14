@@ -1,0 +1,45 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-toml
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: end-of-file-fixer
+        exclude: ^src/.*/tests/fixtures/
+      - id: trailing-whitespace
+        exclude: ^src/.*/tests/fixtures/
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.13
+    hooks:
+      - id: uv-lock
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.0
+    hooks:
+      - id: check-github-workflows
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check --fix
+        entry: uv run --group dev ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --group dev ruff format
+        language: system
+        types: [python]
+      - id: ty-check
+        name: ty check src/indexter
+        entry: uv run --group dev ty check src/indexter
+        language: system
+        pass_filenames: false
+      - id: pytest-testmon
+        name: pytest --testmon
+        entry: uv run --group test pytest --testmon -p no:xdist --no-cov
+        language: system
+        pass_filenames: false

@@ -270,9 +270,7 @@ class TestFuse:
 
 
 def _node_row(conn, node_id):
-    return conn.execute(
-        "SELECT kind, language, file_path FROM nodes WHERE id = ?", (node_id,)
-    ).fetchone()
+    return conn.execute("SELECT kind, language, file_path FROM nodes WHERE id = ?", (node_id,)).fetchone()
 
 
 class TestVectorCandidates:

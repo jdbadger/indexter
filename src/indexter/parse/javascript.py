@@ -257,9 +257,7 @@ class JavaScriptParser(BaseLanguageParser):
         return None
 
     @staticmethod
-    def _import_ref(
-        node: Node, raw_name: str | None, *, head: str | None, imported_name: str | None = None
-    ) -> RawRef:
+    def _import_ref(node: Node, raw_name: str | None, *, head: str | None, imported_name: str | None = None) -> RawRef:
         return RawRef(
             origin_byte=node.start_byte,
             raw_name=raw_name or "",

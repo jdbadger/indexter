@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "CLI tool and MCP server for enhanced codebase context via a local code graph"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Joe Badger"}
 ]
@@ -12,14 +13,13 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Typing :: Typed",
+    "Topic :: Software Development",
+    "Topic :: Text Processing :: Indexing",
 ]
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -73,7 +73,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-root = "src"
 wheel-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
-source-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__"]
+source-exclude = ["**/tests", "**/tests/**", "**/conftest.py", "**/__pycache__", "scripts/**"]
 
 [tool.pytest.ini_options]
 addopts = ["--pyargs", "--cov=indexter", "--cov-fail-under=95"]
@@ -90,6 +90,9 @@ target-version = "py313"
 # imports, duplicate names) and is never imported by our own code -- it
 # exists to be parsed by tree-sitter, not to be lint-clean Python/JS/etc.
 extend-exclude = ["**/tests/fixtures/**"]
+# Without this, pre-commit's local hooks (which pass explicit file paths)
+# bypass extend-exclude entirely and ruff will happily "fix" the fixtures.
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "S", "B"]

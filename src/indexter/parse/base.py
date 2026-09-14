@@ -214,9 +214,7 @@ class BaseLanguageParser(BaseParser):
                 sink(result)
 
 
-def _drop_unshadowed_builtins(
-    language: str, nodes: list[ParsedNode], refs: list[ParsedRef]
-) -> list[ParsedRef]:
+def _drop_unshadowed_builtins(language: str, nodes: list[ParsedNode], refs: list[ParsedRef]) -> list[ParsedRef]:
     """Drop `calls`/`inherits` refs whose head is a builtin name of
     `language`, unless the file itself defines a node with that name or
     binds it via an import -- see `parse/builtins.py` and design.md
@@ -225,16 +223,8 @@ def _drop_unshadowed_builtins(
     builtins = BUILTINS_BY_LANGUAGE.get(language)
     if not builtins:
         return refs
-    shadowed = {n.name for n in nodes if n.name} | {
-        r.head for r in refs if r.ref_kind == RefKind.IMPORTS and r.head
-    }
-    return [
-        r
-        for r in refs
-        if r.ref_kind == RefKind.IMPORTS
-        or r.head not in builtins
-        or r.head in shadowed
-    ]
+    shadowed = {n.name for n in nodes if n.name} | {r.head for r in refs if r.ref_kind == RefKind.IMPORTS and r.head}
+    return [r for r in refs if r.ref_kind == RefKind.IMPORTS or r.head not in builtins or r.head in shadowed]
 
 
 # --- Extension registry -----------------------------------------------------

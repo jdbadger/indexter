@@ -356,9 +356,7 @@ def fuse(
         for rank, node_id in enumerate(ids, start=1):
             scores[node_id] = scores.get(node_id, 0.0) + 1.0 / (RRF_K + rank)
             current = reasons.get(node_id, MatchReasons())
-            reasons[node_id] = (
-                replace(current, vector_rank=rank) if vector else replace(current, keyword_rank=rank)
-            )
+            reasons[node_id] = replace(current, vector_rank=rank) if vector else replace(current, keyword_rank=rank)
 
     accumulate(vector_ids, vector=True)
     accumulate(keyword_ids, vector=False)

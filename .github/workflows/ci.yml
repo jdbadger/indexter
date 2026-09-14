@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --locked --group dev
+      - run: uv run ruff check src eval scripts
+      - run: uv run ruff format --check src eval scripts
+      - run: uv run ty check src/indexter scripts
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    env:
+      HF_HUB_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --locked --python ${{ matrix.python-version }} --group test
+      - run: uv run --python ${{ matrix.python-version }} --group test pytest -n auto --cov-report=term-missing
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv build
+      - run: uv run python scripts/check_dist.py

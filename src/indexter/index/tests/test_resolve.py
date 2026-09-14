@@ -809,9 +809,7 @@ class TestTier1SelfReceiver:
 
         outcomes = resolve_repo_refs(index)
 
-        assert outcomes[call.id] == Outcome(
-            ResolveStatus.RESOLVED, target_id=add.id, confidence=Confidence.UNIQUE_NAME
-        )
+        assert outcomes[call.id] == Outcome(ResolveStatus.RESOLVED, target_id=add.id, confidence=Confidence.UNIQUE_NAME)
 
     def test_self_miss_falls_through_to_tier4_and_can_still_fail(self):
         f = file_node("pkg/a.py")
@@ -885,9 +883,7 @@ class TestTier1SelfReceiver:
 
         outcomes = resolve_repo_refs(index)
 
-        assert outcomes[call.id] == Outcome(
-            ResolveStatus.RESOLVED, target_id=helper.id, confidence=Confidence.IMPORTED
-        )
+        assert outcomes[call.id] == Outcome(ResolveStatus.RESOLVED, target_id=helper.id, confidence=Confidence.IMPORTED)
 
     def test_rust_bare_self_field_is_not_a_type_receiver(self):
         f = file_node("src/lib.rs", language="rust")
@@ -932,9 +928,7 @@ class TestTier2EnclosingScope:
 
         outcomes = resolve_repo_refs(index)
 
-        assert outcomes[call.id] == Outcome(
-            ResolveStatus.RESOLVED, target_id=inner_run.id, confidence=Confidence.EXACT
-        )
+        assert outcomes[call.id] == Outcome(ResolveStatus.RESOLVED, target_id=inner_run.id, confidence=Confidence.EXACT)
 
     def test_method_bodies_do_not_see_sibling_methods_by_bare_name_at_exact_confidence(self):
         f = file_node("pkg/a.py")
@@ -1073,9 +1067,7 @@ class TestTier3ImportBound:
 
         outcomes = resolve_repo_refs(index)
 
-        assert outcomes[call.id] == Outcome(
-            ResolveStatus.RESOLVED, target_id=load_b.id, confidence=Confidence.IMPORTED
-        )
+        assert outcomes[call.id] == Outcome(ResolveStatus.RESOLVED, target_id=load_b.id, confidence=Confidence.IMPORTED)
 
     def test_javascript_commonjs_require(self):
         util = file_node("util.js", language="javascript")
@@ -1192,9 +1184,7 @@ class TestTier3RustModulePaths:
         )
         imp = r(caller_file.id, "crate::model", head="Handler", imported_name="Handler")
         call = r(caller.id, "Handler::new", head="Handler", ref_kind=RefKind.CALLS)
-        index = RepoIndex(
-            [model, handler_struct, impl_file, new_fn, caller_file, caller], [imp, call]
-        )
+        index = RepoIndex([model, handler_struct, impl_file, new_fn, caller_file, caller], [imp, call])
 
         outcomes = resolve_repo_refs(index)
 
@@ -1285,9 +1275,7 @@ class TestTier3Wildcards:
 
         outcomes = resolve_repo_refs(index)
 
-        assert outcomes[call.id] == Outcome(
-            ResolveStatus.RESOLVED, target_id=helper.id, confidence=Confidence.IMPORTED
-        )
+        assert outcomes[call.id] == Outcome(ResolveStatus.RESOLVED, target_id=helper.id, confidence=Confidence.IMPORTED)
 
     def test_wildcard_that_does_not_have_the_name_falls_through(self):
         util = file_node("pkg/util.py")
@@ -1613,9 +1601,7 @@ class TestTailStoplist:
 
         outcomes = resolve_repo_refs(index)
 
-        assert outcomes[call.id] == Outcome(
-            ResolveStatus.RESOLVED, target_id=add.id, confidence=Confidence.UNIQUE_NAME
-        )
+        assert outcomes[call.id] == Outcome(ResolveStatus.RESOLVED, target_id=add.id, confidence=Confidence.UNIQUE_NAME)
 
     def test_stoplist_does_not_apply_to_a_bare_single_segment_call(self):
         f = file_node("pkg/a.py")
@@ -1627,9 +1613,7 @@ class TestTailStoplist:
 
         outcomes = resolve_repo_refs(index)
 
-        assert outcomes[call.id] == Outcome(
-            ResolveStatus.RESOLVED, target_id=get.id, confidence=Confidence.UNIQUE_NAME
-        )
+        assert outcomes[call.id] == Outcome(ResolveStatus.RESOLVED, target_id=get.id, confidence=Confidence.UNIQUE_NAME)
 
 
 class TestModuleMemberAndWalkInternals:

@@ -115,9 +115,7 @@ def run_search(
             resolved = resolve_repository(repo, default_repo=state.default_repo, working_dir=state.working_dir)
             settings = load_settings(resolved)
             embedder = state.get_embedder(settings)
-            response = search(
-                resolved, query, settings, embedder, kind=kind, language=language, path=path, limit=limit
-            )
+            response = search(resolved, query, settings, embedder, kind=kind, language=language, path=path, limit=limit)
             return render_search_response(response)
         except (SearchError, ConfigError, IndexterDBError, EmbeddingError) as e:
             raise ToolError(str(e)) from e

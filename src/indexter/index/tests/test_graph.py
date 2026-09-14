@@ -270,9 +270,7 @@ class TestGraphConsistency:
 
         assert conn.execute("SELECT COUNT(*) AS n FROM edges WHERE target = ?", (helper_id,)).fetchone()["n"] == 0
         assert (
-            conn.execute(
-                "SELECT COUNT(*) AS n FROM refs WHERE resolved_target_id = ?", (helper_id,)
-            ).fetchone()["n"]
+            conn.execute("SELECT COUNT(*) AS n FROM refs WHERE resolved_target_id = ?", (helper_id,)).fetchone()["n"]
             == 0
         )
         ref = ref_row(conn, "b.py", "caller")
@@ -367,9 +365,9 @@ class TestResolveRepoFailure:
         after_edges = conn.execute("SELECT * FROM edges ORDER BY id").fetchall()
         assert [dict(r) for r in after_refs] == [dict(r) for r in before_refs]
         assert [dict(r) for r in after_edges] == [dict(r) for r in before_edges]
-        pending = conn.execute(
-            "SELECT value FROM project_metadata WHERE key = 'resolution_pending'"
-        ).fetchone()["value"]
+        pending = conn.execute("SELECT value FROM project_metadata WHERE key = 'resolution_pending'").fetchone()[
+            "value"
+        ]
         assert pending == "1"
 
 

@@ -223,8 +223,7 @@ def load_repo_index(conn: sqlite3.Connection) -> RepoIndex:
         for row in node_rows
     ]
     ref_rows = conn.execute(
-        "SELECT id, from_node_id, raw_name, head, imported_name, for_type, ref_kind, line, col "
-        "FROM refs ORDER BY id"
+        "SELECT id, from_node_id, raw_name, head, imported_name, for_type, ref_kind, line, col FROM refs ORDER BY id"
     ).fetchall()
     refs = [
         ResolveRef(

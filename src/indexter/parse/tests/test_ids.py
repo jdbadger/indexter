@@ -105,9 +105,7 @@ class TestDuplicates:
 class TestLinkParents:
     def test_method_links_to_class(self):
         cls = node(name="Handler", kind=Kind.CLASS, scope_path=(), start_byte=0, end_byte=100, start_line=1)
-        method = node(
-            name="login", kind=Kind.METHOD, scope_path=("Handler",), start_byte=10, end_byte=50, start_line=2
-        )
+        method = node(name="login", kind=Kind.METHOD, scope_path=("Handler",), start_byte=10, end_byte=50, start_line=2)
         with_ids = assign_ids("a.py", [cls, method])
         linked = link_parents(with_ids)
         by_name = {n.name: n for n in linked}
@@ -150,9 +148,7 @@ class TestLinkParents:
 class TestLinkRefs:
     def test_ref_resolves_to_innermost_containing_node(self):
         file_node = node(name="", kind=Kind.FILE, scope_path=(), start_byte=0, end_byte=100, start_line=1)
-        method = node(
-            name="login", kind=Kind.METHOD, scope_path=("Handler",), start_byte=10, end_byte=50, start_line=2
-        )
+        method = node(name="login", kind=Kind.METHOD, scope_path=("Handler",), start_byte=10, end_byte=50, start_line=2)
         with_ids = assign_ids("a.py", [file_node, method])
         raw = RawRef(origin_byte=20, raw_name="self.validate", head="self", ref_kind=RefKind.CALLS, line=3, col=8)
         [ref] = link_refs(with_ids, [raw])
@@ -166,9 +162,7 @@ class TestLinkRefs:
 
     def test_ref_at_file_scope_resolves_to_file_node(self):
         file_node = node(name="", kind=Kind.FILE, scope_path=(), start_byte=0, end_byte=100, start_line=1)
-        method = node(
-            name="login", kind=Kind.METHOD, scope_path=("Handler",), start_byte=10, end_byte=50, start_line=2
-        )
+        method = node(name="login", kind=Kind.METHOD, scope_path=("Handler",), start_byte=10, end_byte=50, start_line=2)
         with_ids = assign_ids("a.py", [file_node, method])
         raw = RawRef(origin_byte=60, raw_name="setup", head="setup", ref_kind=RefKind.CALLS, line=8, col=1)
         [ref] = link_refs(with_ids, [raw])

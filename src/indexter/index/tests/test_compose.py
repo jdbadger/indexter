@@ -405,5 +405,3 @@ class TestTruncation:
 
     def test_truncate_zero_budget_yields_empty_text(self):
         assert _truncate("one two three", TOKENIZER, 2) == ""
-
-

@@ -5,6 +5,7 @@ state), plus `init` and `reindex` to build and refresh a repository's index.
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.resources
 import os
 from datetime import datetime
@@ -28,6 +29,27 @@ app = typer.Typer(
     help="indexter - local code search and graph for AI agents.",
     no_args_is_help=True,
 )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"indexter {importlib.metadata.version('indexter')}")
+        raise typer.Exit
+
+
+@app.callback()
+def _main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the installed version and exit.",
+        ),
+    ] = False,
+) -> None:
+    pass
 
 
 def _format_size(num_bytes: int) -> str:

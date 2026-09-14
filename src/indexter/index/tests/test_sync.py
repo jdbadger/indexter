@@ -69,9 +69,7 @@ class TestWriteFile:
         assert helper["docstring"] is None
         assert helper["signature"] == "def helper()"
 
-        fts_row = conn.execute(
-            "SELECT * FROM nodes_fts WHERE rowid = ?", (helper["rowid"],)
-        ).fetchone()
+        fts_row = conn.execute("SELECT * FROM nodes_fts WHERE rowid = ?", (helper["rowid"],)).fetchone()
         assert fts_row["qualified_name"] == "helper"
         assert "return other()" in fts_row["body"]
 
@@ -88,9 +86,7 @@ class TestWriteFile:
 
         helper_again = node_row(conn, "a.py::helper#function")
         assert helper_again["rowid"] == helper["rowid"]
-        vector = conn.execute(
-            "SELECT node_rowid FROM vectors WHERE node_rowid = ?", (helper["rowid"],)
-        ).fetchone()
+        vector = conn.execute("SELECT node_rowid FROM vectors WHERE node_rowid = ?", (helper["rowid"],)).fetchone()
         assert vector is not None
 
     def test_changed_embed_hash_drops_vector(self, conn, settings, tokenizer):
@@ -103,9 +99,7 @@ class TestWriteFile:
         helper_again = node_row(conn, "a.py::helper#function")
         assert helper_again["rowid"] == helper["rowid"]
         assert helper_again["embed_hash"] != helper["embed_hash"]
-        vector = conn.execute(
-            "SELECT node_rowid FROM vectors WHERE node_rowid = ?", (helper["rowid"],)
-        ).fetchone()
+        vector = conn.execute("SELECT node_rowid FROM vectors WHERE node_rowid = ?", (helper["rowid"],)).fetchone()
         assert vector is None
 
     def test_removed_symbol_takes_fts_vector_and_refs_with_it(self, conn, settings, tokenizer):
@@ -117,9 +111,7 @@ class TestWriteFile:
 
         assert node_row(conn, "a.py::helper#function") is None
         assert conn.execute("SELECT 1 FROM nodes_fts WHERE rowid = ?", (helper["rowid"],)).fetchone() is None
-        assert (
-            conn.execute("SELECT 1 FROM vectors WHERE node_rowid = ?", (helper["rowid"],)).fetchone() is None
-        )
+        assert conn.execute("SELECT 1 FROM vectors WHERE node_rowid = ?", (helper["rowid"],)).fetchone() is None
         # The call ref from `main` (now calling nothing meaningful, but a ref
         # to a now-removed helper still shouldn't linger from the old parse).
         refs = conn.execute("SELECT raw_name FROM refs").fetchall()

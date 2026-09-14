@@ -64,9 +64,7 @@ def build_server(state: ServerState) -> FastMCP:
             Field(description=f"Restrict results to one or more languages. Valid languages: {languages}."),
         ] = None,
         path: Annotated[str | None, Field(description="Restrict results to files under this path.")] = None,
-        limit: Annotated[
-            int | None, Field(description="Maximum number of results (1-50).", ge=1, le=50)
-        ] = None,
+        limit: Annotated[int | None, Field(description="Maximum number of results (1-50).", ge=1, le=50)] = None,
     ) -> str:
         """Search this repository by meaning and keywords, returning matching code with its
         callers, callees and related code from the call, import and inheritance graph."""
@@ -81,9 +79,7 @@ def build_server(state: ServerState) -> FastMCP:
         },
     )
     def neighbors(
-        node_id: Annotated[
-            str, Field(description="A node ID returned by `search` or a previous `neighbors` call.")
-        ],
+        node_id: Annotated[str, Field(description="A node ID returned by `search` or a previous `neighbors` call.")],
         repo: Annotated[
             str | None,
             Field(description="Repository to search; defaults to the server's resolved repository."),
@@ -115,9 +111,7 @@ def build_server(state: ServerState) -> FastMCP:
         """Walk this repository's call, import, inheritance and containment graph from a node ID
         returned by `search`."""
         edge_kinds = [str(edge) for edge in edges] if edges is not None else None
-        return run_neighbors(
-            state, node_id, repo=repo, direction=direction, edges=edge_kinds, depth=depth, limit=limit
-        )
+        return run_neighbors(state, node_id, repo=repo, direction=direction, edges=edge_kinds, depth=depth, limit=limit)
 
     return server
 

@@ -42,7 +42,7 @@ class TestNodes:
         assert result.errors == []
 
     def test_const_and_static_are_constants(self, parser):
-        result = parser.parse("a.rs", "const MAX: i32 = 5;\nstatic NAME: &str = \"x\";\n")
+        result = parser.parse("a.rs", 'const MAX: i32 = 5;\nstatic NAME: &str = "x";\n')
         kinds = {n.name: n.kind for n in result.nodes if n.name}
         assert kinds["MAX"] == Kind.CONSTANT
         assert kinds["NAME"] == Kind.CONSTANT
@@ -110,7 +110,7 @@ class TestDocComments:
         assert node.docstring is None
 
     def test_trait_default_method_scoped_to_trait(self, parser):
-        result = parser.parse("a.rs", "trait Greet { fn hello(&self) { println!(\"hi\"); } }\n")
+        result = parser.parse("a.rs", 'trait Greet { fn hello(&self) { println!("hi"); } }\n')
         node = next(n for n in result.nodes if n.name == "hello")
         assert node.scope_path == ("Greet",)
         assert node.kind == Kind.METHOD

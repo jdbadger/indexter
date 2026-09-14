@@ -33,19 +33,11 @@ def repo(tmp_path):
 
     write(
         repo_dir / "src" / "walker.py",
-        "import os\n"
-        "\n\n"
-        "def helper():\n"
-        "    return 1\n"
-        "\n\n"
-        "class Store:\n"
-        "    def add(self, item):\n"
-        "        return item\n",
+        "import os\n\n\ndef helper():\n    return 1\n\n\nclass Store:\n    def add(self, item):\n        return item\n",
     )
     write(
         repo_dir / "tests" / "test_walker.py",
-        "def test_helper():\n"
-        "    return 1\n",
+        "def test_helper():\n    return 1\n",
     )
     write(repo_dir / "src" / "auth" / "login.py", "def login():\n    return True\n")
     write(repo_dir / "src" / "authz.py", "def authorize():\n    return True\n")

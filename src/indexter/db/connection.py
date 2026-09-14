@@ -210,9 +210,7 @@ def _create_database(db_path: Path, repo: str | Path, settings: Settings) -> Non
         raise
 
 
-def _validate_and_sync(
-    conn: sqlite3.Connection, db_path: Path, repo: str | Path | None, settings: Settings
-) -> None:
+def _validate_and_sync(conn: sqlite3.Connection, db_path: Path, repo: str | Path | None, settings: Settings) -> None:
     stored_version = _read_metadata_value(conn, "schema_version")
     if stored_version is None or int(stored_version) != SCHEMA_VERSION:
         raise SchemaVersionMismatch(db_path=db_path, found=stored_version, expected=SCHEMA_VERSION)
@@ -225,11 +223,7 @@ def _validate_and_sync(
 
     stored_dim = _read_metadata_value(conn, "dim")
     stored_model = _read_metadata_value(conn, "model")
-    if (
-        stored_dim is None
-        or int(stored_dim) != settings.embedding_dim
-        or stored_model != settings.embedding_model
-    ):
+    if stored_dim is None or int(stored_dim) != settings.embedding_dim or stored_model != settings.embedding_model:
         rebuild_vectors_table(conn, settings.embedding_dim)
         now = time.time()
         _write_metadata(conn, "dim", str(settings.embedding_dim), now)

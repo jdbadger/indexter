@@ -1,4 +1,14 @@
-# indexter
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter-light.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter-dark.svg">
+    <img src="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter.png" alt="Indexter Logo">
+  </picture>
+</div>
+
+<p align="center">
+  <a href="https://github.com/jdbadger/indexter/actions/workflows/ci.yml"><img src="https://github.com/jdbadger/indexter/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
 indexter indexes a codebase into a single local SQLite file — hybrid
 (semantic + keyword) search over composed code summaries, plus a call/import/
@@ -6,6 +16,29 @@ inheritance graph — and serves it to AI coding agents over two MCP tools,
 `search` and `neighbors`. There is no server process to run, no vector
 database to host, and no registry file: everything for a repository lives in
 one database, keyed deterministically off its path.
+
+## Supported Languages
+
+Every file is parsed with tree-sitter into semantic units — functions, classes, config
+tables, headings, and so on — rather than indexed as flat text.
+
+| Language | Extensions | Semantic units extracted |
+|---|---|---|
+| Python | `.py` | Functions, methods, classes, module-level constants, docstrings |
+| JavaScript | `.js`, `.jsx` | Functions, methods, classes, module-level constants, JSDoc comments |
+| TypeScript | `.ts` | Functions, methods, classes, interfaces, type aliases, enums, module-level constants |
+| Rust | `.rs` | Functions, methods, structs, traits, enums, type aliases, constants, doc comments (`///`, `//!`) |
+| Markdown | `.md` | Sections, one per heading, named by their full heading path |
+| HTML | `.html`, `.htm` | Sections: headings (`h1`–`h6`), tables and lists, scoped to their enclosing container |
+| CSS | `.css` | Sections: rule sets and at-rules (`@media`, `@keyframes`, ...), scoped to their nesting |
+| JSON | `.json` | Data nodes: objects and arrays, scoped to their key/index path |
+| YAML | `.yaml`, `.yml` | Data nodes: block mappings and sequences, scoped to their key/index path |
+| TOML | `.toml` | Data nodes: tables and key/value pairs, scoped to their dotted key path |
+| *Anything else* | `*` | Fixed-size overlapping text chunks, so every file is searchable |
+
+Python, JavaScript, TypeScript and Rust also resolve `calls`, `imports` and `inherits` edges
+across files, forming the code graph `neighbors` walks. The rest produce containment structure
+(`contains`) only — there's nothing in JSON, a stylesheet, or a heading to call or import.
 
 ## Requirements
 
@@ -18,17 +51,27 @@ Python on macOS and some Linux distributions does not. Running indexter with
 
 ## Install
 
-From a checkout, until indexter is published to PyPI (planned for a later
-milestone):
+```bash
+uv tool install --managed-python indexter
+```
+
+`--managed-python` makes sure the tool's own interpreter is one `uv`
+installs, not whatever `python3` happens to resolve to on your system — the
+interpreters uv manages support loading the `sqlite-vec` extension used for
+vector storage, and a system Python often doesn't (see Requirements above).
+This installs the `indexter` command on your `PATH`. Upgrade with
+`uv tool upgrade indexter`; uninstall with `uv tool uninstall indexter`.
+
+To install from a checkout instead — for a pre-release version, or to work on
+indexter itself:
 
 ```bash
 git clone https://github.com/jdbadger/indexter
-uv tool install ./indexter
+uv tool install --managed-python ./indexter
 ```
 
-This installs the `indexter` command on your `PATH`, backed by a uv-managed
-interpreter. Upgrade with `uv tool upgrade indexter` after pulling; uninstall
-with `uv tool uninstall indexter`.
+Upgrading from a 0.1.x install? See the "Upgrading from 0.1" notes in
+`CHANGELOG.md`.
 
 ## Getting started
 
@@ -136,6 +179,7 @@ unindexed repository comes back as an error naming `indexter init`.
 | `indexter remove TARGET [--yes]` | Remove an indexed repository's database (by repo path or database filename). Never touches the repository itself. |
 | `indexter mcp [--repo PATH]` | Start the MCP server over stdio. |
 | `indexter skill [--install] [--dir PATH] [--force]` | Print the packaged skill, or install it into an agent's skills directory. |
+| `indexter --version` | Print the installed version and exit. |
 
 ## Configuration
 
@@ -173,3 +217,8 @@ error naming the key and the file it came from.
 - **Installed skill**: `$CLAUDE_CONFIG_DIR/skills/indexter/SKILL.md`
   (defaults to `~/.claude/skills/indexter/SKILL.md`), or wherever
   `indexter skill --install --dir PATH` points.
+
+## Contributing
+
+See `CONTRIBUTING.md` for setting up a fork, the development recipes, and
+the release process.

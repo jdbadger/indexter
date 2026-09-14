@@ -1,4 +1,5 @@
 import asyncio
+import importlib.metadata
 import os
 import shutil
 import sqlite3
@@ -93,6 +94,18 @@ class TestHelp:
     def test_unknown_command_fails(self):
         result = runner.invoke(app, ["frobnicate"])
         assert result.exit_code != 0
+
+
+class TestVersion:
+    def test_version_matches_installed_package(self):
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert result.output.strip() == f"indexter {importlib.metadata.version('indexter')}"
+
+    def test_version_takes_precedence_over_a_command(self):
+        result = runner.invoke(app, ["--version", "list"])
+        assert result.exit_code == 0
+        assert result.output.strip() == f"indexter {importlib.metadata.version('indexter')}"
 
 
 class TestList:

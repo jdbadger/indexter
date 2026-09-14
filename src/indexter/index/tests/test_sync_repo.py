@@ -328,9 +328,7 @@ class TestHealing:
         write(repo, "a.py", SRC_A)
         with open_db(db_path, repo=repo, settings=settings) as conn:
             sync_repo(conn, repo, settings, embedder)
-            before_vectors = {
-                r["node_rowid"] for r in conn.execute("SELECT node_rowid FROM vectors")
-            }
+            before_vectors = {r["node_rowid"] for r in conn.execute("SELECT node_rowid FROM vectors")}
 
             monkeypatch_target = sync_mod.INDEX_FORMAT_VERSION
             sync_mod.INDEX_FORMAT_VERSION = monkeypatch_target + 1
@@ -339,9 +337,7 @@ class TestHealing:
             finally:
                 sync_mod.INDEX_FORMAT_VERSION = monkeypatch_target
 
-            after_vectors = {
-                r["node_rowid"] for r in conn.execute("SELECT node_rowid FROM vectors")
-            }
+            after_vectors = {r["node_rowid"] for r in conn.execute("SELECT node_rowid FROM vectors")}
 
         assert report.changed == ("a.py",)
         assert report.texts_embedded == 0
@@ -385,9 +381,9 @@ class TestResolution:
             write(repo, "a.py", SRC_A_EDITED_BODY)
             report = sync_repo(conn, repo, settings, embedder)
 
-            pending = conn.execute(
-                "SELECT value FROM project_metadata WHERE key = 'resolution_pending'"
-            ).fetchone()["value"]
+            pending = conn.execute("SELECT value FROM project_metadata WHERE key = 'resolution_pending'").fetchone()[
+                "value"
+            ]
 
         assert report.resolution is not None
         assert pending == "0"
@@ -419,9 +415,7 @@ class TestResolution:
         assert report.resolution is not None
         assert unresolved == 0
 
-    def test_resolver_version_bump_reresolves_without_reparsing_or_embedding(
-        self, repo, db_path, settings, embedder
-    ):
+    def test_resolver_version_bump_reresolves_without_reparsing_or_embedding(self, repo, db_path, settings, embedder):
         write(repo, "a.py", SRC_A)
         with open_db(db_path, repo=repo, settings=settings) as conn:
             sync_repo(conn, repo, settings, embedder)
@@ -459,9 +453,9 @@ class TestResolution:
             write(repo, "a.py", "def undefined_thing():\n    return 1\n")
             sync_repo(conn, repo, settings, embedder)
 
-            status_after = conn.execute(
-                "SELECT status FROM refs WHERE raw_name = 'undefined_thing'"
-            ).fetchone()["status"]
+            status_after = conn.execute("SELECT status FROM refs WHERE raw_name = 'undefined_thing'").fetchone()[
+                "status"
+            ]
 
         assert status_after == "resolved"
 
@@ -508,9 +502,7 @@ class TestIndexRepository:
 
         first = index_repository(repo, settings, embedder)
         with open_db(first.db_path, repo=repo, settings=settings) as conn:
-            conn.execute(
-                "UPDATE project_metadata SET value = '999' WHERE key = 'schema_version'"
-            )
+            conn.execute("UPDATE project_metadata SET value = '999' WHERE key = 'schema_version'")
 
         result = index_repository(repo, settings, embedder)
 
