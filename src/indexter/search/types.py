@@ -165,6 +165,54 @@ class Timings:
 
 
 @dataclass(frozen=True, slots=True)
+class Neighbor:
+    """One node reached by a `neighbors` walk (design.md decision 5).
+    `file_path`/`start_line`/`end_line` are `None` for an external module.
+    `via_id`/`via_qualified_name` name the frontier node the edge was
+    recorded from; `via_is_source` says whether that node is the edge's
+    source (the neighbor is the target) or its target (the neighbor is the
+    source), which picks the relation verb at render time.
+    """
+
+    node_id: str
+    qualified_name: str
+    kind: str
+    file_path: str | None
+    start_line: int | None
+    end_line: int | None
+    depth: int
+    edge_kind: str
+    via_is_source: bool
+    confidence: str
+    line: int | None
+    via_id: str
+    via_qualified_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class NeighborsResponse:
+    """Everything one `neighbors` walk produced: the start node, the
+    request as run, the ordered and limited neighbors, and how many were
+    omitted for `limit` or budget (design.md decisions 5, 7). `omitted` is
+    a lower bound when the walk stopped at the 1,000-node cap.
+    """
+
+    node_id: str
+    qualified_name: str
+    kind: str
+    file_path: str
+    start_line: int
+    end_line: int
+    direction: str
+    edges: tuple[str, ...]
+    depth: int
+    limit: int
+    neighbors: tuple[Neighbor, ...]
+    omitted: int
+    omitted_is_lower_bound: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SearchResponse:
     """Everything one search produced: the query as run, its normalized
     filters, the selected entries and related nodes, how many of each were

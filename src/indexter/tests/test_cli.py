@@ -1,10 +1,16 @@
+import asyncio
+import os
+import shutil
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
+from fastmcp import Client
+from fastmcp.client.transports import StdioTransport
 from typer.testing import CliRunner
 
-from indexter.cli import _format_size, app
+from indexter.cli import _format_size, _skill_content, app
 from indexter.config import Settings
 from indexter.db.connection import IndexterDBError, open_db
 from indexter.index.embed import FakeEmbedder
@@ -390,3 +396,160 @@ class TestReindex:
         assert result.exit_code == 1
         assert "simulated embedder error" in result.output
         assert "Traceback" not in result.output
+
+
+class TestMcpCommand:
+    def test_missing_repo_exits_nonzero_and_never_starts_server(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr("indexter.cli.run_server", lambda repo: calls.append(repo))
+        missing = tmp_path / "does-not-exist"
+
+        result = runner.invoke(app, ["mcp", "--repo", str(missing)])
+
+        assert result.exit_code != 0
+        assert "is not a directory" in result.output
+        assert calls == []
+
+    def test_valid_repo_starts_the_server(self, repo, monkeypatch):
+        calls = []
+        monkeypatch.setattr("indexter.cli.run_server", lambda r: calls.append(r))
+
+        result = runner.invoke(app, ["mcp", "--repo", str(repo)])
+
+        assert result.exit_code == 0
+        assert calls == [repo]
+
+    def test_no_repo_option_passes_none(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr("indexter.cli.run_server", lambda r: calls.append(r))
+
+        result = runner.invoke(app, ["mcp"])
+
+        assert result.exit_code == 0
+        assert calls == [None]
+
+
+class TestSkillCommand:
+    def test_prints_the_packaged_skill_byte_for_byte(self):
+        result = runner.invoke(app, ["skill"])
+        assert result.exit_code == 0
+        assert result.output == _skill_content()
+
+    def test_dir_without_install_is_rejected(self, tmp_path):
+        result = runner.invoke(app, ["skill", "--dir", str(tmp_path)])
+        assert result.exit_code != 0
+
+    def test_force_without_install_is_rejected(self):
+        result = runner.invoke(app, ["skill", "--force"])
+        assert result.exit_code != 0
+
+    def test_install_writes_under_claude_config_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
+
+        result = runner.invoke(app, ["skill", "--install"])
+
+        assert result.exit_code == 0
+        target = tmp_path / "claude-config" / "skills" / "indexter" / "SKILL.md"
+        assert target.read_text() == _skill_content()
+
+    def test_install_falls_back_to_home_claude_dir(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        result = runner.invoke(app, ["skill", "--install"])
+
+        assert result.exit_code == 0
+        assert (tmp_path / ".claude" / "skills" / "indexter" / "SKILL.md").is_file()
+
+    def test_install_to_explicit_dir(self, tmp_path):
+        target_dir = tmp_path / "custom-skills"
+
+        result = runner.invoke(app, ["skill", "--install", "--dir", str(target_dir)])
+
+        assert result.exit_code == 0
+        assert (target_dir / "SKILL.md").read_text() == _skill_content()
+
+    def test_reinstalling_identical_content_is_up_to_date(self, tmp_path):
+        target_dir = tmp_path / "skills"
+        runner.invoke(app, ["skill", "--install", "--dir", str(target_dir)])
+
+        result = runner.invoke(app, ["skill", "--install", "--dir", str(target_dir)])
+
+        assert result.exit_code == 0
+        assert "up to date" in result.output
+
+    def test_edited_file_is_protected_without_force(self, tmp_path):
+        target_dir = tmp_path / "skills"
+        runner.invoke(app, ["skill", "--install", "--dir", str(target_dir)])
+        target = target_dir / "SKILL.md"
+        target.write_text("edited by the user\n")
+
+        result = runner.invoke(app, ["skill", "--install", "--dir", str(target_dir)])
+
+        assert result.exit_code != 0
+        assert target.read_text() == "edited by the user\n"
+
+    def test_force_overwrites_an_edited_file(self, tmp_path):
+        target_dir = tmp_path / "skills"
+        runner.invoke(app, ["skill", "--install", "--dir", str(target_dir)])
+        target = target_dir / "SKILL.md"
+        target.write_text("edited by the user\n")
+
+        result = runner.invoke(app, ["skill", "--install", "--dir", str(target_dir), "--force"])
+
+        assert result.exit_code == 0
+        assert target.read_text() == _skill_content()
+
+
+class TestSkillContent:
+    def test_frontmatter_names_and_describes_the_skill(self):
+        content = _skill_content()
+        lines = content.splitlines()
+        assert lines[0] == "---"
+        assert lines[1] == "name: indexter"
+        assert lines[2].startswith("description:")
+
+    def test_names_both_tools_and_the_claude_code_form(self):
+        content = _skill_content()
+        assert "`search`" in content
+        assert "`neighbors`" in content
+        assert "mcp__indexter__search" in content
+        assert "mcp__indexter__neighbors" in content
+
+    def test_documents_every_search_parameter(self):
+        content = _skill_content()
+        for param in ("query", "repo", "kind", "language", "path", "limit"):
+            assert f"`{param}`" in content
+
+    def test_documents_every_neighbors_parameter(self):
+        content = _skill_content()
+        for param in ("node_id", "direction", "edges", "depth", "limit"):
+            assert f"`{param}`" in content
+
+    def test_mentions_asking_the_user_before_init(self):
+        content = " ".join(_skill_content().lower().split())
+        assert "indexter init" in content
+        assert "tell the user" in content
+
+
+class TestMcpSubprocess:
+    def test_stdio_transport_serves_exactly_two_tools_with_clean_stdout(self, tmp_path):
+        indexter_bin = shutil.which("indexter") or str(Path(sys.executable).parent / "indexter")
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        env = {
+            **os.environ,
+            "XDG_DATA_HOME": str(tmp_path / "data-home"),
+            "XDG_CONFIG_HOME": str(tmp_path / "config-home"),
+        }
+        transport = StdioTransport(indexter_bin, ["mcp", "--repo", str(empty)], env=env)
+
+        async def list_tools():
+            # MCP's stdio protocol is newline-delimited JSON-RPC: any stray
+            # text on stdout (a stray print, a warning) breaks framing and
+            # this raises instead of returning a tool list.
+            async with Client(transport) as client:
+                return await client.list_tools()
+
+        tools = asyncio.run(list_tools())
+        assert {tool.name for tool in tools} == {"search", "neighbors"}

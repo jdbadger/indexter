@@ -5,6 +5,8 @@ state), plus `init` and `reindex` to build and refresh a repository's index.
 
 from __future__ import annotations
 
+import importlib.resources
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -17,6 +19,7 @@ from indexter.db.connection import IndexterDBError, delete_database_files
 from indexter.index.embed import EmbeddingError, make_embedder
 from indexter.index.graph import ResolveReport
 from indexter.index.sync import IndexResult, index_repository
+from indexter.mcp.server import run_server
 from indexter.parse.models import RefKind
 from indexter.paths import data_dir, db_path
 
@@ -187,3 +190,63 @@ def remove(
     except IndexterDBError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1) from e
+
+
+@app.command()
+def mcp(
+    repo: Annotated[
+        Path | None, typer.Option("--repo", help="Repository to serve; defaults to the working directory")
+    ] = None,
+) -> None:
+    """Start the MCP server over stdio."""
+    if repo is not None and not repo.is_dir():
+        typer.echo(f"{repo} is not a directory.", err=True)
+        raise typer.Exit(1)
+    run_server(repo)
+
+
+def _claude_config_dir() -> Path:
+    value = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(value) if value else Path.home() / ".claude"
+
+
+def _skill_content() -> str:
+    return importlib.resources.files("indexter.skill").joinpath("SKILL.md").read_text()
+
+
+@app.command()
+def skill(
+    install: Annotated[bool, typer.Option("--install", help="Install the skill instead of printing it")] = False,
+    install_dir: Annotated[
+        Path | None,
+        typer.Option("--dir", help="Install directory, replacing <config>/skills/indexter (requires --install)"),
+    ] = None,
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite an existing, different skill file (requires --install)")
+    ] = False,
+) -> None:
+    """Print the indexter skill, or install it into an agent's skills directory."""
+    if not install:
+        if install_dir is not None or force:
+            typer.echo("--dir and --force require --install.", err=True)
+            raise typer.Exit(1)
+        typer.echo(_skill_content(), nl=False)
+        return
+
+    target_dir = install_dir if install_dir is not None else _claude_config_dir() / "skills" / "indexter"
+    target = target_dir / "SKILL.md"
+    content = _skill_content()
+
+    if target.is_file():
+        if target.read_text() == content:
+            typer.echo(f"{target} is up to date.")
+            return
+        if not force:
+            typer.echo(
+                f"{target} already exists and differs from the packaged skill. Use --force to overwrite.", err=True
+            )
+            raise typer.Exit(1)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
+    typer.echo(f"Installed {target}")

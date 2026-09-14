@@ -79,15 +79,18 @@ def insert_node(
     *,
     id,
     kind="function",
+    name=None,
     qualified_name=None,
     file_path="src/a.py",
+    start_line=None,
+    end_line=None,
     parent_id=None,
     degree=0,
 ):
     conn.execute(
-        "INSERT INTO nodes (id, kind, name, qualified_name, file_path, parent_id, degree, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (id, kind, id, qualified_name or id, file_path, parent_id, degree, time.time()),
+        "INSERT INTO nodes (id, kind, name, qualified_name, file_path, start_line, end_line, parent_id, degree, "
+        "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (id, kind, name or id, qualified_name or id, file_path, start_line, end_line, parent_id, degree, time.time()),
     )
 
 
