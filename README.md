@@ -1,26 +1,30 @@
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter-light.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter-dark.svg">
     <img src="https://raw.githubusercontent.com/jdbadger/indexter/main/indexter.png" alt="Indexter Logo">
   </picture>
 </div>
 
+<br>
+
 <p align="center">
   <a href="https://github.com/jdbadger/indexter/actions/workflows/ci.yml"><img src="https://github.com/jdbadger/indexter/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/indexter/"><img src="https://img.shields.io/pypi/v/indexter" alt="PyPI"></a>
+  <a href="https://pypi.org/project/indexter/"><img src="https://img.shields.io/pypi/pyversions/indexter" alt="Python versions"></a>
+  <a href="https://github.com/jdbadger/indexter/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/indexter" alt="License"></a>
 </p>
 
-indexter indexes a codebase into a single local SQLite file — hybrid
+indexter indexes a codebase into a single local SQLite file: hybrid
 (semantic + keyword) search over composed code summaries, plus a call/import/
-inheritance graph — and serves it to AI coding agents over two MCP tools,
+inheritance graph, served to AI coding agents over two MCP tools,
 `search` and `neighbors`. There is no server process to run, no vector
 database to host, and no registry file: everything for a repository lives in
 one database, keyed deterministically off its path.
 
 ## Supported Languages
 
-Every file is parsed with tree-sitter into semantic units — functions, classes, config
-tables, headings, and so on — rather than indexed as flat text.
+Every file is parsed with tree-sitter into semantic units (functions, classes, config
+tables, headings, and so on) rather than indexed as flat text.
 
 | Language | Extensions | Semantic units extracted |
 |---|---|---|
@@ -38,7 +42,7 @@ tables, headings, and so on — rather than indexed as flat text.
 
 Python, JavaScript, TypeScript and Rust also resolve `calls`, `imports` and `inherits` edges
 across files, forming the code graph `neighbors` walks. The rest produce containment structure
-(`contains`) only — there's nothing in JSON, a stylesheet, or a heading to call or import.
+(`contains`) only, since there's nothing in JSON, a stylesheet, or a heading to call or import.
 
 ## Requirements
 
@@ -56,14 +60,14 @@ uv tool install --managed-python indexter
 ```
 
 `--managed-python` makes sure the tool's own interpreter is one `uv`
-installs, not whatever `python3` happens to resolve to on your system — the
+installs, not whatever `python3` happens to resolve to on your system. The
 interpreters uv manages support loading the `sqlite-vec` extension used for
 vector storage, and a system Python often doesn't (see Requirements above).
 This installs the `indexter` command on your `PATH`. Upgrade with
 `uv tool upgrade indexter`; uninstall with `uv tool uninstall indexter`.
 
-To install from a checkout instead — for a pre-release version, or to work on
-indexter itself:
+To install from a checkout instead (for a pre-release version, or to work on
+indexter itself):
 
 ```bash
 git clone https://github.com/jdbadger/indexter
@@ -100,7 +104,7 @@ indexter skill --install
 Every client runs the same command, `indexter mcp [--repo PATH]`. Without
 `--repo`, the server resolves which repository a call targets from the
 working directory it was started in, walking upward to the nearest indexed
-ancestor — so a single, user-level registration works for every project a
+ancestor, so a single, user-level registration works for every project a
 workspace-based client opens. `--repo` pins one repository explicitly, for
 clients with no workspace concept.
 
@@ -110,7 +114,7 @@ clients with no workspace concept.
 claude mcp add --scope user indexter -- indexter mcp
 ```
 
-**Claude Desktop** (no workspace — pin a repository):
+**Claude Desktop** (no workspace: pin a repository):
 
 ```json
 {
@@ -156,16 +160,16 @@ documented format but haven't been verified against a running client.
 
 ## The tools
 
-- **`search(query, repo?, kind?, language?, path?, limit?)`** — hybrid
+- **`search(query, repo?, kind?, language?, path?, limit?)`**: hybrid
   semantic + keyword search. Returns matching code with each hit's closest
   callers, callees and containing scope. Always loaded in Claude Code.
-- **`neighbors(node_id, repo?, direction?, edges?, depth?, limit?)`** — walks
+- **`neighbors(node_id, repo?, direction?, edges?, depth?, limit?)`**: walks
   the call/import/inheritance/containment graph from a node ID returned by
   `search` (or a previous `neighbors` call): who calls this, what does this
   import, what inherits from this, 1–3 hops out. Loaded on demand.
 
 Both tools sync the repository's index against the files on disk before
-answering, so results always reflect the current working tree — there's no
+answering, so results always reflect the current working tree; there's no
 separate reindex step to remember. Neither tool ever creates a database; an
 unindexed repository comes back as an error naming `indexter init`.
 
@@ -208,7 +212,7 @@ error naming the key and the file it came from.
 
 - **Databases**: `$XDG_DATA_HOME/indexter/<slug>-<hash>.db` (defaults to
   `~/.local/share/indexter/`), one file per repository, named from the
-  repository's canonical path. There is no registry — `indexter list` reads
+  repository's canonical path. There is no registry: `indexter list` reads
   this directory directly.
 - **Global config**: `$XDG_CONFIG_HOME/indexter/config.toml` (defaults to
   `~/.config/indexter/config.toml`).
