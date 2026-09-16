@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-16
+
 A ground-up rewrite. It keeps the purpose — let an agent find code when the user can't name
 the symbol or module — and replaces everything else: no server process, no Docker, no
 registry file that can drift from reality. Everything for a repository now lives in one local
