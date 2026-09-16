@@ -813,7 +813,7 @@ wheels = [
 
 [[package]]
 name = "indexter"
-version = "0.2.0rc2"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
