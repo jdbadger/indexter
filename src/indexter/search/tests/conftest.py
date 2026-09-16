@@ -8,6 +8,15 @@ from indexter.index.embed import FakeEmbedder
 from indexter.index.sync import sync_repo
 
 
+@pytest.fixture(autouse=True)
+def isolated_data_dir(monkeypatch, tmp_path):
+    """The `search`/`neighbors` entry points resolve their own database path
+    from the XDG data directory, so without this they write into the user's
+    real one."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data-home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+
+
 @pytest.fixture
 def settings():
     return Settings(embedding_dim=4)
