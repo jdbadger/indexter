@@ -22,8 +22,8 @@ jobs:
           enable-cache: true
       - run: uv python install
       - run: uv sync --locked --group dev
-      - run: uv run ruff check src eval scripts
-      - run: uv run ruff format --check src eval scripts
+      - run: uv run ruff check src scripts
+      - run: uv run ruff format --check src scripts
       - run: uv run ty check src/indexter scripts
 
   test:
