@@ -99,14 +99,16 @@ def _render_resolution(resolution: ResolveReport) -> None:
     )
 
 
-def _render_index_result(repo: Path, result: IndexResult) -> None:
+def _render_index_result(repo: Path, result: IndexResult, *, existing: str) -> None:
+    """Print the index summary; `existing` is the headline for an index that
+    already existed, which differs between `init` and `reindex`."""
     report = result.report
     if result.status == "created":
         typer.echo(f"Initialized {repo} -> {result.db_path}")
     elif result.status == "rebuilt":
         typer.echo(f"Rebuilt {repo} -> {result.db_path}")
     else:
-        typer.echo(f"{repo} already initialized -> {result.db_path}")
+        typer.echo(f"{existing} -> {result.db_path}")
 
     typer.echo(
         f"  added={len(report.added)} changed={len(report.changed)} removed={len(report.removed)} "
@@ -133,7 +135,7 @@ def init(
         settings = load_settings(path)
         embedder = make_embedder(settings)
         result = index_repository(path, settings, embedder)
-        _render_index_result(path, result)
+        _render_index_result(path, result, existing=f"{path} already initialized")
     except (IndexterDBError, ConfigError, EmbeddingError) as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1) from e
@@ -157,7 +159,7 @@ def reindex(
         settings = load_settings(path)
         embedder = make_embedder(settings)
         result = index_repository(path, settings, embedder, full=full)
-        _render_index_result(path, result)
+        _render_index_result(path, result, existing=f"Reindexed {path}")
     except (IndexterDBError, ConfigError, EmbeddingError) as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1) from e

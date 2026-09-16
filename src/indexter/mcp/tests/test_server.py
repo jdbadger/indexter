@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import importlib.metadata
 import sqlite3
 import time
 
@@ -85,6 +86,13 @@ class TestToolRegistration:
         assert depth["maximum"] == 3
         assert limit["minimum"] == 1
         assert limit["maximum"] == 100
+
+    @async_test
+    async def test_server_reports_indexter_version(self, indexed_repo, embedder):
+        async with make_client(indexed_repo, embedder) as client:
+            server_info = client.server_info
+        assert server_info.name == "indexter"
+        assert server_info.version == importlib.metadata.version("indexter")
 
     def test_instructions_name_both_tools(self, indexed_repo, embedder):
         state = ServerState(default_repo=None, working_dir=indexed_repo, embedder_factory=lambda settings: embedder)

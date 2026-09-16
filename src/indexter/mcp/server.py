@@ -3,6 +3,7 @@ schemas, metadata and annotations, and the warm-up lifespan hook (design.md
 decisions 1, 4, 5, 7).
 """
 
+import importlib.metadata
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -43,7 +44,12 @@ def build_server(state: ServerState) -> FastMCP:
         threading.Thread(target=warm_up, args=(state,), daemon=True).start()
         yield {}
 
-    server = FastMCP("indexter", instructions=INSTRUCTIONS, lifespan=lifespan)
+    server = FastMCP(
+        "indexter",
+        version=importlib.metadata.version("indexter"),
+        instructions=INSTRUCTIONS,
+        lifespan=lifespan,
+    )
 
     kinds = ", ".join(sorted(FILTERABLE_KINDS))
     languages = ", ".join(sorted(registered_languages()))

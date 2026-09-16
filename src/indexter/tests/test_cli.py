@@ -343,6 +343,8 @@ class TestReindex:
         runner.invoke(app, ["init", str(repo)])
         result = runner.invoke(app, ["reindex", str(repo)])
         assert result.exit_code == 0
+        assert "Reindexed" in result.output
+        assert "already initialized" not in result.output
         assert "unchanged=1" in result.output
         assert "texts_embedded=0" in result.output
 
