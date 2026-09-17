@@ -1,6 +1,6 @@
 [project]
 name = "indexter"
-version = "0.2.1rc1"
+version = "0.2.1"
 description = "CLI tool and MCP server for enhanced codebase context via a local code graph"
 readme = "README.md"
 license = "MIT"
