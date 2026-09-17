@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through a bad symlink before this fix are purged automatically on the next sync, which
   `search` triggers. Repositories that deliberately symlink files in from outside the
   checkout will no longer have those files indexed.
+- `embedding_model` can be set per repository via `indexter.toml` or `[tool.indexter]` in
+  `pyproject.toml`, both of which are repository content and therefore untrusted. Older
+  `sentence-transformers` versions could be made to load and execute code by way of that
+  model name. The dependency floor is raised to `sentence-transformers>=6.0.0`, which closes
+  this. Per-repo `embedding_model` overrides remain supported.
 
 ## [0.2.0] - 2026-09-16
 
