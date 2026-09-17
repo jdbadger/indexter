@@ -254,6 +254,19 @@ class TestReadSnippets:
 
         assert snippets["a"] is None
 
+    def test_escaping_symlink_swapped_in_after_indexing_yields_no_snippet(self, tmp_path, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        (outside / "secret.py").write_text("SECRETVALUE123")
+        # Indexed as a regular file, then replaced by a symlink that escapes
+        # the repo before the snippet is read at search time.
+        (tmp_path / "a.py").unlink(missing_ok=True)
+        (tmp_path / "a.py").symlink_to(outside / "secret.py")
+        selection = _selection("a", file_path="a.py", start_byte=0, end_byte=10)
+
+        snippets = read_snippets(tmp_path, [selection], max_lines=40)
+
+        assert snippets["a"] is None
+
     def test_each_file_is_read_once(self, tmp_path, monkeypatch):
         content = "def f():\n    return 1\ndef g():\n    return 2\n"
         (tmp_path / "a.py").write_text(content)

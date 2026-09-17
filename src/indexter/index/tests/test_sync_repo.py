@@ -238,6 +238,44 @@ class TestSyncRepo:
         assert report2.unchanged == ("bad.py",)
 
 
+class TestSymlinkSafety:
+    def test_escaping_symlink_never_indexed(self, repo, db_path, settings, embedder, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        write(outside, "secret.py", "def leak():\n    return 'SECRETVALUE123'\n")
+        (repo / "escape.py").symlink_to(outside / "secret.py")
+        write(repo, "keep.py", SRC_A)
+
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            report = sync_repo(conn, repo, settings, embedder)
+
+            file_row = conn.execute("SELECT 1 FROM files WHERE path = 'escape.py'").fetchone()
+            fts_hit = conn.execute("SELECT 1 FROM nodes_fts WHERE body MATCH 'SECRETVALUE123'").fetchone()
+
+        assert "escape.py" not in report.added
+        assert file_row is None
+        assert fts_hit is None
+
+    def test_pre_fix_rows_removed_on_resync(self, repo, db_path, settings, embedder, tokenizer, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        write(outside, "secret.py", "def leak():\n    return 'SECRETVALUE123'\n")
+        (repo / "escape.py").symlink_to(outside / "secret.py")
+
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            # Simulate rows written by a pre-fix version of the walker, which
+            # would have followed the escaping symlink and indexed it.
+            sync_source(conn, "escape.py", "def leak():\n    return 'SECRETVALUE123'\n", settings, tokenizer)
+
+            report = sync_repo(conn, repo, settings, embedder)
+
+            file_row = conn.execute("SELECT 1 FROM files WHERE path = 'escape.py'").fetchone()
+            fts_hit = conn.execute("SELECT 1 FROM nodes_fts WHERE body MATCH 'SECRETVALUE123'").fetchone()
+
+        assert report.removed == ("escape.py",)
+        assert report.nodes_deleted > 0
+        assert file_row is None
+        assert fts_hit is None
+
+
 class TestHealing:
     def test_backlog_resumes_after_interruption_without_reparsing(self, repo, db_path, settings, embedder):
         write(repo, "a.py", SRC_A)

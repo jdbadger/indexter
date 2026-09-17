@@ -170,6 +170,16 @@ class Walker:
                 continue
 
             try:
+                is_symlink = entry.is_symlink()
+            except OSError as e:
+                logger.warning("Error accessing %s: %s", entry, e)
+                continue
+
+            if is_symlink and not self._symlink_admitted(entry, repo_resolved):
+                logger.debug("Skipping symlink outside repository or to ignored path: %s", relative_str)
+                continue
+
+            try:
                 is_dir = entry.is_dir()
             except OSError as e:
                 logger.warning("Error accessing %s: %s", entry, e)
@@ -178,9 +188,6 @@ class Walker:
             if is_dir:
                 if self._matcher.should_ignore(relative_str + "/"):
                     logger.debug("Pruning directory: %s", relative_str)
-                    continue
-                if entry.is_symlink() and not self._symlink_dir_within_repo(entry, repo_resolved):
-                    logger.debug("Skipping symlinked directory: %s", relative_str)
                     continue
                 yield from self._walk_dir(entry, repo_resolved)
                 continue
@@ -196,14 +203,18 @@ class Walker:
             if walked is not None:
                 yield walked
 
-    @staticmethod
-    def _symlink_dir_within_repo(entry: Path, repo_resolved: Path) -> bool:
+    def _symlink_admitted(self, entry: Path, repo_resolved: Path) -> bool:
+        """A symlink (file or directory) is admitted only if its target is
+        something the walk would index by its real path anyway: inside the
+        repository, and not matched by the ignore rules.
+        """
         try:
-            resolved = entry.resolve()
-            resolved.relative_to(repo_resolved)
+            resolved = entry.resolve(strict=True)
+            relative = resolved.relative_to(repo_resolved)
         except (ValueError, OSError):
             return False
-        return True
+        target_str = relative.as_posix() + ("/" if resolved.is_dir() else "")
+        return not self._matcher.should_ignore(target_str)
 
     def _consider_file(self, entry: Path, relative_str: str) -> WalkedFile | None:
         if self._matcher.should_ignore(relative_str):
@@ -239,9 +250,15 @@ class Walker:
 
 def read_file(repo_path: str | Path, relpath: str) -> tuple[str, str] | None:
     """Read and hash one file. Returns `(content, hash)`, or `None` if it
-    can't be decoded as UTF-8 or Latin-1.
+    can't be decoded as UTF-8 or Latin-1, or if `relpath` resolves (following
+    any symlinks) to a path outside the repository root.
     """
-    full_path = Path(repo_path) / relpath
+    try:
+        repo_resolved = Path(repo_path).resolve()
+        full_path = (Path(repo_path) / relpath).resolve(strict=True)
+        full_path.relative_to(repo_resolved)
+    except (OSError, ValueError):
+        return None
     try:
         content = full_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:

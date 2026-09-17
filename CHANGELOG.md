@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The walker checked symlinked directories for repository containment but not symlinked
+  files, and neither checked whether a symlink's target was itself an ignored path. A
+  committed file symlink to a path outside the repository (`docs/notes.md -> ../../.ssh/id_ed25519`),
+  or to an ignored path inside it (`notes.md -> .env`, `link -> .git`), was indexed and its
+  contents could be returned by the MCP `search` tool. Symlinks are now followed only when
+  their target is inside the repository and not ignored; `read_file` independently refuses
+  to read outside the repository, protecting the snippet read at search time. Rows indexed
+  through a bad symlink before this fix are purged automatically on the next sync, which
+  `search` triggers. Repositories that deliberately symlink files in from outside the
+  checkout will no longer have those files indexed.
+
 ## [0.2.0] - 2026-09-16
 
 A ground-up rewrite. It keeps the purpose — let an agent find code when the user can't name

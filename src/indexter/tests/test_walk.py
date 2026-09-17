@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from indexter.config import Settings
@@ -141,6 +143,94 @@ class TestSafety:
         paths = {r.path for r in Walker(repo, settings).walk()}
         assert paths == {"real/a.py", "link/a.py"}
 
+    def test_symlink_relative_escape_not_followed(self, repo, settings, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        write(outside / "secret.py", "x = 1\n")
+        write(repo / "keep.py", "x = 1\n")
+        (repo / "sub").mkdir()
+        target = os.path.relpath(outside / "secret.py", start=repo / "sub")
+        (repo / "sub" / "escape.py").symlink_to(target)
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py"}
+
+    def test_symlink_absolute_escape_not_followed(self, repo, settings, tmp_path_factory, monkeypatch):
+        outside = tmp_path_factory.mktemp("outside")
+        write(outside / "secret.py", "x = 1\n")
+        (repo / "escape.py").symlink_to(outside / "secret.py")
+        write(repo / "keep.py", "x = 1\n")
+
+        original_consider = Walker._consider_file
+
+        def guarded(self, entry, relative_str):
+            assert relative_str != "escape.py", "escaping symlink target must never be stat'd"
+            return original_consider(self, entry, relative_str)
+
+        monkeypatch.setattr(Walker, "_consider_file", guarded)
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py"}
+
+    def test_symlink_chain_escaping_not_followed(self, repo, settings, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        write(outside / "secret.py", "x = 1\n")
+        (repo / "inner").symlink_to(outside / "secret.py")
+        (repo / "outer").symlink_to(repo / "inner")
+        write(repo / "keep.py", "x = 1\n")
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py"}
+
+    def test_symlink_to_gitignored_file_not_followed(self, repo, settings):
+        write(repo / ".gitignore", ".env\n")
+        write(repo / ".env", "SECRET=1\n")
+        (repo / "notes.md").symlink_to(repo / ".env")
+        write(repo / "keep.py", "x = 1\n")
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py", ".gitignore"}
+
+    def test_symlink_to_file_under_gitignored_directory_not_followed(self, repo, settings):
+        write(repo / ".gitignore", "secrets/\n")
+        write(repo / "secrets" / "key.txt", "shh\n")
+        (repo / "link.txt").symlink_to(repo / "secrets" / "key.txt")
+        write(repo / "keep.py", "x = 1\n")
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py", ".gitignore"}
+
+    def test_symlink_to_configured_ignore_pattern_not_followed(self, repo, settings):
+        write(repo / "skip.py", "x = 1\n")
+        (repo / "link.py").symlink_to(repo / "skip.py")
+        write(repo / "keep.py", "x = 1\n")
+        settings = settings.model_copy(update={"ignore_patterns": ("skip.py",)})
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py"}
+
+    def test_symlinked_git_directory_not_descended(self, repo, settings):
+        write(repo / ".git" / "config", "[core]\n")
+        (repo / "link").symlink_to(repo / ".git")
+        write(repo / "keep.py", "x = 1\n")
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py"}
+
+    def test_symlinked_git_config_file_not_followed(self, repo, settings):
+        write(repo / ".git" / "config", "[core]\n")
+        (repo / "cfg").symlink_to(repo / ".git" / "config")
+        write(repo / "keep.py", "x = 1\n")
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"keep.py"}
+
+    def test_symlink_to_file_within_repo_is_fine(self, repo, settings):
+        write(repo / "real.py", "x = 1\n")
+        (repo / "link.py").symlink_to(repo / "real.py")
+        paths = {r.path for r in Walker(repo, settings).walk()}
+        assert paths == {"real.py", "link.py"}
+
+    def test_symlinked_repo_root_still_admits_in_repo_links(self, repo, settings, tmp_path_factory):
+        actual = tmp_path_factory.mktemp("actual")
+        write(actual / "real.py", "x = 1\n")
+        (actual / "link.py").symlink_to(actual / "real.py")
+        root = tmp_path_factory.mktemp("via_root_parent") / "root"
+        root.symlink_to(actual)
+        paths = {r.path for r in Walker(root, settings).walk()}
+        assert paths == {"real.py", "link.py"}
+
     def test_broken_symlink_skipped(self, repo, settings):
         (repo / "broken").symlink_to(repo / "does-not-exist")
         write(repo / "keep.py", "x = 1\n")
@@ -207,6 +297,30 @@ class TestReading:
 
     def test_missing_file_returns_none(self, repo):
         assert read_file(repo, "does-not-exist.py") is None
+
+    def test_escaping_symlink_returns_none(self, repo, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        write(outside / "secret.py", "x = 1\n")
+        (repo / "escape.py").symlink_to(outside / "secret.py")
+        assert read_file(repo, "escape.py") is None
+
+    def test_relpath_escape_returns_none(self, repo, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        write(outside / "secret.py", "x = 1\n")
+        relpath = os.path.relpath(outside / "secret.py", start=repo)
+        assert read_file(repo, relpath) is None
+
+    def test_broken_symlink_returns_none(self, repo):
+        (repo / "broken.py").symlink_to(repo / "does-not-exist.py")
+        assert read_file(repo, "broken.py") is None
+
+    def test_contained_dotdot_path_still_reads(self, repo):
+        write(repo / "sub" / "a.py", "x = 1\n")
+        write(repo / "b.py", "y = 2\n")
+        result = read_file(repo, "sub/../b.py")
+        assert result is not None
+        content, _ = result
+        assert content == "y = 2\n"
 
     def test_undecodable_returns_none(self, repo, monkeypatch):
         write(repo / "a.py", "x = 1\n")
