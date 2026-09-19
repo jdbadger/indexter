@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hugging Face's unauthenticated-requests warning and its "Loading weights" progress bar no
   longer appear on stderr during indexing.
 
-## [0.2.1]
+## [0.2.1] - 2026-09-17
 
 ### Security
 
