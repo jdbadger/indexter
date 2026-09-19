@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from inline_snapshot import snapshot
 
+import indexter.search.neighbors as neighbors_module
 from indexter.config import Settings
 from indexter.db.connection import open_db
 from indexter.index.embed import FakeEmbedder
@@ -442,3 +443,33 @@ id: python/pkg/core.py::Engine#class
 - contains Engine.run — method — python/pkg/core.py:10-11
   id: python/pkg/core.py::Engine.run#method\
 """)
+
+
+class TestNeighborsSyncIsSilent:
+    def test_neighbors_triggered_sync_supplies_no_observer(
+        self, repo, conn, repo_node_id, settings, embedder, monkeypatch, capfd
+    ):
+        seen = []
+        real_sync = neighbors_module.sync_repo
+
+        def spy(*args, **kwargs):
+            report = real_sync(*args, **kwargs)
+            seen.append((args, kwargs, report))
+            return report
+
+        monkeypatch.setattr(neighbors_module, "sync_repo", spy)
+        helper_id = repo_node_id(conn, "src/walker.py", "helper")
+        (repo / "src" / "walker.py").write_text(
+            (repo / "src" / "walker.py").read_text() + "\n\ndef extra():\n    return 3\n"
+        )
+        capfd.readouterr()
+
+        neighbors_repo(conn, repo, helper_id, settings, embedder)
+
+        ((args, kwargs, report),) = seen
+        assert report.texts_embedded > 0  # a real index-and-embed happened
+        assert len(args) == 4  # conn, repo, settings, embedder -- no observer
+        assert "progress" not in kwargs
+        captured = capfd.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""

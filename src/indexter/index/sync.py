@@ -26,6 +26,7 @@ from indexter.index.graph import ResolveReport, resolution_due, resolve_repo
 from indexter.parse.base import parse_file
 from indexter.parse.models import Kind, ParseResult
 from indexter.paths import db_path as resolve_db_path
+from indexter.progress import NullProgress, Progress
 from indexter.walk import Walker, read_file
 
 if TYPE_CHECKING:
@@ -328,11 +329,16 @@ class SyncReport:
     resolution: ResolveReport | None = None
 
 
-def _embedding_backlog(conn: sqlite3.Connection, embedder: Embedder, settings: Settings) -> int:
+def _embedding_backlog(
+    conn: sqlite3.Connection, embedder: Embedder, settings: Settings, progress: Progress | None = None
+) -> int:
     """Embed every node lacking a vector, in `embed_batch_size` batches, each
     its own transaction. Never calls `embedder` when there is nothing to do
-    (decision 1) -- a no-op sync must not load a tokenizer or a model.
+    (decision 1) -- a no-op sync must not load a tokenizer or a model, and
+    reports no phase.
     """
+    if progress is None:
+        progress = NullProgress()
     rows = conn.execute(
         "SELECT rowid, kind, language, embed_text FROM nodes "
         "WHERE rowid NOT IN (SELECT node_rowid FROM vectors) AND kind != ?",
@@ -341,8 +347,11 @@ def _embedding_backlog(conn: sqlite3.Connection, embedder: Embedder, settings: S
     if not rows:
         return 0
 
+    embedder.prepare(progress)
+
     embedded = 0
     batch_size = settings.embed_batch_size
+    progress.phase_start("embed", total=len(rows))
     for start in range(0, len(rows), batch_size):
         batch = rows[start : start + batch_size]
         vectors = embedder.embed([row["embed_text"] or "" for row in batch])
@@ -363,17 +372,30 @@ def _embedding_backlog(conn: sqlite3.Connection, embedder: Embedder, settings: S
             raise
         else:
             conn.execute("COMMIT")
+        progress.advance(len(batch))
 
+    progress.phase_done("embed")
     return embedded
 
 
-def sync_repo(conn: sqlite3.Connection, repo_path: str | Path, settings: Settings, embedder: Embedder) -> SyncReport:
+def sync_repo(
+    conn: sqlite3.Connection,
+    repo_path: str | Path,
+    settings: Settings,
+    embedder: Embedder,
+    progress: Progress | None = None,
+) -> SyncReport:
     """Sync a repository's database with its current files: pass one (walk,
     classify, write structural changes), resolution, then pass two (the
     embedding backlog) -- see design.md decision 1 and decision 2. Nothing
     is read, parsed, resolved, or embedded unless something on disk, or the
     resolver itself, actually looks different.
+
+    `progress` observes the phases; omitted, nothing is reported. Callers
+    whose stdout is a protocol (the MCP server) must not supply one.
     """
+    if progress is None:
+        progress = NullProgress()
     start = time.perf_counter()
 
     old_rows = conn.execute("SELECT path, size, mtime, content_hash FROM files").fetchall()
@@ -392,7 +414,9 @@ def sync_repo(conn: sqlite3.Connection, repo_path: str | Path, settings: Setting
     tokenizer = None
     seen_paths: set[str] = set()
 
+    progress.phase_start("files")
     for walked in Walker(repo_path, settings).walk():
+        progress.advance()
         seen_paths.add(walked.path)
         old = old_by_path.get(walked.path)
 
@@ -433,10 +457,15 @@ def sync_repo(conn: sqlite3.Connection, repo_path: str | Path, settings: Setting
         if path not in seen_paths:
             removed.append(path)
             nodes_deleted += remove_file(conn, path)
+    progress.phase_done("files")
 
-    resolution = resolve_repo(conn) if resolution_due(conn) else None
+    resolution = None
+    if resolution_due(conn):
+        progress.phase_start("resolve")
+        resolution = resolve_repo(conn)
+        progress.phase_done("resolve")
 
-    texts_embedded = _embedding_backlog(conn, embedder, settings)
+    texts_embedded = _embedding_backlog(conn, embedder, settings, progress)
 
     _write_fingerprint(conn, current_fingerprint, time.time())
 
@@ -467,7 +496,14 @@ class IndexResult:
     report: SyncReport
 
 
-def index_repository(repo: str | Path, settings: Settings, embedder: Embedder, *, full: bool = False) -> IndexResult:
+def index_repository(
+    repo: str | Path,
+    settings: Settings,
+    embedder: Embedder,
+    *,
+    full: bool = False,
+    progress: Progress | None = None,
+) -> IndexResult:
     """Resolve a repository's database path, create/open/rebuild it as
     needed, and run `sync_repo` -- the shared body of `indexter init` and
     `indexter reindex` (decision 12).
@@ -491,11 +527,11 @@ def index_repository(repo: str | Path, settings: Settings, embedder: Embedder, *
 
     try:
         with open_db(path, repo=repo, settings=settings) as conn:
-            report = sync_repo(conn, repo, settings, embedder)
+            report = sync_repo(conn, repo, settings, embedder, progress)
     except SchemaVersionMismatch:
         delete_database_files(path)
         status = "rebuilt"
         with open_db(path, repo=repo, settings=settings) as conn:
-            report = sync_repo(conn, repo, settings, embedder)
+            report = sync_repo(conn, repo, settings, embedder, progress)
 
     return IndexResult(db_path=path, status=status, report=report)

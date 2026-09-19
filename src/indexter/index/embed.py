@@ -15,8 +15,10 @@ from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from indexter.config import Settings
+from indexter.progress import LoadKind, NullProgress, Progress
 
 TOKENIZER_FILENAME = "tokenizer.json"
+CACHE_MARKER_FILENAME = "modules.json"
 
 
 class EmbeddingError(Exception):
@@ -78,6 +80,13 @@ class Embedder(Protocol):
     model_name: str
 
     def tokenizer(self) -> TokenizerLike: ...
+    def prepare(self, progress: Progress) -> None:
+        """Load the model now, if it isn't loaded, reporting the wait to
+        `progress`. `embed()` loads it silently on demand; call this first
+        when the caller wants the wait narrated.
+        """
+        ...
+
     def embed(self, texts: Sequence[str]) -> list[bytes]: ...
 
 
@@ -108,6 +117,35 @@ def _load_tokenizer(model_name: str) -> TokenizerLike:
     return tok
 
 
+def probe_model_cache(model_name: str) -> bool:
+    """Whether `model_name` is in the local Hugging Face cache. Reads the disk
+    only -- no network. Keyed on `modules.json`, which every sentence-transformers
+    repo ships; a model without it probes as uncached and takes the normal path.
+    """
+    from huggingface_hub import try_to_load_from_cache
+
+    return isinstance(try_to_load_from_cache(model_name, CACHE_MARKER_FILENAME), str)
+
+
+def _quiet_backends() -> None:
+    """Mute the hub's and transformers' warnings and progress bars (the
+    "Loading weights" bar is transformers'). Must run after the backend is
+    imported: importing it reconfigures their logging.
+    """
+    from huggingface_hub.utils import disable_progress_bars
+    from huggingface_hub.utils import logging as hub_logging
+
+    hub_logging.set_verbosity_error()
+    disable_progress_bars()
+
+    try:
+        from transformers.utils import logging as transformers_logging
+    except ImportError:  # the onnx backend doesn't need transformers
+        return
+    transformers_logging.set_verbosity_error()
+    transformers_logging.disable_progress_bar()
+
+
 class SentenceTransformerEmbedder:
     """Default backend: sentence-transformers (torch)."""
 
@@ -117,22 +155,46 @@ class SentenceTransformerEmbedder:
         self._settings = settings
         self._tokenizer: TokenizerLike | None = None
         self._model = None
+        self.load_kind: LoadKind | None = None
 
     def tokenizer(self) -> TokenizerLike:
         if self._tokenizer is None:
             self._tokenizer = _load_tokenizer(self.model_name)
         return self._tokenizer
 
-    def _load_model(self):
+    def prepare(self, progress: Progress) -> None:
+        self._load_model(progress)
+
+    def _load_model(self, progress: Progress | None = None):
         if self._model is not None:
             return self._model
+        if progress is None:
+            progress = NullProgress()
+
+        cached = probe_model_cache(self.model_name)
+        self.load_kind = "cached" if cached else "acquisition"
+        progress.model_classified(self.load_kind, self.model_name)
+        progress.phase_start("model")
 
         from sentence_transformers import SentenceTransformer
 
-        try:
-            model = SentenceTransformer(self.model_name)
-        except OSError as e:
-            raise ModelAcquisitionError(self.model_name, str(e)) from e
+        _quiet_backends()
+
+        model = None
+        if cached:
+            try:
+                model = SentenceTransformer(self.model_name, local_files_only=True)
+            except OSError:
+                # The probe checks one marker file; the snapshot may be incomplete.
+                pass
+        if model is None:
+            if cached:
+                self.load_kind = "acquisition"
+                progress.model_classified(self.load_kind, self.model_name)
+            try:
+                model = SentenceTransformer(self.model_name)
+            except OSError as e:
+                raise ModelAcquisitionError(self.model_name, str(e)) from e
 
         model.max_seq_length = self._settings.embed_max_tokens
         actual_dim = model.get_embedding_dimension()
@@ -142,6 +204,7 @@ class SentenceTransformerEmbedder:
             raise DimensionMismatch(self.model_name, actual_dim, self._settings.embedding_dim)
 
         self._model = model
+        progress.phase_done("model")
         return self._model
 
     def embed(self, texts: Sequence[str]) -> list[bytes]:
@@ -173,14 +236,25 @@ class FastEmbedEmbedder:
             self._tokenizer = _load_tokenizer(self.model_name)
         return self._tokenizer
 
-    def _load_model(self):
+    def prepare(self, progress: Progress) -> None:
+        self._load_model(progress)
+
+    def _load_model(self, progress: Progress | None = None):
         if self._model is not None:
             return self._model
+        if progress is None:
+            progress = NullProgress()
 
         try:
             from fastembed import TextEmbedding  # ty: ignore[unresolved-import]
         except ImportError as e:
             raise BackendNotAvailable("fastembed", "onnx") from e
+
+        # No cache probe here, so no load classification: fastembed fetches ONNX
+        # exports from its own repos into its own cache layout, so `model_name`
+        # is not a key into the hub cache.
+        progress.phase_start("model")
+        _quiet_backends()
 
         try:
             model = TextEmbedding(model_name=self.model_name)
@@ -188,6 +262,7 @@ class FastEmbedEmbedder:
             raise ModelAcquisitionError(self.model_name, str(e)) from e
 
         self._model = model
+        progress.phase_done("model")
         return self._model
 
     def embed(self, texts: Sequence[str]) -> list[bytes]:
@@ -275,10 +350,16 @@ class FakeEmbedder:
             self._tokenizer = _WhitespaceTokenizer()
         return self._tokenizer
 
-    def embed(self, texts: Sequence[str]) -> list[bytes]:
-        if not texts:
-            return []
+    def prepare(self, progress: Progress) -> None:  # noqa: ARG002
+        self._load()
+
+    def _load(self) -> None:
         if not self._model_loaded:
             self.model_loads += 1
             self._model_loaded = True
+
+    def embed(self, texts: Sequence[str]) -> list[bytes]:
+        if not texts:
+            return []
+        self._load()
         return [_hash_vector(text, self.dim) for text in texts]

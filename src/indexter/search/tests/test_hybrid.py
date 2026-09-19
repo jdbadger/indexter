@@ -503,6 +503,9 @@ class _ConstantEmbedder:
     def tokenizer(self):
         return self._tokenizer_source.tokenizer()
 
+    def prepare(self, progress):
+        pass
+
     def embed(self, texts):
         vector = struct.pack(f"{self.dim}f", *([1.0] * self.dim))
         return [vector for _ in texts]
@@ -552,3 +555,27 @@ class TestSearchRepoSnapshot:
             "def test_helper():\n"
             "    return 1"
         )
+
+
+class TestSearchSyncIsSilent:
+    def test_search_triggered_sync_supplies_no_observer(self, conn, repo, settings, embedder, monkeypatch, capfd):
+        seen = []
+        real_sync = hybrid_module.sync_repo
+
+        def spy(*args, **kwargs):
+            seen.append((args, kwargs))
+            return real_sync(*args, **kwargs)
+
+        monkeypatch.setattr(hybrid_module, "sync_repo", spy)
+        (repo / "src" / "walker.py").write_text("def helper():\n    return 2\n")
+        capfd.readouterr()
+
+        result = search_repo(conn, repo, "helper", settings, embedder)
+
+        assert result.sync_report.texts_embedded > 0  # a real index-and-embed happened
+        ((args, kwargs),) = seen
+        assert len(args) == 4  # conn, repo, settings, embedder -- no observer
+        assert "progress" not in kwargs
+        captured = capfd.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""

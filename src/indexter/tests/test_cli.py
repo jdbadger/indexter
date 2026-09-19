@@ -1,9 +1,12 @@
 import asyncio
+import functools
 import importlib.metadata
 import os
+import re
 import shutil
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -16,6 +19,7 @@ from indexter.config import Settings
 from indexter.db.connection import IndexterDBError, open_db
 from indexter.index.embed import FakeEmbedder
 from indexter.paths import data_dir, db_path
+from indexter.progress import ConsoleProgress
 
 runner = CliRunner()
 
@@ -411,6 +415,152 @@ class TestReindex:
         assert result.exit_code == 1
         assert "simulated embedder error" in result.output
         assert "Traceback" not in result.output
+
+
+class _SlowEmbedder(FakeEmbedder):
+    """Takes long enough per batch that the embedding phase crosses the painting threshold."""
+
+    def embed(self, texts):
+        time.sleep(0.15)
+        return super().embed(texts)
+
+
+@pytest.fixture
+def narratable(monkeypatch):
+    """A slow embedder and a low painting threshold, so a fast test repo still
+    produces narration. Real timings would leave every phase silent.
+    """
+    monkeypatch.setattr("indexter.cli.make_embedder", lambda settings: _SlowEmbedder(dim=settings.embedding_dim))
+    monkeypatch.setattr("indexter.cli.ConsoleProgress", functools.partial(ConsoleProgress, threshold=0.02))
+
+
+@pytest.fixture
+def interactive_stderr(monkeypatch):
+    monkeypatch.setattr("indexter.cli._stderr_is_interactive", lambda: True)
+
+
+def _without_timings(text: str) -> str:
+    return re.sub(r"elapsed=[0-9.]+s", "elapsed=<t>", text)
+
+
+NARRATION = ("Indexing files", "Embedding", "\u2713", "\u2501", "Resolving graph")
+
+
+class TestNarrationStreams:
+    @pytest.fixture(autouse=True)
+    def _repo(self, repo):
+        write(repo, "a.py", SRC_A)
+
+    def test_stdout_is_identical_with_and_without_narration(self, repo, narratable):
+        runner.invoke(app, ["init", str(repo)])
+
+        narrated = runner.invoke(app, ["reindex", str(repo), "--full", "--progress"])
+        silent = runner.invoke(app, ["reindex", str(repo), "--full", "--quiet"])
+
+        assert narrated.exit_code == 0
+        assert "\u2713 Embedded" in narrated.stderr  # narration really happened
+        assert silent.stderr == ""
+        assert _without_timings(narrated.stdout) == _without_timings(silent.stdout)
+
+    def test_no_narration_ever_appears_on_stdout(self, repo, narratable):
+        result = runner.invoke(app, ["init", str(repo), "--progress"])
+
+        assert result.exit_code == 0
+        assert "\u2713 Embedded" in result.stderr
+        for marker in NARRATION:
+            assert marker not in result.stdout
+        assert "Initialized" in result.stdout
+
+    def test_non_interactive_stderr_without_a_flag_is_silent(self, repo, narratable):
+        result = runner.invoke(app, ["init", str(repo)])
+
+        assert result.exit_code == 0
+        assert result.stderr == ""
+        assert "Initialized" in result.stdout
+
+    def test_interactive_stderr_narrates_by_default(self, repo, narratable, interactive_stderr):
+        result = runner.invoke(app, ["init", str(repo)])
+
+        assert result.exit_code == 0
+        assert "\u2713 Embedded" in result.stderr
+        assert "Initialized" in result.stdout
+
+    def test_quiet_silences_an_interactive_terminal_and_keeps_the_summary(self, repo, narratable, interactive_stderr):
+        result = runner.invoke(app, ["init", str(repo), "--quiet"])
+
+        assert result.exit_code == 0
+        assert result.stderr == ""
+        assert "Initialized" in result.stdout
+        assert "added=1" in result.stdout
+
+    def test_progress_narrates_to_redirected_stderr(self, repo, narratable):
+        result = runner.invoke(app, ["init", str(repo), "--progress"])
+
+        assert result.exit_code == 0
+        assert re.search(r"Embedding \d+ nodes\.\.\.", result.stderr)
+        assert "\x1b" not in result.stderr  # a redirected stream gets plain lines
+
+    def test_conflicting_flags_fail_naming_both_and_index_nothing(self, repo, monkeypatch):
+        def boom(*args, **kwargs):
+            raise AssertionError("indexing must not start")
+
+        monkeypatch.setattr("indexter.cli.index_repository", boom)
+
+        result = runner.invoke(app, ["init", str(repo), "--quiet", "--progress"])
+
+        assert result.exit_code != 0
+        assert "--quiet" in result.stderr
+        assert "--progress" in result.stderr
+        assert not db_path(repo).exists()
+
+    def test_conflicting_flags_fail_on_reindex_too(self, repo, monkeypatch):
+        monkeypatch.setattr("indexter.cli.index_repository", lambda *a, **k: pytest.fail("must not index"))
+
+        result = runner.invoke(app, ["reindex", str(repo), "--quiet", "--progress"])
+
+        assert result.exit_code != 0
+        assert "--quiet" in result.stderr and "--progress" in result.stderr
+
+    def test_noop_reindex_narrates_nothing_and_still_prints_its_summary(self, repo, fake_embedder):
+        runner.invoke(app, ["init", str(repo)])
+
+        result = runner.invoke(app, ["reindex", str(repo), "--progress"])
+
+        assert result.exit_code == 0
+        assert result.stderr == ""
+        assert "unchanged=1" in result.stdout
+        assert "texts_embedded=0" in result.stdout
+
+    def test_full_reindex_narrates_like_init(self, repo, narratable):
+        runner.invoke(app, ["init", str(repo)])
+
+        result = runner.invoke(app, ["reindex", str(repo), "--full", "--progress"])
+
+        assert result.exit_code == 0
+        assert "\u2713 Embedded" in result.stderr
+        assert "Rebuilt" in result.stdout
+
+    def test_an_indexing_error_leaves_a_clean_stderr_line(self, repo, narratable, monkeypatch):
+        from indexter.index.embed import EmbeddingError
+
+        class _Failing(_SlowEmbedder):
+            def embed(self, texts):
+                time.sleep(0.1)
+                raise EmbeddingError("simulated embedder error")
+
+        monkeypatch.setattr("indexter.cli.make_embedder", lambda settings: _Failing(dim=settings.embedding_dim))
+
+        result = runner.invoke(app, ["init", str(repo), "--progress"])
+
+        assert result.exit_code == 1
+        assert "simulated embedder error" in result.stderr
+        assert "\u2713 Embedded" not in result.stderr  # a failed phase is never marked done
+
+    def test_help_documents_both_flags(self):
+        for command in ("init", "reindex"):
+            result = runner.invoke(app, [command, "--help"])
+            assert "--quiet" in result.stdout
+            assert "--progress" in result.stdout
 
 
 class TestMcpCommand:
