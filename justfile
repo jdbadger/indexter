@@ -27,6 +27,11 @@ build:
     uv build
     uv run python scripts/check_dist.py
 
+# Regenerate the `indexter init` banner art (src/indexter/_logo.py) from indexter.png.
+logo:
+    uv run python scripts/render_logo.py
+    uv run --group dev ruff format src/indexter/_logo.py
+
 # lint, test and build, in that order -- the full local pre-push check.
 check: lint test build
 

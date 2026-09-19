@@ -15,10 +15,11 @@ from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 from typer.testing import CliRunner
 
+import indexter.cli as cli_mod
 from indexter.cli import _format_size, _skill_content, app
 from indexter.config import Settings
 from indexter.db.connection import IndexterDBError, open_db
-from indexter.index.embed import FakeEmbedder
+from indexter.index.embed import EmbeddingError, FakeEmbedder
 from indexter.paths import data_dir, db_path
 from indexter.progress import ConsoleProgress
 
@@ -30,6 +31,15 @@ def isolated_data_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data-home"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     return data_dir()
+
+
+@pytest.fixture(autouse=True)
+def banner_calls(monkeypatch):
+    """Record `show_banner` calls instead of drawing, so no test can ever ask a
+    real terminal for its background colour."""
+    calls: list[dict] = []
+    monkeypatch.setattr("indexter.cli.show_banner", lambda **kwargs: calls.append(kwargs))
+    return calls
 
 
 @pytest.fixture
@@ -459,6 +469,88 @@ def _without_timings(text: str) -> str:
 
 
 NARRATION = ("Indexing files", "Embedding", "\u2713", "\u2501", "Resolving graph")
+
+
+class TestInitBanner:
+    @pytest.fixture(autouse=True)
+    def _repo(self, repo):
+        write(repo, "a.py", SRC_A)
+
+    def test_first_init_on_a_terminal_shows_the_banner_with_the_version(
+        self, repo, fake_embedder, interactive_stderr, banner_calls
+    ):
+        result = runner.invoke(app, ["init", str(repo)])
+
+        assert result.exit_code == 0
+        assert banner_calls == [{"version": importlib.metadata.version("indexter")}]
+
+    def test_banner_shows_before_indexing_starts(self, repo, fake_embedder, interactive_stderr, monkeypatch):
+        events: list[str] = []
+        monkeypatch.setattr("indexter.cli.show_banner", lambda **kwargs: events.append("banner"))
+        real_index = cli_mod.index_repository
+
+        def recording_index(*args, **kwargs):
+            events.append("index")
+            return real_index(*args, **kwargs)
+
+        monkeypatch.setattr("indexter.cli.index_repository", recording_index)
+
+        runner.invoke(app, ["init", str(repo)])
+
+        assert events == ["banner", "index"]
+
+    def test_second_init_is_quiet(self, repo, fake_embedder, interactive_stderr, banner_calls):
+        runner.invoke(app, ["init", str(repo)])
+        banner_calls.clear()
+
+        result = runner.invoke(app, ["init", str(repo)])
+
+        assert result.exit_code == 0
+        assert banner_calls == []
+
+    def test_quiet_suppresses_the_banner(self, repo, fake_embedder, interactive_stderr, banner_calls):
+        result = runner.invoke(app, ["init", str(repo), "--quiet"])
+
+        assert result.exit_code == 0
+        assert banner_calls == []
+
+    def test_non_interactive_stderr_has_no_banner(self, repo, fake_embedder, banner_calls):
+        result = runner.invoke(app, ["init", str(repo)])
+
+        assert result.exit_code == 0
+        assert banner_calls == []
+
+    def test_progress_flag_alone_does_not_force_the_banner(self, repo, fake_embedder, banner_calls):
+        result = runner.invoke(app, ["init", str(repo), "--progress"])
+
+        assert result.exit_code == 0
+        assert banner_calls == []
+
+    def test_reindex_never_shows_the_banner(self, repo, fake_embedder, interactive_stderr, banner_calls):
+        runner.invoke(app, ["init", str(repo)])
+        banner_calls.clear()
+
+        result = runner.invoke(app, ["reindex", str(repo), "--full"])
+
+        assert result.exit_code == 0
+        assert banner_calls == []
+
+    def test_a_failed_setup_shows_no_banner(self, repo, interactive_stderr, banner_calls, monkeypatch):
+        def boom(settings):
+            raise EmbeddingError("no model")
+
+        monkeypatch.setattr("indexter.cli.make_embedder", boom)
+
+        result = runner.invoke(app, ["init", str(repo)])
+
+        assert result.exit_code == 1
+        assert banner_calls == []
+
+    def test_the_summary_on_stdout_is_unchanged_by_the_banner(self, repo, fake_embedder, interactive_stderr):
+        result = runner.invoke(app, ["init", str(repo)])
+
+        assert "Initialized" in result.stdout
+        assert "added=1" in result.stdout
 
 
 class TestNarrationStreams:
