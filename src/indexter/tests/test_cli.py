@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
+from click import unstyle
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 from typer.testing import CliRunner
@@ -573,8 +574,10 @@ class TestNarrationStreams:
     def test_help_documents_both_flags(self):
         for command in ("init", "reindex"):
             result = runner.invoke(app, [command, "--help"])
-            assert "--quiet" in result.stdout
-            assert "--progress" in result.stdout
+            # Typer forces styled help under GITHUB_ACTIONS, splitting "--quiet" into "-" + "-quiet".
+            help_text = unstyle(result.stdout)
+            assert "--quiet" in help_text
+            assert "--progress" in help_text
 
 
 class TestMcpCommand:
