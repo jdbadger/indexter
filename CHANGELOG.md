@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The first run's model download was completely silent. It is now reported as a one-time
   download with elapsed time.
+- An `embedding_model` that isn't a Hugging Face model ID (such as a local path) now fails with
+  a one-line error naming the setting, instead of a traceback.
 - Hugging Face's unauthenticated-requests warning and its "Loading weights" progress bar no
   longer appear on stderr during indexing.
 

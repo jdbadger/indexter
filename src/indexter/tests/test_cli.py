@@ -328,6 +328,20 @@ class TestInit:
         assert "does not match" in result.output
 
 
+class TestInvalidModelName:
+    """Uses the real `make_embedder`: the tokenizer rejects a non-repo-ID name
+    before any model or network access, so this stays fast and offline.
+    """
+
+    def test_init_with_local_path_model_is_one_line_and_exits_nonzero(self, repo):
+        write(repo, "indexter.toml", 'embedding_model = "./models/minilm"\n')
+        write(repo, "a.py", SRC_A)
+        result = runner.invoke(app, ["init", str(repo)])
+        assert result.exit_code == 1
+        assert "./models/minilm" in result.output
+        assert "Traceback" not in result.output
+
+
 @pytest.mark.usefixtures("fake_embedder")
 class TestReindex:
     def test_on_non_directory_exits_nonzero(self, tmp_path):

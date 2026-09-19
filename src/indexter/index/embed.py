@@ -49,6 +49,17 @@ class ModelAcquisitionError(EmbeddingError):
         )
 
 
+class InvalidModelName(EmbeddingError):
+    """`embedding_model` isn't a Hugging Face repo ID (for example, a local path)."""
+
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
+        super().__init__(
+            f"embedding_model {model_name!r} is not a Hugging Face model ID (expected 'name' or "
+            "'org/name'). It must name a model on the Hugging Face Hub; local paths are not supported."
+        )
+
+
 class DimensionMismatch(EmbeddingError):
     """The model's actual output dimension doesn't match configured `embedding_dim`."""
 
@@ -101,10 +112,13 @@ def _load_tokenizer(model_name: str) -> TokenizerLike:
     would silently cap every token count at 128 (see design.md decision 7).
     """
     from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import HFValidationError
     from tokenizers import Tokenizer
 
     try:
         path = hf_hub_download(model_name, filename=TOKENIZER_FILENAME, local_files_only=True)
+    except HFValidationError as e:
+        raise InvalidModelName(model_name) from e
     except OSError:
         try:
             path = hf_hub_download(model_name, filename=TOKENIZER_FILENAME)
@@ -120,11 +134,16 @@ def _load_tokenizer(model_name: str) -> TokenizerLike:
 def probe_model_cache(model_name: str) -> bool:
     """Whether `model_name` is in the local Hugging Face cache. Reads the disk
     only -- no network. Keyed on `modules.json`, which every sentence-transformers
-    repo ships; a model without it probes as uncached and takes the normal path.
+    repo ships; a model without it probes as uncached and takes the normal path,
+    as does a name that isn't a repo ID.
     """
     from huggingface_hub import try_to_load_from_cache
+    from huggingface_hub.errors import HFValidationError
 
-    return isinstance(try_to_load_from_cache(model_name, CACHE_MARKER_FILENAME), str)
+    try:
+        return isinstance(try_to_load_from_cache(model_name, CACHE_MARKER_FILENAME), str)
+    except HFValidationError:
+        return False
 
 
 def _quiet_backends() -> None:
