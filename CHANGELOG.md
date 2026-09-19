@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `indexter init` and `indexter reindex` now narrate their progress on stderr: loading the
+  embedding model, indexing files, resolving the graph, and embedding, each resolving to a
+  `✓` line, with a proportional bar for the embedding pass. Steps that finish quickly print
+  nothing, so a `reindex` with no changes still prints only its summary. The summary and
+  per-file errors stay on stdout, unchanged, so output remains safe to parse.
+- `--quiet` disables narration; `--progress` enables it when stderr is not a terminal.
+  Narration is otherwise on only for an interactive terminal. `NO_COLOR` is honoured.
+
+### Changed
+
+- A model already in the local Hugging Face cache now loads with local files only, skipping a
+  network round-trip: about a second faster on every `init`, `reindex`, and first search. An
+  incomplete cache falls back to a normal download. A cached model is no longer refreshed from
+  upstream; changing `embedding_model` already forces a full re-index.
+
+### Fixed
+
+- The first run's model download was completely silent. It is now reported as a one-time
+  download with elapsed time.
+- Hugging Face's unauthenticated-requests warning and its "Loading weights" progress bar no
+  longer appear on stderr during indexing.
+
 ## [0.2.1]
 
 ### Security

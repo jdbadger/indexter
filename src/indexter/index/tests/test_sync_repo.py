@@ -5,6 +5,7 @@ configuration changes, and `index_repository`'s database lifecycle.
 
 from __future__ import annotations
 
+import dataclasses
 import struct
 import time
 
@@ -14,6 +15,7 @@ from indexter.db.connection import RepoPathMismatch, open_db
 from indexter.index.embed import FakeEmbedder
 from indexter.index.sync import _embedding_backlog, index_repository, sync_repo
 from indexter.index.tests.conftest import insert_vector, sync_source
+from indexter.progress import RecordingProgress
 
 SRC_A = """\
 def helper():
@@ -595,6 +597,9 @@ class TestEmbeddingBacklog:
                 def tokenizer(self):
                     return tokenizer
 
+                def prepare(self, progress):
+                    pass
+
                 def embed(self, texts):
                     # Simulate another process inserting this node's vector
                     # between our SELECT and our per-row existence check.
@@ -618,6 +623,9 @@ class TestEmbeddingBacklog:
 
                 def tokenizer(self):
                     return tokenizer
+
+                def prepare(self, progress):
+                    pass
 
                 def embed(self, texts):
                     return [vec] * (len(texts) - 1)  # one short -> zip(strict=True) raises
@@ -662,3 +670,129 @@ class TestEmbeddingBacklog:
 
         assert embedded == 0
         assert embedder.model_loads == 0
+
+
+def _phase_edges(progress: RecordingProgress) -> list[tuple[str, str]]:
+    return [(e[0], e[1]) for e in progress.events if e[0] in ("start", "done")]
+
+
+class _ModelReportingEmbedder(FakeEmbedder):
+    """Reports a model phase from `prepare`, as the real embedders do."""
+
+    def prepare(self, progress):
+        super().prepare(progress)
+        progress.model_classified("cached", self.model_name)
+        progress.phase_start("model")
+        progress.phase_done("model")
+
+
+class TestProgressReporting:
+    def test_phases_reported_in_order(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        progress = RecordingProgress()
+
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder, progress)
+
+        assert _phase_edges(progress) == [
+            ("start", "files"),
+            ("done", "files"),
+            ("start", "resolve"),
+            ("done", "resolve"),
+            ("start", "embed"),
+            ("done", "embed"),
+        ]
+
+    def test_file_phase_has_no_total_and_advances_per_file(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        write(repo, "b.py", SRC_B)
+        progress = RecordingProgress()
+
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder, progress)
+
+        assert ("start", "files", None) in progress.events
+        assert progress.advanced("files") == 2
+
+    def test_no_resolution_phase_when_none_is_due(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+            progress = RecordingProgress()
+            sync_repo(conn, repo, settings, embedder, progress)
+
+        assert "resolve" not in progress.started()
+
+    def test_embedding_total_precedes_first_batch_and_count_reaches_it(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        write(repo, "b.py", SRC_B)
+        small_batches = settings.model_copy(update={"embed_batch_size": 2})
+        progress = RecordingProgress()
+
+        with open_db(db_path, repo=repo, settings=small_batches) as conn:
+            report = sync_repo(conn, repo, small_batches, embedder, progress)
+
+        (start,) = [e for e in progress.events if e[:2] == ("start", "embed")]
+        assert start[2] == report.texts_embedded
+        assert report.texts_embedded > small_batches.embed_batch_size  # several batches
+        advances = [e for e in progress.events if e[0] == "advance" and e[1] == "embed"]
+        assert len(advances) > 1
+        assert progress.events.index(start) < progress.events.index(advances[0])
+        assert progress.advanced("embed") == start[2]
+
+    def test_empty_backlog_reports_no_phase_and_loads_nothing(self, repo, db_path, settings, embedder):
+        write(repo, "a.py", SRC_A)
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+            loads = (embedder.tokenizer_loads, embedder.model_loads)
+            progress = RecordingProgress()
+            sync_repo(conn, repo, settings, embedder, progress)
+
+        assert "embed" not in progress.started()
+        assert "model" not in progress.started()
+        assert (embedder.tokenizer_loads, embedder.model_loads) == loads
+
+    def test_model_phase_sits_between_resolution_and_embedding(self, repo, db_path, settings):
+        write(repo, "a.py", SRC_A)
+        progress = RecordingProgress()
+
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, _ModelReportingEmbedder(dim=settings.embedding_dim), progress)
+
+        assert progress.started() == ["files", "resolve", "model", "embed"]
+        classified = progress.events.index(("model", "cached", "fake-model"))
+        assert classified < progress.events.index(("start", "model", None))
+
+    def test_observation_does_not_change_results(self, repo, tmp_path, settings):
+        write(repo, "a.py", SRC_A)
+        write(repo, "b.py", SRC_B)
+
+        def run(db_name, progress):
+            with open_db(tmp_path / db_name, repo=repo, settings=settings) as conn:
+                report = sync_repo(conn, repo, settings, FakeEmbedder(dim=settings.embedding_dim), progress)
+                nodes = conn.execute("SELECT id, embed_text FROM nodes ORDER BY id").fetchall()
+                vectors = conn.execute("SELECT emb FROM vectors ORDER BY node_rowid").fetchall()
+                edges = conn.execute("SELECT * FROM edges ORDER BY 1, 2, 3").fetchall()
+            report = dataclasses.replace(report, elapsed_seconds=0.0, resolution=None)
+            return report, [tuple(r) for r in nodes], [tuple(r) for r in vectors], [tuple(r) for r in edges]
+
+        assert run("observed.db", RecordingProgress()) == run("silent.db", None)
+
+    def test_index_repository_forwards_the_observer(self, repo, settings, embedder, monkeypatch, tmp_path):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data-home"))
+        write(repo, "a.py", SRC_A)
+        progress = RecordingProgress()
+
+        index_repository(repo, settings, embedder, progress=progress)
+
+        assert progress.started() == ["files", "resolve", "embed"]
+
+    def test_default_observer_writes_nothing(self, repo, db_path, settings, embedder, capfd):
+        write(repo, "a.py", SRC_A)
+
+        with open_db(db_path, repo=repo, settings=settings) as conn:
+            sync_repo(conn, repo, settings, embedder)
+
+        captured = capfd.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""

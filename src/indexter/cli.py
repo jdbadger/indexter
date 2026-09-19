@@ -8,6 +8,9 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.resources
 import os
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -23,6 +26,7 @@ from indexter.index.sync import IndexResult, index_repository
 from indexter.mcp.server import run_server
 from indexter.parse.models import RefKind
 from indexter.paths import data_dir, db_path
+from indexter.progress import ConsoleProgress, NullProgress, Progress
 
 app = typer.Typer(
     name="indexter",
@@ -122,11 +126,42 @@ def _render_index_result(repo: Path, result: IndexResult, *, existing: str) -> N
         typer.echo(f"  error: {path}: {error}", err=True)
 
 
+QuietOption = Annotated[bool, typer.Option("--quiet", help="Suppress progress narration on stderr.")]
+ProgressOption = Annotated[
+    bool, typer.Option("--progress", help="Narrate progress on stderr even when it is not a terminal.")
+]
+
+
+def _stderr_is_interactive() -> bool:
+    return sys.stderr.isatty()
+
+
+def _check_narration_flags(quiet: bool, progress: bool) -> None:
+    if quiet and progress:
+        typer.echo("--quiet and --progress cannot be used together.", err=True)
+        raise typer.Exit(2)
+
+
+@contextmanager
+def _narration(quiet: bool, progress: bool) -> Iterator[Progress]:
+    """Narrate on stderr when it is a terminal, unless `--quiet`; `--progress`
+    narrates regardless. Results stay on stdout either way.
+    """
+    if quiet or not (progress or _stderr_is_interactive()):
+        yield NullProgress()
+        return
+    with ConsoleProgress() as narrator:
+        yield narrator
+
+
 @app.command()
 def init(
     path: Annotated[Path, typer.Argument(help="Repository path to index")] = Path(),  # noqa: B008
+    quiet: QuietOption = False,
+    progress: ProgressOption = False,
 ) -> None:
     """Create (or re-sync) a repository's index."""
+    _check_narration_flags(quiet, progress)
     try:
         if not path.is_dir():
             typer.echo(f"{path} is not a directory.", err=True)
@@ -134,7 +169,8 @@ def init(
 
         settings = load_settings(path)
         embedder = make_embedder(settings)
-        result = index_repository(path, settings, embedder)
+        with _narration(quiet, progress) as narrator:
+            result = index_repository(path, settings, embedder, progress=narrator)
         _render_index_result(path, result, existing=f"{path} already initialized")
     except (IndexterDBError, ConfigError, EmbeddingError) as e:
         typer.echo(str(e), err=True)
@@ -145,8 +181,11 @@ def init(
 def reindex(
     path: Annotated[Path, typer.Argument(help="Repository path to re-index")] = Path(),  # noqa: B008
     full: Annotated[bool, typer.Option("--full", help="Delete and rebuild the database before syncing")] = False,
+    quiet: QuietOption = False,
+    progress: ProgressOption = False,
 ) -> None:
     """Re-sync a previously initialized repository's index."""
+    _check_narration_flags(quiet, progress)
     try:
         if not path.is_dir():
             typer.echo(f"{path} is not a directory.", err=True)
@@ -158,7 +197,8 @@ def reindex(
 
         settings = load_settings(path)
         embedder = make_embedder(settings)
-        result = index_repository(path, settings, embedder, full=full)
+        with _narration(quiet, progress) as narrator:
+            result = index_repository(path, settings, embedder, full=full, progress=narrator)
         _render_index_result(path, result, existing=f"Reindexed {path}")
     except (IndexterDBError, ConfigError, EmbeddingError) as e:
         typer.echo(str(e), err=True)

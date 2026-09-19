@@ -87,10 +87,20 @@ indexter init /path/to/repo
 
 This walks the repository, parses it with tree-sitter, composes and embeds
 each symbol, and writes the database. The first run downloads the embedding
-model (a few hundred MB), so it can take a minute or two; later runs and
-re-syncs reuse the cached model. Re-index later with `indexter reindex
+model (about 90 MB for the default), so it can take a little longer; later
+runs and re-syncs reuse the cached model. Re-index later with `indexter reindex
 /path/to/repo` (add `--full` to delete and rebuild the database from
 scratch instead of syncing changes).
+
+While it works, `init` and `reindex` narrate their progress on stderr — loading
+the model, indexing files, embedding — with each step resolving to a `✓` line,
+and print their summary on stdout. The first-run download shows elapsed time
+rather than a percentage, since the transfer size can't be known up front.
+Narration appears only when stderr is a terminal, and only for steps slow
+enough to notice, so a `reindex` with nothing to do prints just its summary.
+Pass `--quiet` to turn it off, or `--progress` to turn it on when stderr is
+redirected (a CI log, say). Colour follows `NO_COLOR`. stdout is identical
+either way, so `indexter init . 2>/dev/null` is safe to parse.
 
 Then register the MCP server with your agent (below) and install the skill
 that teaches it when to use `search` and `neighbors`:
@@ -177,8 +187,8 @@ unindexed repository comes back as an error naming `indexter init`.
 
 | Command | Description |
 |---|---|
-| `indexter init [PATH]` | Create (or re-sync) a repository's index. Defaults to the current directory. |
-| `indexter reindex [PATH] [--full]` | Re-sync a previously initialized repository; `--full` rebuilds the database from scratch. |
+| `indexter init [PATH] [--quiet \| --progress]` | Create (or re-sync) a repository's index. Defaults to the current directory. Narrates progress on stderr; `--quiet` disables it, `--progress` forces it. |
+| `indexter reindex [PATH] [--full] [--quiet \| --progress]` | Re-sync a previously initialized repository; `--full` rebuilds the database from scratch. Narrates like `init`. |
 | `indexter list` | List indexed repositories, with node counts, embedding model and size. |
 | `indexter remove TARGET [--yes]` | Remove an indexed repository's database (by repo path or database filename). Never touches the repository itself. |
 | `indexter mcp [--repo PATH]` | Start the MCP server over stdio. |

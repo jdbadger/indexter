@@ -1,3 +1,4 @@
+import socket
 import struct
 import sys
 import types
@@ -13,7 +14,9 @@ from indexter.index.embed import (
     ModelAcquisitionError,
     SentenceTransformerEmbedder,
     make_embedder,
+    probe_model_cache,
 )
+from indexter.progress import RecordingProgress
 
 DEFAULT_MODEL = Settings().embedding_model
 
@@ -36,6 +39,35 @@ def stub_tokenizer_download(monkeypatch, tmp_path):
     return path
 
 
+@pytest.fixture
+def uncached(monkeypatch):
+    """Make the cache probe report a miss, whatever this machine has cached."""
+    monkeypatch.setattr("indexter.index.embed.probe_model_cache", lambda _name: False)
+
+
+@pytest.fixture
+def cached(monkeypatch):
+    monkeypatch.setattr("indexter.index.embed.probe_model_cache", lambda _name: True)
+
+
+@pytest.fixture
+def restore_hub_console():
+    """`_quiet_backends` flips process-global hub state; put it back afterwards."""
+    from huggingface_hub.utils import are_progress_bars_disabled, disable_progress_bars, enable_progress_bars
+    from huggingface_hub.utils import logging as hub_logging
+    from transformers.utils import logging as transformers_logging
+
+    verbosity = hub_logging.get_verbosity()
+    bars_disabled = are_progress_bars_disabled()
+    tf_verbosity = transformers_logging.get_verbosity()
+    tf_bars = transformers_logging.is_progress_bar_enabled()
+    yield
+    hub_logging.set_verbosity(verbosity)
+    (disable_progress_bars if bars_disabled else enable_progress_bars)()
+    transformers_logging.set_verbosity(tf_verbosity)
+    (transformers_logging.enable_progress_bar if tf_bars else transformers_logging.disable_progress_bar)()
+
+
 def _unpack(vector: bytes) -> tuple[float, ...]:
     n = len(vector) // 4
     return struct.unpack(f"{n}f", vector)
@@ -54,13 +86,20 @@ class _FakeVector:
         return struct.pack(f"{len(self._values)}f", *self._values)
 
 
-def _make_sentence_transformers_stub(*, dim: int, vectors: dict[str, list[float]] | None = None, fail: bool = False):
+def _make_sentence_transformers_stub(
+    *,
+    dim: int,
+    vectors: dict[str, list[float]] | None = None,
+    fail: bool = False,
+    fail_when_local_only: bool = False,
+):
     module = types.ModuleType("sentence_transformers")
-    calls = {"constructions": 0}
+    calls = {"constructions": 0, "local_files_only": []}
 
     class _FakeSentenceTransformer:
-        def __init__(self, model_name: str) -> None:
-            if fail:
+        def __init__(self, model_name: str, local_files_only: bool = False) -> None:
+            calls["local_files_only"].append(local_files_only)
+            if fail or (fail_when_local_only and local_files_only):
                 raise OSError("could not resolve host")
             self.model_name = model_name
             self.max_seq_length = None
@@ -129,6 +168,7 @@ class TestConstructionIsLazy:
             embedder.tokenizer()
 
 
+@pytest.mark.usefixtures("uncached", "restore_hub_console")
 class TestSentenceTransformerBackend:
     def test_model_loads_once_across_batches(self, monkeypatch):
         module, calls = _make_sentence_transformers_stub(dim=4)
@@ -188,6 +228,7 @@ class TestSentenceTransformerBackend:
         assert "network access" in str(exc_info.value).lower()
 
 
+@pytest.mark.usefixtures("restore_hub_console")
 class TestFastEmbedBackend:
     def test_not_installed_names_onnx_extra(self):
         embedder = FastEmbedEmbedder(Settings(embedding_backend="fastembed"))
@@ -240,6 +281,200 @@ class TestFastEmbedBackend:
 
         assert embedder.embed([]) == []
         assert calls["constructions"] == 0
+
+
+@pytest.mark.usefixtures("restore_hub_console")
+class TestCachedLoad:
+    def test_cached_model_loads_with_local_files_only(self, monkeypatch, cached):
+        module, calls = _make_sentence_transformers_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4))
+
+        embedder.embed(["text"])
+
+        assert calls["local_files_only"] == [True]
+        assert embedder.load_kind == "cached"
+
+    def test_uncached_model_loads_without_the_restriction(self, monkeypatch, uncached):
+        module, calls = _make_sentence_transformers_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4))
+
+        embedder.embed(["text"])
+
+        assert calls["local_files_only"] == [False]
+        assert embedder.load_kind == "acquisition"
+
+    def test_incomplete_cache_falls_back_and_is_an_acquisition(self, monkeypatch, cached):
+        module, calls = _make_sentence_transformers_stub(dim=4, fail_when_local_only=True)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4))
+
+        (vector,) = embedder.embed(["text"])
+
+        assert len(vector) == 16
+        assert calls["local_files_only"] == [True, False]
+        assert embedder.load_kind == "acquisition"
+
+    def test_failed_fallback_still_names_model_and_network(self, monkeypatch, cached):
+        module, _ = _make_sentence_transformers_stub(dim=4, fail=True)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4, embedding_model="some/model"))
+
+        with pytest.raises(ModelAcquisitionError, match="some/model") as exc_info:
+            embedder.embed(["text"])
+        assert "network access" in str(exc_info.value).lower()
+
+    def test_probe_of_absent_model_is_false(self):
+        assert probe_model_cache("no-such-org/no-such-model-anywhere") is False
+
+
+@pytest.mark.usefixtures("restore_hub_console")
+class TestModelLoadReporting:
+    def test_cached_load_reports_classification_then_phase(self, monkeypatch, cached):
+        module, _ = _make_sentence_transformers_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4))
+        progress = RecordingProgress()
+
+        embedder.prepare(progress)
+
+        assert progress.events == [
+            ("model", "cached", embedder.model_name),
+            ("start", "model", None),
+            ("done", "model"),
+        ]
+
+    def test_absent_model_is_classified_as_an_acquisition(self, monkeypatch, uncached):
+        module, _ = _make_sentence_transformers_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4))
+        progress = RecordingProgress()
+
+        embedder.prepare(progress)
+
+        assert progress.events[0] == ("model", "acquisition", embedder.model_name)
+
+    def test_incomplete_cache_is_reclassified_before_the_retry(self, monkeypatch, cached):
+        module, _ = _make_sentence_transformers_stub(dim=4, fail_when_local_only=True)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4))
+        progress = RecordingProgress()
+
+        embedder.prepare(progress)
+
+        assert progress.events == [
+            ("model", "cached", embedder.model_name),
+            ("start", "model", None),
+            ("model", "acquisition", embedder.model_name),
+            ("done", "model"),
+        ]
+
+    def test_classification_precedes_the_loading_work(self, monkeypatch, cached):
+        progress = RecordingProgress()
+        module, _ = _make_sentence_transformers_stub(dim=4)
+        events_at_construction: list[int] = []
+        real_cls = module.SentenceTransformer
+
+        class _Recording(real_cls):
+            def __init__(self, *args, **kwargs):
+                events_at_construction.append(len(progress.events))
+                super().__init__(*args, **kwargs)
+
+        module.SentenceTransformer = _Recording
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+        SentenceTransformerEmbedder(Settings(embedding_dim=4)).prepare(progress)
+
+        assert events_at_construction == [2]  # classified and phase started, not yet done
+
+    def test_prepare_when_already_loaded_reports_nothing(self, monkeypatch, cached):
+        module, calls = _make_sentence_transformers_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        embedder = SentenceTransformerEmbedder(Settings(embedding_dim=4))
+        embedder.embed(["text"])
+        progress = RecordingProgress()
+
+        embedder.prepare(progress)
+
+        assert progress.events == []
+        assert calls["constructions"] == 1
+
+    def test_embed_alone_reports_nothing(self, monkeypatch, cached, capfd):
+        module, _ = _make_sentence_transformers_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+        capfd.readouterr()
+
+        SentenceTransformerEmbedder(Settings(embedding_dim=4)).embed(["text"])
+
+        captured = capfd.readouterr()
+        assert captured.out == "" and captured.err == ""
+
+    def test_fastembed_reports_a_phase_without_a_classification(self, monkeypatch):
+        module, _ = _make_fastembed_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "fastembed", module)
+        progress = RecordingProgress()
+
+        FastEmbedEmbedder(Settings(embedding_backend="fastembed", embedding_dim=4)).prepare(progress)
+
+        assert progress.events == [("start", "model", None), ("done", "model")]
+
+    def test_fake_embedder_prepare_counts_as_the_load(self):
+        embedder = FakeEmbedder()
+
+        embedder.prepare(RecordingProgress())
+        embedder.embed(["a"])
+
+        assert embedder.model_loads == 1
+
+
+@pytest.mark.usefixtures("uncached", "restore_hub_console")
+class TestBackendConsoleIsQuiet:
+    def test_load_mutes_hub_warnings_and_progress_bars(self, monkeypatch):
+        from huggingface_hub.utils import are_progress_bars_disabled, enable_progress_bars
+        from huggingface_hub.utils import logging as hub_logging
+        from transformers.utils import logging as transformers_logging
+
+        hub_logging.set_verbosity_warning()
+        enable_progress_bars()
+        transformers_logging.enable_progress_bar()
+        module, _ = _make_sentence_transformers_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+        SentenceTransformerEmbedder(Settings(embedding_dim=4)).embed(["text"])
+
+        assert hub_logging.get_verbosity() == hub_logging.ERROR
+        assert are_progress_bars_disabled()
+        assert not transformers_logging.is_progress_bar_enabled()
+
+    def test_quiet_is_applied_after_the_backend_import(self, monkeypatch):
+        from huggingface_hub.utils import logging as hub_logging
+
+        stub, _ = _make_sentence_transformers_stub(dim=4)
+
+        class _ReconfiguresHubOnImport(types.ModuleType):
+            @property
+            def SentenceTransformer(self):  # noqa: N802
+                hub_logging.set_verbosity_warning()
+                return stub.SentenceTransformer
+
+        module = _ReconfiguresHubOnImport("sentence_transformers")
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+        SentenceTransformerEmbedder(Settings(embedding_dim=4)).embed(["text"])
+
+        assert hub_logging.get_verbosity() == hub_logging.ERROR
+
+    def test_fastembed_load_is_quiet_too(self, monkeypatch):
+        from huggingface_hub.utils import logging as hub_logging
+
+        hub_logging.set_verbosity_warning()
+        module, _ = _make_fastembed_stub(dim=4)
+        monkeypatch.setitem(sys.modules, "fastembed", module)
+
+        FastEmbedEmbedder(Settings(embedding_backend="fastembed", embedding_dim=4)).embed(["text"])
+
+        assert hub_logging.get_verbosity() == hub_logging.ERROR
 
 
 class TestBackendSelection:
@@ -354,3 +589,28 @@ class TestRealModel:
             return sum(a * b for a, b in zip(_unpack(x), _unpack(y), strict=True))
 
         assert cosine(cat_a, cat_b) > cosine(cat_a, unrelated)
+
+
+@pytest.mark.skipif(not MODEL_CACHED, reason=f"{DEFAULT_MODEL} model is not cached locally")
+@pytest.mark.usefixtures("restore_hub_console")
+class TestRealCachedLoad:
+    def test_load_makes_no_network_request_and_prints_nothing(self, monkeypatch, capfd):
+        attempts: list[object] = []
+
+        def _refuse(*args, **kwargs):
+            attempts.append(args)
+            raise OSError("network is off-limits in this test")
+
+        monkeypatch.setattr(socket.socket, "connect", _refuse)
+        monkeypatch.setattr(socket, "getaddrinfo", _refuse)
+        monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+        capfd.readouterr()
+
+        embedder = SentenceTransformerEmbedder(Settings())
+        embedder.embed(["hello"])
+
+        captured = capfd.readouterr()
+        assert attempts == []
+        assert embedder.load_kind == "cached"
+        assert captured.out == ""
+        assert captured.err == ""
