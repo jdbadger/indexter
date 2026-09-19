@@ -11,6 +11,7 @@ from indexter.index.embed import (
     DimensionMismatch,
     FakeEmbedder,
     FastEmbedEmbedder,
+    InvalidModelName,
     ModelAcquisitionError,
     SentenceTransformerEmbedder,
     make_embedder,
@@ -165,6 +166,12 @@ class TestConstructionIsLazy:
         embedder = SentenceTransformerEmbedder(Settings(embedding_model="some/uncached-model"))
 
         with pytest.raises(ModelAcquisitionError, match="some/uncached-model"):
+            embedder.tokenizer()
+
+    def test_tokenizer_for_non_repo_id_names_the_setting(self):
+        embedder = SentenceTransformerEmbedder(Settings(embedding_model="./models/minilm"))
+
+        with pytest.raises(InvalidModelName, match=r"embedding_model.*\./models/minilm"):
             embedder.tokenizer()
 
 
@@ -327,6 +334,10 @@ class TestCachedLoad:
 
     def test_probe_of_absent_model_is_false(self):
         assert probe_model_cache("no-such-org/no-such-model-anywhere") is False
+
+    @pytest.mark.parametrize("name", ["./models/minilm", "/tmp/some/local/model"])
+    def test_probe_of_non_repo_id_is_false(self, name):
+        assert probe_model_cache(name) is False
 
 
 @pytest.mark.usefixtures("restore_hub_console")
