@@ -17,6 +17,7 @@ from typing import Annotated
 
 import typer
 
+from indexter.banner import show_banner
 from indexter.config import ConfigError, load_settings
 from indexter.db import queries
 from indexter.db.connection import IndexterDBError, delete_database_files
@@ -167,8 +168,11 @@ def init(
             typer.echo(f"{path} is not a directory.", err=True)
             raise typer.Exit(1)
 
+        first_time = not db_path(path).is_file()
         settings = load_settings(path)
         embedder = make_embedder(settings)
+        if first_time and not quiet and _stderr_is_interactive():
+            show_banner(version=importlib.metadata.version("indexter"))
         with _narration(quiet, progress) as narrator:
             result = index_repository(path, settings, embedder, progress=narrator)
         _render_index_result(path, result, existing=f"{path} already initialized")

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The first `indexter init` of a repository plays a short logo animation on stderr: the logo
+  in grayscale, with a glint sweeping across it, then a still header showing the version. It
+  matches a dark or light terminal background, and is skipped for `--quiet`, for `reindex`, for a
+  repository that is already indexed, and whenever stderr is not a terminal wide and tall enough
+  to show it. `NO_COLOR` prints the still header without animating.
 - `indexter init` and `indexter reindex` now narrate their progress on stderr: loading the
   embedding model, indexing files, resolving the graph, and embedding, each resolving to a
   `✓` line, with a proportional bar for the embedding pass. Steps that finish quickly print
