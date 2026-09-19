@@ -476,6 +476,29 @@ class TestBackendConsoleIsQuiet:
 
         assert hub_logging.get_verbosity() == hub_logging.ERROR
 
+    def test_tokenizer_download_is_quiet(self, monkeypatch, stub_tokenizer_download):
+        import huggingface_hub
+        from huggingface_hub.errors import LocalEntryNotFoundError
+        from huggingface_hub.utils import are_progress_bars_disabled, enable_progress_bars
+        from huggingface_hub.utils import logging as hub_logging
+
+        hub_logging.set_verbosity_warning()
+        enable_progress_bars()
+        seen = {}
+
+        def _not_cached_then_download(*args, local_files_only=False, **kwargs):  # noqa: ARG001
+            if local_files_only:
+                raise LocalEntryNotFoundError("not cached")
+            seen["bars_disabled"] = are_progress_bars_disabled()
+            seen["verbosity"] = hub_logging.get_verbosity()
+            return str(stub_tokenizer_download)
+
+        monkeypatch.setattr(huggingface_hub, "hf_hub_download", _not_cached_then_download)
+
+        SentenceTransformerEmbedder(Settings()).tokenizer()
+
+        assert seen == {"bars_disabled": True, "verbosity": hub_logging.ERROR}
+
     def test_fastembed_load_is_quiet_too(self, monkeypatch):
         from huggingface_hub.utils import logging as hub_logging
 

@@ -120,6 +120,9 @@ def _load_tokenizer(model_name: str) -> TokenizerLike:
     except HFValidationError as e:
         raise InvalidModelName(model_name) from e
     except OSError:
+        # This runs during the files phase, before `_load_model` mutes anything;
+        # an unmuted download bar would draw over the live progress line.
+        _quiet_hub()
         try:
             path = hf_hub_download(model_name, filename=TOKENIZER_FILENAME)
         except OSError as e:
@@ -146,16 +149,21 @@ def probe_model_cache(model_name: str) -> bool:
         return False
 
 
-def _quiet_backends() -> None:
-    """Mute the hub's and transformers' warnings and progress bars (the
-    "Loading weights" bar is transformers'). Must run after the backend is
-    imported: importing it reconfigures their logging.
-    """
+def _quiet_hub() -> None:
+    """Mute the hub's warnings and download progress bars."""
     from huggingface_hub.utils import disable_progress_bars
     from huggingface_hub.utils import logging as hub_logging
 
     hub_logging.set_verbosity_error()
     disable_progress_bars()
+
+
+def _quiet_backends() -> None:
+    """Mute the hub's and transformers' warnings and progress bars (the
+    "Loading weights" bar is transformers'). Must run after the backend is
+    imported: importing it reconfigures their logging.
+    """
+    _quiet_hub()
 
     try:
         from transformers.utils import logging as transformers_logging
