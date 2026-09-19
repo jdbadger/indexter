@@ -3,6 +3,7 @@ import functools
 import importlib.metadata
 import sqlite3
 import time
+from contextlib import closing
 
 import pytest
 from fastmcp import Client
@@ -111,7 +112,7 @@ class TestToolCalls:
 
     @async_test
     async def test_neighbors_returns_rendered_text(self, indexed_repo, embedder):
-        with sqlite3.connect(str(resolve_db_path(indexed_repo))) as conn:
+        with closing(sqlite3.connect(str(resolve_db_path(indexed_repo)))) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT id FROM nodes WHERE file_path = ? AND name = ?", ("src/walker.py", "helper")

@@ -1,6 +1,7 @@
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -99,7 +100,7 @@ class TestRunSearchAndRunNeighbors:
         assert "helper" in text
 
     def test_run_neighbors_returns_rendered_text(self, indexed_repo, embedder):
-        with sqlite3.connect(str(resolve_db_path(indexed_repo))) as conn:
+        with closing(sqlite3.connect(str(resolve_db_path(indexed_repo)))) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT id FROM nodes WHERE file_path = ? AND name = ?", ("src/walker.py", "helper")
@@ -148,7 +149,7 @@ class TestRunSearchAndRunNeighbors:
             run_search(state, "helper")
 
     def test_database_error_becomes_tool_error(self, indexed_repo, embedder):
-        with sqlite3.connect(str(resolve_db_path(indexed_repo))) as conn:
+        with closing(sqlite3.connect(str(resolve_db_path(indexed_repo)))) as conn:
             conn.execute("UPDATE project_metadata SET value = ? WHERE key = ?", ("999", "schema_version"))
             conn.commit()
 
